@@ -1,0 +1,10 @@
+image: node:latest
+stages:
+- test
+test-job:
+stage: test
+script:
+- npm install -g html-validator-cli
+- html-validator --file=index.html --verbose
+only:
+- main
