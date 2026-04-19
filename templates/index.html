@@ -1,0 +1,488 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>NSE Trend Screener</title>
+<style>
+  :root {
+    --bg: #0d1117;
+    --card: #161b22;
+    --border: #30363d;
+    --accent: #58a6ff;
+    --green: #3fb950;
+    --red: #f85149;
+    --yellow: #d29922;
+    --text: #c9d1d9;
+    --muted: #8b949e;
+    --header-bg: #1c2128;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: var(--bg); color: var(--text); font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', monospace; font-size: 13px; }
+
+  header {
+    background: var(--header-bg);
+    border-bottom: 1px solid var(--border);
+    padding: 14px 24px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+  header h1 { font-size: 18px; color: #fff; letter-spacing: 0.5px; }
+  header .badge { background: var(--accent); color: #000; font-size: 10px; padding: 2px 6px; border-radius: 10px; font-weight: 700; }
+
+  .container { max-width: 1400px; margin: 0 auto; padding: 20px 24px; }
+
+  .filters-panel {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 18px 20px;
+    margin-bottom: 20px;
+  }
+  .filters-panel h2 { font-size: 13px; color: var(--muted); text-transform: uppercase; letter-spacing: 1px; margin-bottom: 14px; }
+  .filters-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 12px; }
+  .filter-group label { display: block; font-size: 11px; color: var(--muted); margin-bottom: 4px; text-transform: uppercase; letter-spacing: 0.5px; }
+  .filter-group input {
+    width: 100%; background: var(--bg); border: 1px solid var(--border);
+    color: var(--text); padding: 7px 10px; border-radius: 5px; font-size: 13px;
+  }
+  .filter-group input:focus { outline: none; border-color: var(--accent); }
+
+  .actions { display: flex; gap: 10px; margin-top: 14px; align-items: center; }
+  .btn {
+    padding: 8px 20px; border-radius: 6px; border: none; cursor: pointer;
+    font-size: 13px; font-weight: 600; transition: opacity 0.15s;
+  }
+  .btn:hover { opacity: 0.85; }
+  .btn-primary { background: var(--accent); color: #000; }
+  .btn-secondary { background: var(--border); color: var(--text); }
+  .btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+  .progress-bar-wrap {
+    background: var(--border); border-radius: 4px; height: 6px;
+    flex: 1; display: none;
+  }
+  .progress-bar { height: 100%; border-radius: 4px; background: var(--accent); transition: width 0.3s; }
+  .progress-label { font-size: 12px; color: var(--muted); min-width: 120px; }
+
+  .stats-row {
+    display: flex; gap: 12px; margin-bottom: 16px; flex-wrap: wrap;
+  }
+  .stat-card {
+    background: var(--card); border: 1px solid var(--border);
+    border-radius: 8px; padding: 12px 18px; flex: 1; min-width: 140px;
+  }
+  .stat-card .label { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; }
+  .stat-card .value { font-size: 24px; font-weight: 700; color: #fff; margin-top: 4px; }
+
+  .table-wrap {
+    background: var(--card); border: 1px solid var(--border);
+    border-radius: 8px; overflow: hidden;
+  }
+  .table-header {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 12px 16px; border-bottom: 1px solid var(--border);
+  }
+  .table-header h2 { font-size: 14px; color: #fff; }
+
+  .search-box {
+    background: var(--bg); border: 1px solid var(--border); color: var(--text);
+    padding: 6px 10px; border-radius: 5px; font-size: 12px; width: 180px;
+  }
+  .search-box:focus { outline: none; border-color: var(--accent); }
+
+  table { width: 100%; border-collapse: collapse; font-size: 12px; }
+  th {
+    background: var(--header-bg); color: var(--muted); text-align: right;
+    padding: 10px 12px; font-weight: 600; text-transform: uppercase;
+    letter-spacing: 0.5px; font-size: 11px; cursor: pointer; user-select: none;
+    white-space: nowrap;
+  }
+  th:first-child, th:nth-child(2) { text-align: left; }
+  th:hover { color: var(--accent); }
+  th .sort-arrow { display: inline-block; margin-left: 3px; opacity: 0.5; }
+  th.sorted .sort-arrow { opacity: 1; color: var(--accent); }
+
+  td {
+    padding: 9px 12px; border-bottom: 1px solid #1e242c;
+    text-align: right; white-space: nowrap;
+  }
+  td:first-child, td:nth-child(2) { text-align: left; }
+  tr:hover td { background: rgba(88, 166, 255, 0.04); }
+  tr:last-child td { border-bottom: none; }
+
+  .symbol-cell { font-weight: 700; color: var(--accent); font-size: 13px; }
+  .ticker-cell { color: var(--muted); font-size: 11px; }
+  .price-cell { font-weight: 600; color: #fff; }
+
+  .pos { color: var(--green); }
+  .neg { color: var(--red); }
+  .neutral { color: var(--muted); }
+
+  .ibd-badge {
+    display: inline-block; padding: 2px 7px; border-radius: 10px;
+    font-weight: 700; font-size: 11px;
+  }
+  .ibd-high { background: rgba(63, 185, 80, 0.2); color: var(--green); }
+  .ibd-mid  { background: rgba(210, 153, 34, 0.2); color: var(--yellow); }
+  .ibd-low  { background: rgba(248, 81, 73, 0.15); color: var(--red); }
+
+  .ath-bar-wrap { display: flex; align-items: center; gap: 6px; justify-content: flex-end; }
+  .ath-mini-bar { width: 50px; height: 4px; background: var(--border); border-radius: 2px; overflow: hidden; }
+  .ath-mini-fill { height: 100%; border-radius: 2px; background: var(--green); }
+
+  .empty-state {
+    text-align: center; padding: 60px 20px; color: var(--muted);
+  }
+  .empty-state .icon { font-size: 36px; margin-bottom: 10px; }
+  .empty-state p { font-size: 14px; }
+
+  .spinner {
+    display: inline-block; width: 14px; height: 14px;
+    border: 2px solid var(--border); border-top-color: var(--accent);
+    border-radius: 50%; animation: spin 0.7s linear infinite;
+    vertical-align: middle; margin-right: 6px;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  .export-btn {
+    padding: 5px 12px; border-radius: 5px; background: transparent;
+    border: 1px solid var(--border); color: var(--muted); cursor: pointer;
+    font-size: 11px; transition: all 0.15s;
+  }
+  .export-btn:hover { border-color: var(--accent); color: var(--accent); }
+
+  .disclaimer {
+    color: var(--muted); font-size: 11px; text-align: center;
+    margin-top: 20px; padding-bottom: 30px;
+  }
+
+  .logic-box {
+    background: var(--card); border: 1px solid var(--border);
+    border-radius: 8px; padding: 14px 18px; margin-bottom: 20px;
+    font-size: 12px; color: var(--muted); line-height: 1.6;
+  }
+  .logic-box strong { color: var(--accent); }
+  .logic-box .tags { margin-top: 8px; display: flex; gap: 6px; flex-wrap: wrap; }
+  .tag {
+    background: rgba(88, 166, 255, 0.1); color: var(--accent);
+    padding: 2px 8px; border-radius: 10px; font-size: 11px;
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>NSE Trend Screener</h1>
+  <span class="badge">LIVE</span>
+</header>
+
+<div class="container">
+
+  <div class="logic-box">
+    <strong>Screening Logic:</strong>
+    Price &gt; MA50 &gt; MA100 &gt; MA200 (confirmed uptrend) &bull;
+    Filter by Market Cap, ADTV, % from ATH &bull;
+    IBD-style RS Score based on weighted 3M/6M/12M returns
+    <div class="tags">
+      <span class="tag">VCP</span><span class="tag">CnH</span>
+      <span class="tag">ATH Breakout</span><span class="tag">Rectangular Breakout</span>
+    </div>
+  </div>
+
+  <div class="filters-panel">
+    <h2>Filters</h2>
+    <div class="filters-grid">
+      <div class="filter-group">
+        <label>Min Market Cap (Cr)</label>
+        <input type="number" id="min_mktcap" placeholder="e.g. 500" value="200">
+      </div>
+      <div class="filter-group">
+        <label>Max Market Cap (Cr)</label>
+        <input type="number" id="max_mktcap" placeholder="Leave blank for all">
+      </div>
+      <div class="filter-group">
+        <label>Min ADTV (Cr)</label>
+        <input type="number" id="min_adtv" placeholder="e.g. 1" value="1">
+      </div>
+      <div class="filter-group">
+        <label>Max % From ATH (e.g. -30)</label>
+        <input type="number" id="max_pct_from_ath" placeholder="e.g. -40" value="-40">
+      </div>
+      <div class="filter-group">
+        <label>Min IBD Score (1–99)</label>
+        <input type="number" id="min_ibd" placeholder="e.g. 70" value="60">
+      </div>
+    </div>
+    <div class="actions">
+      <button class="btn btn-primary" id="scanBtn" onclick="startScan()">Run Screener</button>
+      <button class="btn btn-secondary" id="stopBtn" onclick="stopScan()" style="display:none">Stop</button>
+      <div class="progress-bar-wrap" id="progressWrap">
+        <div class="progress-bar" id="progressBar" style="width:0%"></div>
+      </div>
+      <span class="progress-label" id="progressLabel"></span>
+    </div>
+  </div>
+
+  <div class="stats-row" id="statsRow" style="display:none">
+    <div class="stat-card">
+      <div class="label">Screened</div>
+      <div class="value" id="statTotal">—</div>
+    </div>
+    <div class="stat-card">
+      <div class="label">Qualified</div>
+      <div class="value" id="statQual">—</div>
+    </div>
+    <div class="stat-card">
+      <div class="label">Avg IBD Score</div>
+      <div class="value" id="statIBD">—</div>
+    </div>
+    <div class="stat-card">
+      <div class="label">Near ATH (&lt;5%)</div>
+      <div class="value" id="statATH">—</div>
+    </div>
+  </div>
+
+  <div class="table-wrap" id="funnelWrap" style="display:none; margin-bottom:16px;">
+    <div class="table-header"><h2>Filter Funnel (how many stocks drop at each stage)</h2></div>
+    <table id="funnelTable"></table>
+  </div>
+
+  <div class="table-wrap">
+    <div class="table-header">
+      <h2>Results</h2>
+      <div style="display:flex; gap:8px; align-items:center">
+        <input type="text" class="search-box" id="searchBox" placeholder="Filter symbol..." oninput="filterTable()">
+        <button class="export-btn" onclick="exportCSV()">Export CSV</button>
+      </div>
+    </div>
+    <div id="tableContainer">
+      <div class="empty-state">
+        <div class="icon">📊</div>
+        <p>Configure filters and click <strong>Run Screener</strong> to scan NSE stocks.</p>
+        <p style="margin-top:6px; font-size:11px;">Scan takes 2–4 minutes for ~200 stocks.</p>
+      </div>
+    </div>
+  </div>
+
+  <p class="disclaimer">Not financial advice. Data from Yahoo Finance. For educational purposes only.</p>
+</div>
+
+<script>
+let pollInterval = null;
+let allResults = [];
+let sortCol = "IBD_score";
+let sortAsc = false;
+
+const COLS = [
+  { key: "Symbol",      label: "Symbol",       fmt: "symbol" },
+  { key: "Ticker",      label: "Ticker",        fmt: "ticker" },
+  { key: "Close",       label: "Close",         fmt: "price" },
+  { key: "MktCap_Cr",   label: "MktCap (Cr)",   fmt: "num" },
+  { key: "ADTV_Cr",     label: "ADTV (Cr)",     fmt: "num" },
+  { key: "MA50",        label: "MA50",           fmt: "price" },
+  { key: "MA100",       label: "MA100",          fmt: "price" },
+  { key: "MA200",       label: "MA200",          fmt: "price" },
+  { key: "ATH",         label: "ATH",            fmt: "price" },
+  { key: "%_from_ATH",  label: "% from ATH",    fmt: "pct" },
+  { key: "IBD_score",   label: "IBD Score",      fmt: "ibd" },
+];
+
+function getParams() {
+  return {
+    min_mktcap:       document.getElementById("min_mktcap").value || null,
+    max_mktcap:       document.getElementById("max_mktcap").value || null,
+    min_adtv:         document.getElementById("min_adtv").value || null,
+    max_pct_from_ath: document.getElementById("max_pct_from_ath").value || null,
+    min_ibd:          document.getElementById("min_ibd").value || null,
+  };
+}
+
+function startScan() {
+  document.getElementById("scanBtn").disabled = true;
+  document.getElementById("stopBtn").style.display = "inline-block";
+  document.getElementById("progressWrap").style.display = "block";
+  document.getElementById("statsRow").style.display = "none";
+  document.getElementById("tableContainer").innerHTML =
+    '<div class="empty-state"><span class="spinner"></span> Scanning NSE stocks...</div>';
+
+  fetch("/api/scan", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(getParams()),
+  }).then(r => r.json()).then(d => {
+    if (d.status === "already_running") {
+      alert("Scan already running!");
+      return;
+    }
+    pollInterval = setInterval(pollStatus, 1500);
+  });
+}
+
+function stopScan() {
+  clearInterval(pollInterval);
+  resetButtons();
+  document.getElementById("tableContainer").innerHTML =
+    '<div class="empty-state"><p>Scan stopped.</p></div>';
+}
+
+function pollStatus() {
+  fetch("/api/status").then(r => r.json()).then(d => {
+    const bar = document.getElementById("progressBar");
+    bar.style.width = d.pct + "%";
+    document.getElementById("progressLabel").textContent =
+      d.total > 0
+        ? `${d.progress}/${d.total} — ${d.current_ticker.replace(".NS","")}`
+        : "Starting…";
+
+    if (!d.running) {
+      clearInterval(pollInterval);
+      resetButtons();
+      if (d.error) {
+        document.getElementById("tableContainer").innerHTML =
+          `<div class="empty-state"><p style="color:var(--red)">Error: ${d.error}</p></div>`;
+      } else if (d.result) {
+        allResults = d.result;
+        renderStats(d.result, d.total);
+        renderFunnel(d.funnel);
+        renderTable(d.result);
+      }
+    }
+  });
+}
+
+function resetButtons() {
+  document.getElementById("scanBtn").disabled = false;
+  document.getElementById("stopBtn").style.display = "none";
+  document.getElementById("progressLabel").textContent = "";
+}
+
+function renderFunnel(funnel) {
+  if (!funnel || funnel.length === 0) {
+    document.getElementById("funnelWrap").style.display = "none";
+    return;
+  }
+  const start = funnel[0][1] || 1;
+  let html = '<thead><tr><th style="text-align:left">Stage</th><th>Remaining</th><th>% of Universe</th><th style="width:40%; text-align:left">Bar</th></tr></thead><tbody>';
+  for (const [label, count] of funnel) {
+    const pct = (count / start * 100).toFixed(1);
+    html += `<tr>
+      <td style="text-align:left">${label}</td>
+      <td><strong>${count}</strong></td>
+      <td>${pct}%</td>
+      <td style="text-align:left">
+        <div style="background:var(--border); border-radius:3px; height:8px; width:100%; overflow:hidden">
+          <div style="background:var(--accent); height:100%; width:${pct}%"></div>
+        </div>
+      </td>
+    </tr>`;
+  }
+  html += '</tbody>';
+  document.getElementById("funnelTable").innerHTML = html;
+  document.getElementById("funnelWrap").style.display = "block";
+}
+
+function renderStats(rows, total) {
+  document.getElementById("statsRow").style.display = "flex";
+  document.getElementById("statTotal").textContent = total;
+  document.getElementById("statQual").textContent = rows.length;
+  const avg = rows.length
+    ? (rows.reduce((s, r) => s + (r.IBD_score || 0), 0) / rows.length).toFixed(1)
+    : "—";
+  document.getElementById("statIBD").textContent = avg;
+  const nearATH = rows.filter(r => r["%_from_ATH"] >= -5).length;
+  document.getElementById("statATH").textContent = nearATH;
+}
+
+function renderTable(rows) {
+  if (!rows || rows.length === 0) {
+    document.getElementById("tableContainer").innerHTML =
+      '<div class="empty-state"><p>No stocks matched the filters. Try relaxing your criteria.</p></div>';
+    return;
+  }
+
+  let sorted = [...rows].sort((a, b) => {
+    let av = a[sortCol], bv = b[sortCol];
+    if (typeof av === "string") av = av.toLowerCase();
+    if (typeof bv === "string") bv = bv.toLowerCase();
+    if (av < bv) return sortAsc ? -1 : 1;
+    if (av > bv) return sortAsc ? 1 : -1;
+    return 0;
+  });
+
+  const q = document.getElementById("searchBox").value.toLowerCase();
+  if (q) sorted = sorted.filter(r => r.Symbol.toLowerCase().includes(q));
+
+  let html = '<table><thead><tr>';
+  for (const col of COLS) {
+    const isSorted = col.key === sortCol;
+    const arrow = isSorted ? (sortAsc ? "↑" : "↓") : "↕";
+    html += `<th onclick="sortBy('${col.key}')" class="${isSorted ? 'sorted' : ''}">
+      ${col.label} <span class="sort-arrow">${arrow}</span></th>`;
+  }
+  html += '</tr></thead><tbody>';
+
+  for (const row of sorted) {
+    html += '<tr>';
+    for (const col of COLS) {
+      html += `<td>${formatCell(row[col.key], col.fmt, row)}</td>`;
+    }
+    html += '</tr>';
+  }
+  html += '</tbody></table>';
+  document.getElementById("tableContainer").innerHTML = html;
+}
+
+function formatCell(v, fmt, row) {
+  if (v === null || v === undefined) return '<span class="neutral">—</span>';
+  switch (fmt) {
+    case "symbol":
+      return `<span class="symbol-cell">${v}</span>`;
+    case "ticker":
+      return `<span class="ticker-cell">${v}</span>`;
+    case "price":
+      return `<span class="price-cell">₹${Number(v).toLocaleString("en-IN", {minimumFractionDigits:2, maximumFractionDigits:2})}</span>`;
+    case "num":
+      return Number(v).toLocaleString("en-IN", {minimumFractionDigits:2, maximumFractionDigits:2});
+    case "pct": {
+      const n = Number(v);
+      const cls = n >= -5 ? "pos" : n >= -20 ? "neutral" : "neg";
+      const fill = Math.max(0, Math.min(100, 100 + n));
+      return `<div class="ath-bar-wrap">
+        <span class="${cls}">${n.toFixed(2)}%</span>
+        <div class="ath-mini-bar"><div class="ath-mini-fill" style="width:${fill}%"></div></div>
+      </div>`;
+    }
+    case "ibd": {
+      const n = Number(v);
+      const cls = n >= 80 ? "ibd-high" : n >= 60 ? "ibd-mid" : "ibd-low";
+      return `<span class="ibd-badge ${cls}">${n.toFixed(1)}</span>`;
+    }
+    default: return v;
+  }
+}
+
+function sortBy(col) {
+  if (sortCol === col) sortAsc = !sortAsc;
+  else { sortCol = col; sortAsc = false; }
+  if (allResults.length) renderTable(allResults);
+}
+
+function filterTable() {
+  if (allResults.length) renderTable(allResults);
+}
+
+function exportCSV() {
+  if (!allResults.length) return;
+  const headers = COLS.map(c => c.key).join(",");
+  const rows = allResults.map(r => COLS.map(c => r[c.key] ?? "").join(",")).join("\n");
+  const blob = new Blob([headers + "\n" + rows], { type: "text/csv" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = "nse_screened.csv";
+  a.click();
+}
+</script>
+</body>
+</html>
