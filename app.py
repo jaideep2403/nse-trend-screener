@@ -85,5 +85,5 @@ def scan_status():
 
 
 if __name__ == "__main__":
-    print("NSE Trend Screener running at http://localhost:5050")
-    app.run(debug=True, port=5050, use_reloader=False)
+    print("NSE Trend Screener running at http://0.0.0.0:5050")
+    app.run(host="0.0.0.0", debug=False, port=5050, use_reloader=False)
