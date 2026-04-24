@@ -1,0 +1,1982 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>NSE Market Dashboard</title>
+<style>
+  :root {
+    --bg: #0d1117; --card: #161b22; --border: #30363d;
+    --accent: #58a6ff; --green: #3fb950; --red: #f85149;
+    --yellow: #d29922; --text: #c9d1d9; --muted: #8b949e;
+    --header-bg: #1c2128;
+  }
+  body.light {
+    --bg: #f6f8fa; --card: #ffffff; --border: #d0d7de;
+    --accent: #0969da; --green: #1a7f37; --red: #cf222e;
+    --yellow: #9a6700; --text: #1f2328; --muted: #656d76;
+    --header-bg: #ffffff;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: var(--bg); color: var(--text); font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', monospace; font-size: 13px; transition: background 0.2s, color 0.2s; }
+
+  /* ── Theme toggle ── */
+  .theme-toggle { margin-left: auto; background: var(--border); border: none; border-radius: 20px; cursor: pointer; padding: 5px 12px; font-size: 13px; color: var(--text); display: flex; align-items: center; gap: 6px; }
+  .theme-toggle:hover { opacity: 0.8; }
+
+  /* ── Header ── */
+  header { background: var(--header-bg); border-bottom: 1px solid var(--border); padding: 14px 24px; display: flex; align-items: center; gap: 12px; }
+  header h1 { font-size: 18px; color: #fff; }
+  .badge { background: var(--accent); color: #000; font-size: 10px; padding: 2px 6px; border-radius: 10px; font-weight: 700; }
+
+  /* ── Tabs ── */
+  .tab-bar { display: flex; gap: 2px; background: var(--header-bg); border-bottom: 1px solid var(--border); padding: 0 24px; }
+  .tab-btn { background: none; border: none; border-bottom: 2px solid transparent; color: var(--muted); cursor: pointer; font-size: 13px; font-weight: 600; padding: 10px 18px; transition: all 0.15s; }
+  .tab-btn:hover { color: var(--text); }
+  .tab-btn.active { color: var(--accent); border-bottom-color: var(--accent); }
+  .tab-content { display: none; }
+  .tab-content.active { display: block; }
+
+  /* ── Layout ── */
+  .container { max-width: 1400px; margin: 0 auto; padding: 20px 24px; }
+
+  /* ── Cards / Panels ── */
+  .panel { background: var(--card); border: 1px solid var(--border); border-radius: 8px; margin-bottom: 16px; overflow: hidden; }
+  .panel-header { display: flex; justify-content: space-between; align-items: center; padding: 12px 16px; border-bottom: 1px solid var(--border); }
+  .panel-header h2 { font-size: 14px; color: #fff; }
+  .panel-body { padding: 16px 20px; }
+
+  .logic-box { background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 14px 18px; margin-bottom: 16px; font-size: 12px; color: var(--muted); line-height: 1.6; }
+  .logic-box strong { color: var(--accent); }
+  .tags { margin-top: 8px; display: flex; gap: 6px; flex-wrap: wrap; }
+  .tag { background: rgba(88,166,255,0.1); color: var(--accent); padding: 2px 8px; border-radius: 10px; font-size: 11px; }
+
+  /* ── Filters ── */
+  .filters-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 12px; }
+  .filter-group label { display: block; font-size: 11px; color: var(--muted); margin-bottom: 4px; text-transform: uppercase; letter-spacing: 0.5px; }
+  .filter-group input { width: 100%; background: var(--bg); border: 1px solid var(--border); color: var(--text); padding: 7px 10px; border-radius: 5px; font-size: 13px; }
+  .filter-group input:focus { outline: none; border-color: var(--accent); }
+
+  /* ── Buttons ── */
+  .actions { display: flex; gap: 10px; margin-top: 14px; align-items: center; }
+  .btn { padding: 8px 20px; border-radius: 6px; border: none; cursor: pointer; font-size: 13px; font-weight: 600; transition: opacity 0.15s; }
+  .btn:hover { opacity: 0.85; }
+  .btn:disabled { opacity: 0.4; cursor: not-allowed; }
+  .btn-primary { background: var(--accent); color: #000; }
+  .btn-secondary { background: var(--border); color: var(--text); }
+  .btn-green { background: var(--green); color: #000; }
+
+  /* ── Progress ── */
+  .progress-bar-wrap { background: var(--border); border-radius: 6px; height: 10px; width: 100%; overflow: hidden; }
+  .progress-bar { height: 100%; border-radius: 6px; background: linear-gradient(90deg,var(--accent),#3b9eff); transition: width 0.4s ease; }
+  .progress-label { font-size: 12px; color: var(--muted); min-width: 150px; }
+  /* ── Scan progress block ── */
+  .scan-progress-block { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 16px 20px; width: 100%; box-sizing: border-box; }
+  .scan-progress-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
+  .scan-progress-header .batch-label { font-size: 13px; font-weight: 600; color: var(--fg); }
+  .scan-pct-badge { font-size: 22px; font-weight: 800; color: var(--accent); letter-spacing: -1px; }
+  .scan-progress-footer { display: flex; justify-content: space-between; align-items: center; margin-top: 8px; font-size: 11px; color: var(--muted); }
+  .scan-progress-footer .eta-badge { font-weight: 600; color: var(--accent); }
+  .scan-stocks-row { display: flex; gap: 16px; margin-top: 10px; flex-wrap: wrap; }
+  .scan-stocks-pill { background: var(--border); border-radius: 20px; padding: 3px 10px; font-size: 11px; color: var(--fg); font-weight: 500; }
+
+  /* ── Stat cards ── */
+  .stats-row { display: flex; gap: 12px; margin-bottom: 16px; flex-wrap: wrap; }
+  .stat-card { background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 12px 18px; flex: 1; min-width: 130px; }
+  .stat-card .label { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; }
+  .stat-card .value { font-size: 24px; font-weight: 700; color: #fff; margin-top: 4px; }
+
+  /* ── Tables ── */
+  table { width: 100%; border-collapse: collapse; font-size: 12px; }
+  th { background: var(--header-bg); color: var(--muted); text-align: right; padding: 10px 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; font-size: 11px; cursor: pointer; user-select: none; white-space: nowrap; }
+  th:first-child, th:nth-child(2) { text-align: left; }
+  th:hover { color: var(--accent); }
+  th.sorted .sort-arrow { color: var(--accent); }
+  .sort-arrow { display: inline-block; margin-left: 3px; opacity: 0.5; }
+  th.sorted .sort-arrow { opacity: 1; }
+  td { padding: 9px 12px; border-bottom: 1px solid #1e242c; text-align: right; white-space: nowrap; }
+  td:first-child, td:nth-child(2) { text-align: left; }
+  tr:hover td { background: rgba(88,166,255,0.04); }
+  tr:last-child td { border-bottom: none; }
+
+  /* ── Cell styles ── */
+  .sym { font-weight: 700; color: var(--accent); font-size: 13px; }
+  .ticker-cell { color: var(--muted); font-size: 11px; }
+  .price-cell { font-weight: 600; color: #fff; }
+  .pos { color: var(--green); }
+  .neg { color: var(--red); }
+  .neutral { color: var(--muted); }
+  .ibd-badge { display: inline-block; padding: 2px 7px; border-radius: 10px; font-weight: 700; font-size: 11px; }
+  .ibd-high { background: rgba(63,185,80,0.2); color: var(--green); }
+  .ibd-mid  { background: rgba(210,153,34,0.2); color: var(--yellow); }
+  .ibd-low  { background: rgba(248,81,73,0.15); color: var(--red); }
+
+  .ath-bar-wrap { display: flex; align-items: center; gap: 6px; justify-content: flex-end; }
+  .mini-bar { width: 50px; height: 4px; background: var(--border); border-radius: 2px; overflow: hidden; }
+  .mini-fill { height: 100%; border-radius: 2px; }
+
+  /* ── Search / Export ── */
+  .search-box { background: var(--bg); border: 1px solid var(--border); color: var(--text); padding: 6px 10px; border-radius: 5px; font-size: 12px; width: 180px; }
+  .search-box:focus { outline: none; border-color: var(--accent); }
+  .export-btn { padding: 5px 12px; border-radius: 5px; background: transparent; border: 1px solid var(--border); color: var(--muted); cursor: pointer; font-size: 11px; transition: all 0.15s; }
+  .export-btn:hover { border-color: var(--accent); color: var(--accent); }
+
+  /* ── Empty / Spinner ── */
+  .empty-state { text-align: center; padding: 60px 20px; color: var(--muted); }
+  .empty-state .icon { font-size: 36px; margin-bottom: 10px; }
+  .spinner { display: inline-block; width: 14px; height: 14px; border: 2px solid var(--border); border-top-color: var(--accent); border-radius: 50%; animation: spin 0.7s linear infinite; vertical-align: middle; margin-right: 6px; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* ── Sector heatmap table ── */
+  .inflow-bar-wrap { display: flex; align-items: center; gap: 8px; }
+  .inflow-bar { width: 80px; height: 6px; background: var(--border); border-radius: 3px; overflow: hidden; flex-shrink: 0; }
+  .rank-badge { display: inline-block; width: 22px; height: 22px; border-radius: 50%; background: var(--border); color: var(--text); font-size: 11px; font-weight: 700; text-align: center; line-height: 22px; }
+  .rank-1 { background: #FFD700; color: #000; }
+  .rank-2 { background: #C0C0C0; color: #000; }
+  .rank-3 { background: #CD7F32; color: #000; }
+
+  /* ── Sector cards grid ── */
+  .sector-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(310px, 1fr)); gap: 14px; }
+  .sector-card { background: var(--card); border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+  .sector-card-header { padding: 10px 14px; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border); }
+  .sector-card-header .sector-name { font-size: 14px; font-weight: 700; color: var(--fg); }
+  .sector-card-header .sector-meta { font-size: 11px; color: var(--muted); }
+  .sector-stock-row { display: flex; justify-content: space-between; align-items: center; padding: 7px 14px; border-bottom: 1px solid #1e242c; }
+  .sector-stock-row:last-child { border-bottom: none; }
+  .stock-left { display: flex; align-items: center; gap: 8px; }
+  .stock-rank-num { font-size: 11px; color: var(--muted); width: 14px; }
+  .stock-sym { font-weight: 700; color: var(--accent); font-size: 13px; }
+  .stock-trend { font-size: 10px; padding: 1px 5px; border-radius: 3px; }
+  .trend-up { background: rgba(63,185,80,0.15); color: var(--green); }
+  .trend-flat { background: rgba(139,148,158,0.15); color: var(--muted); }
+  .stock-right { display: flex; align-items: center; gap: 10px; text-align: right; }
+  .stock-price { color: #fff; font-weight: 600; font-size: 12px; }
+  .stock-mfi { font-size: 10px; color: var(--muted); }
+
+  /* ── Timestamp ── */
+  .timestamp { font-size: 11px; color: var(--muted); }
+
+
+  .disclaimer { color: var(--muted); font-size: 11px; text-align: center; margin-top: 20px; padding-bottom: 30px; }
+
+  /* ── Breakout scanner ── */
+  .tf-badge { display:inline-block; padding:1px 7px; border-radius:4px; font-size:10px; font-weight:700; margin:1px; }
+  .tf-D     { background:rgba(88,166,255,0.18); color:#58a6ff; }
+  .tf-W     { background:rgba(63,185,80,0.18);  color:var(--green); }
+  .tf-M     { background:rgba(210,153,34,0.18); color:var(--yellow); }
+  .tf-Y     { background:rgba(248,81,73,0.18);  color:var(--red); }
+  .tf-Setup { background:rgba(139,148,158,0.18);color:var(--muted); }
+  .pat-ATH  { background:rgba(248,81,73,0.22);  color:#f85149; }
+  .pat-VCP  { background:rgba(210,153,34,0.22); color:#d4a017; }
+  .pat-Box  { background:rgba(63,185,80,0.22);  color:var(--green); }
+  .pat-Rectangular { background:rgba(88,166,255,0.22); color:#58a6ff; }
+  .pat-Breakout    { background:rgba(139,148,158,0.2); color:var(--muted); }
+  .tf-btn { background:var(--border); border:none; border-radius:4px; color:var(--muted);
+            cursor:pointer; font-size:11px; font-weight:700; padding:4px 10px; transition:all 0.15s; }
+  .tf-btn.active { background:var(--accent); color:#fff; }
+  .ma-ok  { color:var(--green); font-size:10px; }
+  .ma-bad { color:var(--red);   font-size:10px; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>NSE Market Dashboard</h1>
+  <span class="badge">LIVE</span>
+  <button class="theme-toggle" onclick="toggleTheme()" id="themeBtn">🌙 Dark</button>
+</header>
+
+<div class="tab-bar" style="overflow-x:auto;flex-wrap:nowrap">
+  <button class="tab-btn active" onclick="showTab('screener', this)">Stock Screener</button>
+  <button class="tab-btn" onclick="showTab('sector', this)">Sector Rotation</button>
+  <button class="tab-btn" onclick="showTab('breakout', this)">⚡ Breakout Scanner</button>
+  <button class="tab-btn" onclick="showTab('institutional', this)">🏛️ Institutional Edge</button>
+  <button class="tab-btn" onclick="showTab('advanced', this)">🎯 Advanced Setups</button>
+  <button class="tab-btn" onclick="showTab('breadth', this)">📊 Market Breadth</button>
+  <button class="tab-btn" onclick="showTab('industry', this)">🏭 Industry Groups</button>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════ SCREENER TAB -->
+<div id="tab-screener" class="tab-content active">
+<div class="container">
+
+  <div class="logic-box">
+    <strong>Screening Logic:</strong>
+    Price &gt; MA50 &gt; MA100 &gt; MA200 (confirmed uptrend) &bull;
+    IBD-style RS Score based on weighted 3M/6M/12M returns
+    <div class="tags">
+      <span class="tag">VCP</span><span class="tag">CnH</span>
+      <span class="tag">ATH Breakout</span><span class="tag">Rectangular Breakout</span>
+    </div>
+  </div>
+
+  <div class="panel">
+    <div class="panel-header"><h2>Filters</h2></div>
+    <div class="panel-body">
+      <div class="filters-grid">
+        <div class="filter-group">
+          <label>Min ADTV (Cr)</label>
+          <input type="number" id="min_adtv" placeholder="e.g. 1" value="1">
+        </div>
+        <div class="filter-group">
+          <label>Max % From ATH</label>
+          <input type="number" id="max_pct_from_ath" placeholder="e.g. -15" value="-15">
+        </div>
+        <div class="filter-group">
+          <label>Min IBD Score (1–99)</label>
+          <input type="number" id="min_ibd" placeholder="e.g. 60" value="60">
+        </div>
+      </div>
+      <div class="actions">
+        <button class="btn btn-primary" id="scanBtn" onclick="startScan()">Run Screener</button>
+      </div>
+      <!-- ── Scan progress block ── -->
+      <div id="progressWrap" style="display:none; margin-top:14px;">
+        <div class="scan-progress-block">
+          <div class="scan-progress-header">
+            <span class="batch-label" id="progressLabel">Starting…</span>
+            <span class="scan-pct-badge" id="progressPct">0%</span>
+          </div>
+          <div class="progress-bar-wrap">
+            <div class="progress-bar" id="progressBar" style="width:0%"></div>
+          </div>
+          <div class="scan-progress-footer">
+            <span id="progressStocks" class="scan-stocks-pill">0 / 0 stocks</span>
+            <span class="eta-badge" id="progressETA"></span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="stats-row" id="statsRow" style="display:none">
+    <div class="stat-card"><div class="label">Screened</div><div class="value" id="statTotal">—</div></div>
+    <div class="stat-card"><div class="label">Qualified</div><div class="value" id="statQual">—</div></div>
+    <div class="stat-card"><div class="label">Avg IBD Score</div><div class="value" id="statIBD">—</div></div>
+    <div class="stat-card"><div class="label">Near ATH (&lt;5%)</div><div class="value" id="statATH">—</div></div>
+  </div>
+
+  <!-- Filter funnel -->
+  <div class="panel" id="funnelWrap" style="display:none">
+    <div class="panel-header"><h2>Filter Funnel</h2></div>
+    <table id="funnelTable"></table>
+  </div>
+
+  <!-- Results table -->
+  <div class="panel">
+    <div class="panel-header">
+      <h2>Results</h2>
+      <div style="display:flex;gap:8px;align-items:center">
+        <input type="text" class="search-box" id="searchBox" placeholder="Filter symbol..." oninput="filterTable()">
+        <button class="export-btn" onclick="exportCSV()">Export CSV</button>
+      </div>
+    </div>
+    <div id="tableContainer">
+      <div class="empty-state">
+        <div class="icon">📊</div>
+        <p>Configure filters and click <strong>Run Screener</strong>.</p>
+        <p style="margin-top:6px;font-size:11px">Full scan takes ~90 seconds.</p>
+      </div>
+    </div>
+  </div>
+
+  <p class="disclaimer">Not financial advice. Data from Yahoo Finance. For educational purposes only.</p>
+</div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════ SECTOR TAB -->
+<div id="tab-sector" class="tab-content">
+<div class="container">
+
+  <div class="logic-box">
+    <strong>Sector Rotation Logic:</strong>
+    Relative strength vs Nifty (1M &amp; 3M) &bull;
+    Money Flow Index (MFI-14) — institutional accumulation proxy &bull;
+    Relative Volume &bull; OBV trend direction &bull;
+    Composite Inflow Score (0–100)
+    <div class="tags">
+      <span class="tag">Institutional Flow</span><span class="tag">Relative Strength</span>
+      <span class="tag">Sector Momentum</span><span class="tag">OBV Trend</span>
+    </div>
+  </div>
+
+  <div class="panel">
+    <div class="panel-header">
+      <h2>Sector Analysis Controls</h2>
+      <span class="timestamp" id="sectorTimestamp"></span>
+    </div>
+    <div class="panel-body">
+      <div class="actions">
+        <button class="btn btn-green" id="sectorBtn" onclick="startSectorScan()">Load Sector Data</button>
+        <div class="progress-bar-wrap" id="sectorProgressWrap" style="display:none">
+          <div class="progress-bar" id="sectorProgressBar" style="width:0%"></div>
+        </div>
+        <span class="progress-label" id="sectorProgressLabel"></span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Sector heatmap table -->
+  <div class="panel" id="sectorHeatmapWrap" style="display:none">
+    <div class="panel-header"><h2>Sector Strength Heatmap</h2><span style="font-size:11px;color:var(--muted)">Ranked by Inflow Score</span></div>
+    <div id="sectorHeatmapContainer"></div>
+  </div>
+
+  <!-- Top-5 stock cards -->
+  <div id="sectorCardsWrap" style="display:none">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+      <h2 style="font-size:14px;color:var(--fg)">Top 5 Stocks per Sector <span style="font-size:11px;color:var(--muted);font-weight:400">(Sector-relative RS Score)</span></h2>
+    </div>
+    <div class="sector-grid" id="sectorCardsGrid"></div>
+  </div>
+
+  <div id="sectorEmpty" class="empty-state">
+    <div class="icon">🔄</div>
+    <p>Click <strong>Load Sector Data</strong> to analyse NSE sectors.</p>
+    <p style="margin-top:6px;font-size:11px">Fetches sector indices + top stocks (~90 seconds). Results cached 30 min.</p>
+  </div>
+
+  <p class="disclaimer">Not financial advice. Data from NSE Bhavcopy. For educational purposes only.</p>
+</div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════ BREAKOUT SCANNER TAB -->
+<div id="tab-breakout" class="tab-content">
+<div class="container">
+
+  <div class="card" style="margin-bottom:14px">
+    <strong style="color:var(--accent)">Breakout Scanner Logic:</strong>
+    Scans all ~2500 NSE EQ stocks &bull;
+    <strong>Timeframes:</strong> D = 20-day high &bull; W = 13-week high &bull; M = 6-month high &bull; Y = 52-week / ATH &bull;
+    <strong>Patterns:</strong> ATH breakout &bull; VCP (Volatility Contraction) &bull; Box / Flat Base &bull; Rectangular breakout
+    <div style="margin-top:10px;display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+      <button class="btn-primary" onclick="startBreakoutScan()" id="breakoutBtn">Run Breakout Scan</button>
+      <span id="breakoutScanMeta" style="font-size:12px;color:var(--muted)"></span>
+    </div>
+  </div>
+
+  <!-- Progress -->
+  <div id="breakoutProgressWrap" style="display:none;margin-bottom:14px">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+      <span id="breakoutProgressLabel" style="font-size:12px;color:var(--muted)">Scanning…</span>
+      <span id="breakoutProgressPct" style="font-size:12px;font-weight:700;color:var(--accent)">0%</span>
+    </div>
+    <div style="background:var(--border);border-radius:4px;height:6px;overflow:hidden">
+      <div id="breakoutProgressBar" style="background:var(--accent);height:100%;width:0%;transition:width 0.4s"></div>
+    </div>
+  </div>
+
+  <!-- Filters -->
+  <div id="breakoutFiltersWrap" style="display:none;margin-bottom:14px">
+    <div class="card" style="display:flex;flex-wrap:wrap;gap:16px;align-items:center">
+      <div>
+        <span style="font-size:11px;color:var(--muted);display:block;margin-bottom:4px">TIMEFRAME</span>
+        <div style="display:flex;gap:6px">
+          <button class="tf-btn active" data-tf="ALL" onclick="filterBreakout('tf','ALL',this)">All</button>
+          <button class="tf-btn" data-tf="Y" onclick="filterBreakout('tf','Y',this)">Y</button>
+          <button class="tf-btn" data-tf="M" onclick="filterBreakout('tf','M',this)">M</button>
+          <button class="tf-btn" data-tf="W" onclick="filterBreakout('tf','W',this)">W</button>
+          <button class="tf-btn" data-tf="D" onclick="filterBreakout('tf','D',this)">D</button>
+        </div>
+      </div>
+      <div>
+        <span style="font-size:11px;color:var(--muted);display:block;margin-bottom:4px">PATTERN</span>
+        <div style="display:flex;gap:6px">
+          <button class="tf-btn active" data-pt="ALL" onclick="filterBreakout('pt','ALL',this)">All</button>
+          <button class="tf-btn" data-pt="ATH" onclick="filterBreakout('pt','ATH',this)">ATH</button>
+          <button class="tf-btn" data-pt="VCP" onclick="filterBreakout('pt','VCP',this)">VCP</button>
+          <button class="tf-btn" data-pt="Box" onclick="filterBreakout('pt','Box',this)">Box</button>
+          <button class="tf-btn" data-pt="Rectangular" onclick="filterBreakout('pt','Rectangular',this)">Rect</button>
+        </div>
+      </div>
+      <div style="margin-left:auto">
+        <input type="text" class="search-box" id="breakoutSearch" placeholder="Filter symbol…" oninput="renderBreakoutTable()" style="width:160px">
+      </div>
+    </div>
+  </div>
+
+  <!-- Stats row -->
+  <div id="breakoutStatsRow" style="display:none;display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:14px">
+    <div class="stat-card"><div class="stat-label">STOCKS SCANNED</div><div class="stat-val" id="brkScanned">—</div></div>
+    <div class="stat-card"><div class="stat-label">BREAKOUTS FOUND</div><div class="stat-val" id="brkFound">—</div></div>
+    <div class="stat-card"><div class="stat-label">ATH / VCP</div><div class="stat-val" id="brkPatterns">—</div></div>
+    <div class="stat-card"><div class="stat-label">MULTI-TIMEFRAME</div><div class="stat-val" id="brkMultiTF">—</div></div>
+  </div>
+
+  <!-- Results table -->
+  <div class="card" id="breakoutTableWrap" style="display:none;overflow-x:auto">
+    <table id="breakoutTable">
+      <thead><tr>
+        <th style="text-align:left">#</th>
+        <th style="text-align:left">Symbol</th>
+        <th>Price</th>
+        <th>Timeframe</th>
+        <th>Pattern</th>
+        <th title="Entry trigger price — buy above this">Entry ▶</th>
+        <th title="Stop Loss — exit if price closes below this">SL ✂</th>
+        <th title="Target 1 — measured move (base height projected up)">T1</th>
+        <th title="Target 2 — 2× risk from entry (2R)">T2</th>
+        <th title="Target 3 — 3R or ATH, whichever higher">T3 🎯</th>
+        <th title="Risk % from entry to stop loss">Risk%</th>
+        <th title="Reward-to-Risk ratio (T2 - Entry) / (Entry - SL)">R:R</th>
+        <th title="Minervini Trend Template 0-8">TT</th>
+        <th title="Weinstein Stage">Stage</th>
+        <th title="Candle signal on latest bar">Candle</th>
+        <th>Vol Ratio</th>
+        <th>MA Status</th>
+      </tr></thead>
+      <tbody id="breakoutTbody"></tbody>
+    </table>
+  </div>
+
+  <div id="breakoutEmpty" style="text-align:center;padding:60px 0;color:var(--muted);display:none">
+    <div style="font-size:48px">⚡</div>
+    <p>Click <strong>Run Breakout Scan</strong> to find stocks with breakout potential</p>
+  </div>
+
+  <p class="disclaimer">Not financial advice. Data from NSE Bhavcopy. For educational purposes only.</p>
+</div>
+</div>
+
+<!-- ══════════════════════════════════════════════ INSTITUTIONAL EDGE TAB -->
+<div id="tab-institutional" class="tab-content">
+<div class="container">
+
+  <!-- Info cards -->
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:14px">
+    <div class="card" style="border-left:3px solid var(--accent)">
+      <div style="font-size:13px;font-weight:700;color:var(--accent);margin-bottom:8px">⚡ Pocket Pivot (Gil Morales / Kacher)</div>
+      <div style="font-size:12px;color:var(--muted);line-height:1.7">
+        Stock in uptrend (near 50-day MA) • Today closes <strong style="color:var(--text)">UP</strong> •
+        Today's volume exceeds <strong style="color:var(--text)">every single down-day volume</strong> in prior 10 sessions •
+        Not more than 15% above MA50 (fresh signal, not extended) •
+        <em>Indicates institutional buying absorbing supply.</em>
+      </div>
+    </div>
+    <div class="card" style="border-left:3px solid var(--yellow)">
+      <div style="font-size:13px;font-weight:700;color:var(--yellow);margin-bottom:8px">📈 Earnings Season Setup (Minervini / O'Neil)</div>
+      <div style="font-size:12px;color:var(--muted);line-height:1.7">
+        High-volume gap-up (>2.5%, volume >1.8× avg) in last 10–40 sessions •
+        <strong style="color:var(--text)">Tight consolidation</strong> after gap (<20% range) •
+        Volume <strong style="color:var(--text)">drying up</strong> in base •
+        Price near top of base = institutional re-accumulation before next leg.
+      </div>
+    </div>
+  </div>
+
+  <!-- Institutional metrics legend -->
+  <div class="card" style="margin-bottom:14px;font-size:12px;color:var(--muted);display:flex;flex-wrap:wrap;gap:20px">
+    <span><strong style="color:var(--text)">U/D Vol</strong> — Up/Down Volume Ratio (50d). >1.5 = accumulation</span>
+    <span><strong style="color:var(--text)">Acc/Dist</strong> — Accumulation / Distribution days (20d). High acc + low dist = bullish</span>
+    <span><strong style="color:var(--text)">Tightness</strong> — Weekly return std-dev (10 wk). Lower = tighter = institutional support</span>
+    <span><strong style="color:var(--text)">RS Rating</strong> — Relative Strength vs all NSE stocks (1–99). 80+ = top performers</span>
+    <span><strong style="color:var(--text)">Inst. Score</strong> — Composite of UDR + Acc/Dist + Tightness + RS (0–100)</span>
+  </div>
+
+  <!-- Scan button + meta -->
+  <div class="card" style="margin-bottom:14px;display:flex;align-items:center;gap:16px;flex-wrap:wrap">
+    <button class="btn-primary" onclick="startInstScan()" id="instBtn">Run Institutional Scan</button>
+    <span id="instScanMeta" style="font-size:12px;color:var(--muted)"></span>
+  </div>
+
+  <!-- Progress -->
+  <div id="instProgressWrap" style="display:none;margin-bottom:14px">
+    <div style="display:flex;justify-content:space-between;margin-bottom:6px">
+      <span id="instProgressLabel" style="font-size:12px;color:var(--muted)">Scanning…</span>
+      <span id="instProgressPct" style="font-size:12px;font-weight:700;color:var(--accent)">0%</span>
+    </div>
+    <div style="background:var(--border);border-radius:4px;height:6px;overflow:hidden">
+      <div id="instProgressBar" style="background:var(--accent);height:100%;width:0%;transition:width 0.4s"></div>
+    </div>
+  </div>
+
+  <!-- Stats row -->
+  <div id="instStatsRow" style="display:none;grid-template-columns:repeat(5,1fr);gap:12px;margin-bottom:14px">
+    <div class="stat-card"><div class="stat-label">STOCKS SCANNED</div><div class="stat-val" id="instScanned">—</div></div>
+    <div class="stat-card"><div class="stat-label">POCKET PIVOTS</div><div class="stat-val" id="instPP" style="color:var(--accent)">—</div></div>
+    <div class="stat-card"><div class="stat-label">EARNINGS SETUPS</div><div class="stat-val" id="instEar" style="color:var(--yellow)">—</div></div>
+    <div class="stat-card"><div class="stat-label">BOTH SIGNALS</div><div class="stat-val" id="instBoth" style="color:var(--green)">—</div></div>
+    <div class="stat-card"><div class="stat-label">AVG INST. SCORE</div><div class="stat-val" id="instAvgScore">—</div></div>
+  </div>
+
+  <!-- Filters -->
+  <div id="instFiltersWrap" style="display:none;margin-bottom:14px">
+    <div class="card" style="display:flex;flex-wrap:wrap;gap:16px;align-items:center">
+      <div>
+        <span style="font-size:11px;color:var(--muted);display:block;margin-bottom:4px">SETUP TYPE</span>
+        <div style="display:flex;gap:6px">
+          <button class="tf-btn active" data-ist="ALL" onclick="filterInst('ALL',this)">All</button>
+          <button class="tf-btn" data-ist="PocketPivot" onclick="filterInst('PocketPivot',this)">⚡ Pocket Pivot</button>
+          <button class="tf-btn" data-ist="EarningsSetup" onclick="filterInst('EarningsSetup',this)">📈 Earnings Setup</button>
+          <button class="tf-btn" data-ist="BOTH" onclick="filterInst('BOTH',this)">🎯 Both</button>
+        </div>
+      </div>
+      <div style="margin-left:auto">
+        <input type="text" class="search-box" id="instSearch" placeholder="Filter symbol…" oninput="renderInstTable()" style="width:160px">
+      </div>
+    </div>
+  </div>
+
+  <!-- Results table -->
+  <div class="card" id="instTableWrap" style="display:none;overflow-x:auto">
+    <table id="instTable">
+      <thead><tr>
+        <th style="text-align:left">#</th>
+        <th style="text-align:left">Symbol</th>
+        <th>Price</th>
+        <th>Setup</th>
+        <th title="Composite institutional strength score 0–100">Inst. Score</th>
+        <th title="Relative Strength Rating vs all NSE (1–99)">RS Rating</th>
+        <th title="Entry trigger price">Entry ▶</th>
+        <th title="Stop Loss">SL ✂</th>
+        <th title="Target 1 — measured move">T1</th>
+        <th title="Target 2 — 2R">T2</th>
+        <th title="Target 3 — 3R or ATH">T3 🎯</th>
+        <th title="Risk % from entry to SL">Risk%</th>
+        <th title="Reward-to-Risk ratio">R:R</th>
+        <th title="Up/Down Volume Ratio (50 days)">U/D Vol</th>
+        <th title="Accumulation / Distribution days (20d)">Acc/Dist</th>
+        <th title="Weekly return std-dev — lower = tighter">Tightness</th>
+        <th title="Minervini Trend Template Score 0-8">TT</th>
+        <th title="Weinstein Stage">Stage</th>
+        <th title="Additional signals: NR7, InsideBar, 3WT, RSLineHigh">Signals+</th>
+        <th title="Pocket Pivot: % from 50-day MA">Details</th>
+        <th>MA Status</th>
+      </tr></thead>
+      <tbody id="instTbody"></tbody>
+    </table>
+  </div>
+
+  <div id="instEmpty" style="text-align:center;padding:60px 0;color:var(--muted)">
+    <div style="font-size:48px">🏛️</div>
+    <p>Click <strong>Run Institutional Scan</strong> to find stocks that institutions are accumulating.</p>
+    <p style="margin-top:8px;font-size:12px">Scans all ~2500 NSE stocks for Pocket Pivots &amp; Earnings Season Setups</p>
+  </div>
+
+  <p class="disclaimer">Not financial advice. Data from NSE Bhavcopy. For educational purposes only.</p>
+</div>
+</div>
+
+<!-- ════════════════════════════════════════════════ ADVANCED SETUPS TAB -->
+<div id="tab-advanced" class="tab-content">
+<div class="container">
+
+  <!-- Legend cards -->
+  <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:14px">
+    <div class="card" style="border-left:3px solid #f0a500">
+      <div style="font-size:12px;font-weight:700;color:#f0a500;margin-bottom:6px">🚩 High Tight Flag</div>
+      <div style="font-size:11px;color:var(--muted);line-height:1.6">Stock rises <strong style="color:var(--text)">≥100%</strong> in 4–8 weeks, then consolidates <strong style="color:var(--text)">≤20%</strong> from peak. <em>Every 10× winner showed this.</em></div>
+    </div>
+    <div class="card" style="border-left:3px solid var(--accent)">
+      <div style="font-size:12px;font-weight:700;color:var(--accent);margin-bottom:6px">⚡ NR7 / Inside Bar / 3WT</div>
+      <div style="font-size:11px;color:var(--muted);line-height:1.6">NR7 = narrowest range in 7 days • Inside Bar = today inside yesterday • 3WT = 3 weekly closes within 1.5%. <em>Compression before expansion.</em></div>
+    </div>
+    <div class="card" style="border-left:3px solid var(--green)">
+      <div style="font-size:12px;font-weight:700;color:var(--green);margin-bottom:6px">📈 RS Line New High</div>
+      <div style="font-size:11px;color:var(--muted);line-height:1.6">Stock / Nifty ratio at a 52-week high <strong style="color:var(--text)">before the price breakout</strong>. O'Neil's #1 leading signal of institutional sponsorship.</div>
+    </div>
+  </div>
+
+  <!-- TT Score legend -->
+  <div class="card" style="margin-bottom:14px;font-size:12px;color:var(--muted)">
+    <strong style="color:var(--text)">Trend Template (TT) Score 0–8</strong> — Minervini's SEPA criteria:
+    Price&gt;150MA&gt;200MA · 200MA trending up · 50MA&gt;150&amp;200MA · Price&gt;50MA · 25%+ above 52wk low · within 25% of 52wk high · RS≥70.
+    <span style="color:var(--green);font-weight:700">7–8</span> = ideal buy zone ·
+    <span style="color:var(--yellow)">5–6</span> = watchlist ·
+    <span style="color:var(--muted)">≤4</span> = avoid
+  </div>
+
+  <!-- Scan button -->
+  <div class="card" style="margin-bottom:14px;display:flex;align-items:center;gap:16px;flex-wrap:wrap">
+    <button class="btn-primary" onclick="startAdvancedScan()" id="advBtn">Run Advanced Scan</button>
+    <span id="advScanMeta" style="font-size:12px;color:var(--muted)"></span>
+  </div>
+
+  <!-- Progress -->
+  <div id="advProgressWrap" style="display:none;margin-bottom:14px">
+    <div style="display:flex;justify-content:space-between;margin-bottom:6px">
+      <span id="advProgressLabel" style="font-size:12px;color:var(--muted)">Scanning…</span>
+      <span id="advProgressPct" style="font-size:12px;font-weight:700;color:var(--accent)">0%</span>
+    </div>
+    <div style="background:var(--border);border-radius:4px;height:6px;overflow:hidden">
+      <div id="advProgressBar" style="background:var(--accent);height:100%;width:0%;transition:width 0.4s"></div>
+    </div>
+  </div>
+
+  <!-- Stats -->
+  <div id="advStatsRow" style="display:none;grid-template-columns:repeat(6,1fr);gap:10px;margin-bottom:14px">
+    <div class="stat-card"><div class="stat-label">SCANNED</div><div class="stat-val" id="advScanned">—</div></div>
+    <div class="stat-card"><div class="stat-label">HIGH TIGHT FLAG</div><div class="stat-val" id="advHTF" style="color:#f0a500">—</div></div>
+    <div class="stat-card"><div class="stat-label">NR7</div><div class="stat-val" id="advNR7" style="color:var(--accent)">—</div></div>
+    <div class="stat-card"><div class="stat-label">3-WKS TIGHT</div><div class="stat-val" id="adv3WT" style="color:var(--accent)">—</div></div>
+    <div class="stat-card"><div class="stat-label">RS LINE NEW HIGH</div><div class="stat-val" id="advRSNH" style="color:var(--green)">—</div></div>
+    <div class="stat-card"><div class="stat-label">TT SCORE ≥7</div><div class="stat-val" id="advTT7" style="color:var(--green)">—</div></div>
+  </div>
+
+  <!-- Filters -->
+  <div id="advFiltersWrap" style="display:none;margin-bottom:14px">
+    <div class="card" style="display:flex;flex-wrap:wrap;gap:12px;align-items:center">
+      <div>
+        <span style="font-size:11px;color:var(--muted);display:block;margin-bottom:4px">SETUP</span>
+        <div style="display:flex;gap:6px;flex-wrap:wrap">
+          <button class="tf-btn active" data-adv="ALL"         onclick="filterAdv('ALL',this)">All</button>
+          <button class="tf-btn"        data-adv="HTF"         onclick="filterAdv('HTF',this)">🚩 HTF</button>
+          <button class="tf-btn"        data-adv="NR7"         onclick="filterAdv('NR7',this)">NR7</button>
+          <button class="tf-btn"        data-adv="InsideBar"   onclick="filterAdv('InsideBar',this)">Inside Bar</button>
+          <button class="tf-btn"        data-adv="3WT"         onclick="filterAdv('3WT',this)">3WT</button>
+          <button class="tf-btn"        data-adv="RSLineHigh"  onclick="filterAdv('RSLineHigh',this)">📈 RS New High</button>
+        </div>
+      </div>
+      <div>
+        <span style="font-size:11px;color:var(--muted);display:block;margin-bottom:4px">TT SCORE</span>
+        <div style="display:flex;gap:6px">
+          <button class="tf-btn active" data-advtt="ALL" onclick="filterAdvTT('ALL',this)">All</button>
+          <button class="tf-btn"        data-advtt="7"   onclick="filterAdvTT('7',this)">7–8</button>
+          <button class="tf-btn"        data-advtt="5"   onclick="filterAdvTT('5',this)">5–6</button>
+        </div>
+      </div>
+      <div>
+        <span style="font-size:11px;color:var(--muted);display:block;margin-bottom:4px">STAGE</span>
+        <div style="display:flex;gap:6px">
+          <button class="tf-btn active" data-advst="ALL" onclick="filterAdvStage('ALL',this)">All</button>
+          <button class="tf-btn"        data-advst="2"   onclick="filterAdvStage('2',this)">Stage 2 ▲</button>
+        </div>
+      </div>
+      <div style="margin-left:auto">
+        <input type="text" class="search-box" id="advSearch" placeholder="Filter symbol…" oninput="renderAdvTable()" style="width:140px">
+      </div>
+    </div>
+  </div>
+
+  <!-- Table -->
+  <div class="card" id="advTableWrap" style="display:none;overflow-x:auto">
+    <table>
+      <thead><tr>
+        <th style="text-align:left">#</th>
+        <th style="text-align:left">Symbol</th>
+        <th>Price</th>
+        <th title="Composite rank 0-100">Rank</th>
+        <th title="Setup types detected">Setups</th>
+        <th title="Candlestick signal on latest bar">Candle</th>
+        <th title="Minervini Trend Template Score 0-8">TT</th>
+        <th title="Weinstein Stage 1/2/3/4">Stage</th>
+        <th title="Relative Strength Rating 1-99">RS</th>
+        <th title="Power Trend: 21EMA>50MA for 4w+">PT</th>
+        <th title="Base count: 1st base = lowest risk">Base#</th>
+        <th title="Price/Volume character">P/V</th>
+        <th title="Delivery % trend (Rising=accumulation)">Deliv</th>
+        <th title="Gap classification">Gap</th>
+        <th title="Entry trigger price">Entry ▶</th>
+        <th title="Stop Loss">SL ✂</th>
+        <th title="Target 1 — measured move">T1</th>
+        <th title="Target 2 — 2R">T2</th>
+        <th title="Target 3 — 3R or ATH">T3 🎯</th>
+        <th>Risk%</th>
+        <th>R:R</th>
+        <th>MA</th>
+      </tr></thead>
+      <tbody id="advTbody"></tbody>
+    </table>
+  </div>
+
+  <div id="advEmpty" style="text-align:center;padding:60px 0;color:var(--muted)">
+    <div style="font-size:48px">🎯</div>
+    <p>Click <strong>Run Advanced Scan</strong> to detect HTF, NR7, 3WT, RS Line New High patterns.</p>
+  </div>
+
+  <p class="disclaimer">Not financial advice. For educational purposes only.</p>
+</div>
+</div>
+
+<!-- ══════════════════════════════════════════════════ MARKET BREADTH TAB -->
+<div id="tab-breadth" class="tab-content">
+<div class="container">
+
+  <!-- Scan button -->
+  <div class="card" style="margin-bottom:14px;display:flex;align-items:center;gap:16px;flex-wrap:wrap">
+    <button class="btn-primary" onclick="startBreadthScan()" id="breadthBtn">Load Market Breadth</button>
+    <span id="breadthMeta" style="font-size:12px;color:var(--muted)"></span>
+    <span style="font-size:12px;color:var(--muted);margin-left:auto">Cached 30 min · Uses bhavcopy, no Yahoo</span>
+  </div>
+
+  <!-- Progress -->
+  <div id="breadthProgress" style="display:none;margin-bottom:14px">
+    <div style="display:flex;justify-content:space-between;margin-bottom:6px">
+      <span id="breadthProgressLabel" style="font-size:12px;color:var(--muted)">Loading…</span>
+    </div>
+    <div style="background:var(--border);border-radius:4px;height:6px;overflow:hidden">
+      <div id="breadthProgressBar" style="background:var(--accent);height:100%;width:60%;animation:pulse 1.5s infinite"></div>
+    </div>
+  </div>
+
+  <!-- Market timing signal -->
+  <div id="breadthTimingCard" style="display:none;margin-bottom:14px">
+    <div class="card" id="breadthTimingInner" style="text-align:center;padding:20px">
+      <div id="breadthTimingStatus" style="font-size:22px;font-weight:800;margin-bottom:4px">—</div>
+      <div id="breadthTimingDetail" style="font-size:12px;color:var(--muted)"></div>
+    </div>
+  </div>
+
+  <!-- Main breadth metrics -->
+  <div id="breadthMetrics" style="display:none;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:14px">
+    <div class="stat-card">
+      <div class="stat-label">% ABOVE 50-DAY MA</div>
+      <div class="stat-val" id="brd50">—</div>
+      <div style="font-size:11px;color:var(--muted);margin-top:4px">Bullish &gt;60% · Bearish &lt;40%</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">% ABOVE 200-DAY MA</div>
+      <div class="stat-val" id="brd200">—</div>
+      <div style="font-size:11px;color:var(--muted);margin-top:4px">Bullish &gt;55% · Bearish &lt;35%</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">NEW 52-WK HIGHS / LOWS</div>
+      <div class="stat-val" id="brdHL">—</div>
+      <div style="font-size:11px;color:var(--muted);margin-top:4px" id="brdHLsub"></div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">ADV / DECL RATIO</div>
+      <div class="stat-val" id="brdADR">—</div>
+      <div style="font-size:11px;color:var(--muted);margin-top:4px" id="brdADRsub"></div>
+    </div>
+  </div>
+
+  <!-- Secondary metrics -->
+  <div id="breadthSecondary" style="display:none;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:14px">
+    <div class="stat-card">
+      <div class="stat-label">NIFTY STAGE</div>
+      <div class="stat-val" id="brdStage">—</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">DIST. DAYS (25d)</div>
+      <div class="stat-val" id="brdDist">—</div>
+      <div style="font-size:11px;color:var(--muted);margin-top:4px">IBD: ≥5 = under pressure</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">NIFTY 1M / 3M</div>
+      <div class="stat-val" id="brdNifty">—</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">TOTAL STOCKS</div>
+      <div class="stat-val" id="brdTotal">—</div>
+    </div>
+  </div>
+
+  <!-- Follow-Through Day card -->
+  <div id="ftdCard" style="display:none;margin-bottom:14px">
+    <div class="panel">
+      <div class="panel-header"><h2>📈 Follow-Through Day (IBD Signal)</h2></div>
+      <div class="panel-body">
+        <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:12px">
+          <div class="stat-card">
+            <div class="label">Rally Attempt</div>
+            <div class="value" id="ftdRally">—</div>
+          </div>
+          <div class="stat-card">
+            <div class="label">Days Since Trough</div>
+            <div class="value" id="ftdDays">—</div>
+          </div>
+          <div class="stat-card">
+            <div class="label">Trough → Now</div>
+            <div class="value pos" id="ftdTrough">—</div>
+          </div>
+          <div class="stat-card">
+            <div class="label">FTD Today?</div>
+            <div class="value" id="ftdToday">—</div>
+          </div>
+          <div class="stat-card">
+            <div class="label">Today's Move</div>
+            <div class="value" id="ftdTodayChg">—</div>
+          </div>
+          <div class="stat-card">
+            <div class="label">FTD in 10d Window</div>
+            <div class="value" id="ftdWindow">—</div>
+          </div>
+        </div>
+        <p style="margin-top:10px;font-size:11px;color:var(--muted)">
+          FTD = Nifty up ≥1.7% on Day 4+ of rally attempt after ≥8% decline.
+          Signals potential new uptrend. Requires confirmation from leading stocks breaking out.
+        </p>
+      </div>
+    </div>
+  </div>
+
+  <!-- New 52-week highs list -->
+  <div id="breadthHighsList" style="display:none">
+    <div class="card" style="margin-bottom:6px">
+      <strong style="color:var(--text)">🔝 Stocks at 52-Week Highs Today</strong>
+      <span style="font-size:11px;color:var(--muted);margin-left:8px">sorted by volume ratio — institutional conviction</span>
+    </div>
+    <div class="card" style="overflow-x:auto">
+      <table>
+        <thead><tr>
+          <th>#</th>
+          <th style="text-align:left">Symbol</th>
+          <th>Price</th>
+          <th>ADTV ₹Cr</th>
+          <th>Vol Ratio</th>
+          <th>3M Return</th>
+        </tr></thead>
+        <tbody id="breadthHighsTbody"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <div id="breadthEmpty" style="text-align:center;padding:60px 0;color:var(--muted)">
+    <div style="font-size:48px">📊</div>
+    <p>Click <strong>Load Market Breadth</strong> to see the health of the NSE market.</p>
+    <p style="margin-top:8px;font-size:12px">Analyses all ~2500 NSE stocks · Cached 30 minutes</p>
+  </div>
+
+  <p class="disclaimer">Not financial advice. Data from NSE Bhavcopy. For educational purposes only.</p>
+</div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════ INDUSTRY GROUPS TAB -->
+<div id="tab-industry" class="tab-content">
+<div class="container">
+  <div class="logic-box">
+    <strong>Industry Group RS:</strong> Each group is an equal-weighted index of its members.
+    RS vs Nifty = group's 3-month return minus Nifty's 3-month return.
+    <strong>Top groups = institutional money is flowing in.</strong>
+    Data: NSE bhavcopy — zero extra API calls.
+    <div class="tags"><span class="tag">RS vs Nifty</span><span class="tag">3-Month Return</span><span class="tag">25 Groups</span></div>
+  </div>
+
+  <div class="panel">
+    <div class="panel-header">
+      <h2>Industry Group Rankings</h2>
+      <div style="display:flex;gap:10px;align-items:center">
+        <span id="indMeta" class="timestamp"></span>
+        <button class="btn btn-primary" id="indBtn" onclick="startIndustry()">Load Industry Groups</button>
+      </div>
+    </div>
+    <div id="indProgress" style="display:none;padding:14px 16px">
+      <div class="scan-progress-block">
+        <div class="scan-progress-header">
+          <span class="batch-label" id="indProgressLabel">Loading…</span>
+          <span class="scan-pct-badge" id="indProgressPct">0%</span>
+        </div>
+        <div class="progress-bar-wrap"><div class="progress-bar" id="indProgressBar" style="width:0%"></div></div>
+      </div>
+    </div>
+    <div id="indEmpty" class="empty-state">
+      <div class="icon">🏭</div>
+      <p>Click "Load Industry Groups" to rank all 25 NSE sectors by relative strength.</p>
+    </div>
+    <div id="indTableWrap" style="display:none;overflow-x:auto">
+      <table>
+        <thead><tr>
+          <th>Rank</th><th>Industry Group</th>
+          <th>1M Ret %</th><th>3M Ret %</th><th>6M Ret %</th>
+          <th>RS vs Nifty</th><th>Members</th><th>Top Stocks</th>
+        </tr></thead>
+        <tbody id="indTbody"></tbody>
+      </table>
+    </div>
+  </div>
+  <p class="disclaimer">Not financial advice. Data from NSE Bhavcopy.</p>
+</div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════ JAVASCRIPT -->
+<script>
+// ── Tab switching ──────────────────────────────────────────────────────────
+function showTab(name, btn) {
+  document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
+  document.querySelectorAll('.tab-btn').forEach(el => el.classList.remove('active'));
+  document.getElementById('tab-' + name).classList.add('active');
+  if (btn) btn.classList.add('active');
+  // Auto-load sector results if tab opened and data already available
+  if (name === 'sector' && !sectorResult) {
+    fetch('/api/sector/status').then(r => r.json()).then(d => {
+      if (d.result) {
+        sectorResult = d.result;
+        document.getElementById('sectorEmpty').style.display = 'none';
+        document.getElementById('sectorBtn').disabled = false;
+        document.getElementById('sectorProgressLabel').textContent = '';
+        renderSectorTimestamp(d.result.computed_at);
+        renderSectorHeatmap(d.result.sectors);
+        renderSectorCards(d.result.sectors, d.result.top5);
+      } else if (d.running) {
+        // Still running — attach poller
+        document.getElementById('sectorBtn').disabled = true;
+        document.getElementById('sectorProgressLabel').textContent = 'Scan running — please wait…';
+        if (sectorPoll) clearInterval(sectorPoll);
+        sectorPoll = setInterval(pollSector, 2000);
+      }
+    });
+  }
+}
+
+// ══════════════════════════════════════════════════════════════════════════
+// SCREENER
+// ══════════════════════════════════════════════════════════════════════════
+let pollInterval = null;
+let allResults = [];
+let sortCol = 'IBD_score', sortAsc = false;
+let scanStartTime = null;
+
+const COLS = [
+  { key: 'Symbol',     label: 'Symbol',      fmt: 'symbol' },
+  { key: 'Ticker',     label: 'Ticker',       fmt: 'ticker' },
+  { key: 'Close',      label: 'Close',        fmt: 'price' },
+  { key: 'ADTV_Cr',    label: 'ADTV (Cr)',   fmt: 'num' },
+  { key: 'MA50',       label: 'MA50',         fmt: 'price' },
+  { key: 'MA100',      label: 'MA100',        fmt: 'price' },
+  { key: 'MA200',      label: 'MA200',        fmt: 'price' },
+  { key: 'ATH',        label: 'ATH',          fmt: 'price' },
+  { key: '%_from_ATH', label: '% from ATH',  fmt: 'pct' },
+  { key: 'IBD_score',  label: 'IBD Score',    fmt: 'ibd' },
+];
+
+function getParams() {
+  return {
+    min_adtv:   document.getElementById('min_adtv').value || null,
+    max_pct_from_ath: document.getElementById('max_pct_from_ath').value || null,
+    min_ibd:    document.getElementById('min_ibd').value || null,
+  };
+}
+
+function startScan() {
+  scanStartTime = Date.now();
+  document.getElementById('scanBtn').disabled = true;
+  document.getElementById('progressWrap').style.display = 'block';
+  document.getElementById('progressBar').style.width = '0%';
+  document.getElementById('progressPct').textContent = '0%';
+  document.getElementById('progressLabel').textContent = 'Starting scan…';
+  document.getElementById('progressStocks').textContent = '0 / 0 stocks';
+  document.getElementById('progressETA').textContent = '';
+  document.getElementById('statsRow').style.display = 'none';
+  document.getElementById('funnelWrap').style.display = 'none';
+  document.getElementById('tableContainer').innerHTML =
+    '<div class="empty-state"><span class="spinner"></span> Fetching data from Yahoo Finance…</div>';
+
+  fetch('/api/scan', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(getParams()),
+  }).then(r => r.json()).then(d => {
+    if (d.status === 'already_running') { alert('Scan already running!'); return; }
+    pollInterval = setInterval(pollScan, 1000);
+  });
+}
+
+function pollScan() {
+  fetch('/api/status').then(r => r.json()).then(d => {
+    const pct = d.pct || 0;
+    document.getElementById('progressBar').style.width = pct + '%';
+    document.getElementById('progressPct').textContent = pct.toFixed(1) + '%';
+
+    const label = d.current_ticker || (d.total > 0 ? 'Processing…' : 'Starting…');
+    document.getElementById('progressLabel').textContent = label;
+    document.getElementById('progressStocks').textContent =
+      d.total > 0
+        ? `${d.progress.toLocaleString()} / ${d.total.toLocaleString()} stocks`
+        : 'Fetching stock list…';
+
+    // ETA calc (only once we have real progress)
+    if (pct > 1) {
+      const elapsed = (Date.now() - scanStartTime) / 1000;
+      const totalSecs = elapsed / (pct / 100);
+      const remaining = Math.max(0, totalSecs - elapsed);
+      const mins = Math.floor(remaining / 60);
+      const secs = Math.round(remaining % 60);
+      document.getElementById('progressETA').textContent =
+        mins > 0 ? `ETA ~${mins}m ${secs}s` : `ETA ~${secs}s`;
+    }
+
+    if (!d.running) {
+      clearInterval(pollInterval);
+      document.getElementById('scanBtn').disabled = false;
+      document.getElementById('progressWrap').style.display = 'none';
+      if (d.error) {
+        document.getElementById('tableContainer').innerHTML =
+          `<div class="empty-state"><p style="color:var(--red)">Error: ${d.error}</p></div>`;
+      } else if (d.result) {
+        allResults = d.result;
+        renderStats(d.result, d.total);
+        renderFunnel(d.funnel);
+        renderTable(d.result);
+      }
+    }
+  });
+}
+
+function renderFunnel(funnel) {
+  if (!funnel || funnel.length === 0) return;
+  const start = funnel[0][1] || 1;
+  let html = '<thead><tr><th style="text-align:left">Stage</th><th>Count</th><th>% Remaining</th><th style="width:40%;text-align:left">Bar</th></tr></thead><tbody>';
+  for (const [label, count] of funnel) {
+    const pct = (count / start * 100).toFixed(1);
+    html += `<tr>
+      <td style="text-align:left">${label}</td>
+      <td><strong>${count}</strong></td>
+      <td>${pct}%</td>
+      <td style="text-align:left">
+        <div style="background:var(--border);border-radius:3px;height:6px;width:100%;overflow:hidden">
+          <div style="background:var(--accent);height:100%;width:${pct}%"></div>
+        </div>
+      </td></tr>`;
+  }
+  html += '</tbody>';
+  document.getElementById('funnelTable').innerHTML = html;
+  document.getElementById('funnelWrap').style.display = 'block';
+}
+
+function renderStats(rows, total) {
+  document.getElementById('statsRow').style.display = 'flex';
+  document.getElementById('statTotal').textContent = total;
+  document.getElementById('statQual').textContent = rows.length;
+  const avg = rows.length ? (rows.reduce((s,r) => s+(r.IBD_score||0),0)/rows.length).toFixed(1) : '—';
+  document.getElementById('statIBD').textContent = avg;
+  document.getElementById('statATH').textContent = rows.filter(r => r['%_from_ATH'] >= -5).length;
+}
+
+function renderTable(rows) {
+  if (!rows || rows.length === 0) {
+    document.getElementById('tableContainer').innerHTML =
+      '<div class="empty-state"><p>No stocks matched. Try relaxing filters.</p></div>';
+    return;
+  }
+  const q = document.getElementById('searchBox').value.toLowerCase();
+  let sorted = [...rows].sort((a,b) => {
+    let av = a[sortCol], bv = b[sortCol];
+    if (typeof av === 'string') av = av.toLowerCase();
+    if (typeof bv === 'string') bv = bv.toLowerCase();
+    return sortAsc ? (av < bv ? -1 : av > bv ? 1 : 0) : (av > bv ? -1 : av < bv ? 1 : 0);
+  });
+  if (q) sorted = sorted.filter(r => r.Symbol.toLowerCase().includes(q));
+
+  let html = '<table><thead><tr>';
+  for (const col of COLS) {
+    const s = col.key === sortCol;
+    html += `<th onclick="sortBy('${col.key}')" class="${s?'sorted':''}">
+      ${col.label} <span class="sort-arrow">${s?(sortAsc?'↑':'↓'):'↕'}</span></th>`;
+  }
+  html += '</tr></thead><tbody>';
+  for (const row of sorted) {
+    html += '<tr>' + COLS.map(c => `<td>${fmtCell(row[c.key], c.fmt)}</td>`).join('') + '</tr>';
+  }
+  html += '</tbody></table>';
+  document.getElementById('tableContainer').innerHTML = html;
+}
+
+function fmtCell(v, fmt) {
+  if (v === null || v === undefined) return '<span class="neutral">—</span>';
+  switch (fmt) {
+    case 'symbol': return `<span class="sym">${v}</span>`;
+    case 'ticker': return `<span class="ticker-cell">${v}</span>`;
+    case 'price':  return `<span class="price-cell">₹${Number(v).toLocaleString('en-IN',{minimumFractionDigits:2,maximumFractionDigits:2})}</span>`;
+    case 'num':    return Number(v).toLocaleString('en-IN',{minimumFractionDigits:2,maximumFractionDigits:2});
+    case 'pct': {
+      const n = Number(v);
+      const cls = n >= -5 ? 'pos' : n >= -20 ? 'neutral' : 'neg';
+      const fill = Math.max(0, Math.min(100, 100 + n));
+      return `<div class="ath-bar-wrap"><span class="${cls}">${n.toFixed(2)}%</span>
+        <div class="mini-bar"><div class="mini-fill" style="background:var(--green);width:${fill}%"></div></div></div>`;
+    }
+    case 'ibd': {
+      const n = Number(v);
+      const cls = n >= 80 ? 'ibd-high' : n >= 60 ? 'ibd-mid' : 'ibd-low';
+      return `<span class="ibd-badge ${cls}">${n.toFixed(1)}</span>`;
+    }
+    default: return v;
+  }
+}
+
+function sortBy(col) {
+  if (sortCol === col) sortAsc = !sortAsc; else { sortCol = col; sortAsc = false; }
+  if (allResults.length) renderTable(allResults);
+}
+function filterTable() { if (allResults.length) renderTable(allResults); }
+function exportCSV() {
+  if (!allResults.length) return;
+  const hdr = COLS.map(c => c.key).join(',');
+  const rows = allResults.map(r => COLS.map(c => r[c.key] ?? '').join(',')).join('\n');
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([hdr+'\n'+rows], {type:'text/csv'}));
+  a.download = 'nse_screened.csv'; a.click();
+}
+
+// ══════════════════════════════════════════════════════════════════════════
+// SECTOR ROTATION
+// ══════════════════════════════════════════════════════════════════════════
+let sectorPoll = null;
+let sectorResult = null;
+
+function startSectorScan() {
+  document.getElementById('sectorBtn').disabled = true;
+  document.getElementById('sectorEmpty').style.display = 'none';
+  document.getElementById('sectorHeatmapWrap').style.display = 'none';
+  document.getElementById('sectorCardsWrap').style.display = 'none';
+  document.getElementById('sectorProgressWrap').style.display = 'block';
+  document.getElementById('sectorProgressLabel').textContent = 'Fetching sector data…';
+  animateSectorBar();
+
+  fetch('/api/sector/refresh', { method: 'POST' })
+    .then(r => r.json()).then(d => {
+      if (d.status === 'already_running') {
+        document.getElementById('sectorProgressLabel').textContent = 'Already running — polling for results…';
+      }
+      if (sectorPoll) clearInterval(sectorPoll);
+      sectorPoll = setInterval(pollSector, 2000);
+    });
+}
+
+function animateSectorBar() {
+  let w = 0;
+  const bar = document.getElementById('sectorProgressBar');
+  const iv = setInterval(() => {
+    if (w >= 90) { clearInterval(iv); return; }
+    w += Math.random() * 3; bar.style.width = w + '%';
+  }, 800);
+}
+
+function pollSector() {
+  fetch('/api/sector/status').then(r => r.json()).then(d => {
+    if (!d.running) {
+      clearInterval(sectorPoll);
+      // Always hide the progress bar when done
+      document.getElementById('sectorProgressWrap').style.display = 'none';
+      document.getElementById('sectorProgressBar').style.width = '0%';
+      document.getElementById('sectorBtn').disabled = false;
+      document.getElementById('sectorProgressLabel').textContent = '';
+
+      if (d.error) {
+        document.getElementById('sectorEmpty').style.display = 'block';
+        document.getElementById('sectorEmpty').innerHTML =
+          `<div class="icon">⚠️</div><p style="color:var(--red)">Error: ${d.error}</p>`;
+      } else if (d.result && d.result.sectors && d.result.sectors.length > 0) {
+        sectorResult = d.result;
+        renderSectorTimestamp(d.result.computed_at);
+        renderSectorHeatmap(d.result.sectors);
+        renderSectorCards(d.result.sectors, d.result.top5);
+      } else {
+        // Got empty results — likely Yahoo rate-limited; ask user to retry
+        document.getElementById('sectorEmpty').style.display = 'block';
+        document.getElementById('sectorEmpty').innerHTML =
+          `<div class="icon">⏳</div>
+           <p>No sector data returned — Yahoo Finance may be rate-limiting.</p>
+           <p style="margin-top:6px;font-size:11px">Run the <strong>Stock Screener</strong> first, then click Load Sector Data again.</p>`;
+      }
+    }
+  });
+}
+
+function renderSectorTimestamp(ts) {
+  const d = new Date(ts * 1000);
+  document.getElementById('sectorTimestamp').textContent =
+    'Last updated: ' + d.toLocaleTimeString();
+}
+
+function renderSectorHeatmap(sectors) {
+  if (!sectors || sectors.length === 0) return;
+
+  let html = `<table>
+    <thead><tr>
+      <th style="text-align:left">Rank</th>
+      <th style="text-align:left">Sector</th>
+      <th>Inflow Score</th>
+      <th>RS vs Nifty 1M</th>
+      <th>RS vs Nifty 3M</th>
+      <th>MFI (14)</th>
+      <th>Rel Volume</th>
+      <th>OBV Trend</th>
+      <th>Breadth</th>
+    </tr></thead><tbody>`;
+
+  for (const s of sectors) {
+    const score = s.inflow_score || 0;
+    const barColor = score >= 65 ? 'var(--green)' : score >= 45 ? 'var(--yellow)' : 'var(--red)';
+    const rankCls  = s.rank <= 3 ? `rank-${s.rank}` : '';
+    const rs1m  = s.rel_1m  !== null ? fmtPct(s.rel_1m)  : fmtPct(s.rs_1m);
+    const rs3m  = s.rel_3m  !== null ? fmtPct(s.rel_3m)  : fmtPct(s.rs_3m);
+    const obv   = s.obv_trend > 0.05 ? '<span class="pos">▲ Rising</span>' :
+                  s.obv_trend < -0.05 ? '<span class="neg">▼ Falling</span>' :
+                  '<span class="neutral">→ Flat</span>';
+    const mfiCls = s.mfi >= 60 ? 'pos' : s.mfi <= 40 ? 'neg' : 'neutral';
+    const breadth = (s.breadth !== undefined && s.breadth !== null) ? s.breadth.toFixed(0) + '%' : '—';
+
+    html += `<tr>
+      <td style="text-align:left"><span class="rank-badge ${rankCls}">${s.rank}</span></td>
+      <td style="text-align:left"><strong style="color:var(--fg)">${s.sector}</strong></td>
+      <td>
+        <div class="inflow-bar-wrap">
+          <span style="color:${barColor};font-weight:700;min-width:36px">${score.toFixed(1)}</span>
+          <div class="inflow-bar"><div style="background:${barColor};height:100%;width:${score}%"></div></div>
+        </div>
+      </td>
+      <td>${rs1m}</td>
+      <td>${rs3m}</td>
+      <td><span class="${mfiCls}">${s.mfi}</span></td>
+      <td>${s.rel_volume}x</td>
+      <td>${obv}</td>
+      <td>${breadth}</td>
+    </tr>`;
+  }
+  html += '</tbody></table>';
+  document.getElementById('sectorHeatmapContainer').innerHTML = html;
+  document.getElementById('sectorHeatmapWrap').style.display = 'block';
+}
+
+function renderSectorCards(sectors, top5) {
+  if (!top5) return;
+  const grid = document.getElementById('sectorCardsGrid');
+  let html = '';
+
+  for (const s of sectors) {
+    const stocks = top5[s.sector];
+    if (!stocks || stocks.length === 0) continue;
+    const score = s.inflow_score || 0;
+    const rankCls = s.rank <= 3 ? `rank-${s.rank}` : '';
+    const barColor = score >= 65 ? 'var(--green)' : score >= 45 ? 'var(--yellow)' : 'var(--red)';
+
+    html += `<div class="sector-card">
+      <div class="sector-card-header">
+        <div style="display:flex;align-items:center;gap:8px">
+          <span class="rank-badge ${rankCls}">${s.rank}</span>
+          <span class="sector-name">${s.sector}</span>
+        </div>
+        <div style="text-align:right">
+          <div style="color:${barColor};font-weight:700;font-size:13px">${score.toFixed(1)}</div>
+          <div class="sector-meta">Inflow Score</div>
+        </div>
+      </div>`;
+
+    for (let i = 0; i < stocks.length; i++) {
+      const st = stocks[i];
+      const score      = st.inflow_score ?? 0;
+      const ibdCls    = score >= 70 ? 'ibd-high' : score >= 45 ? 'ibd-mid' : 'ibd-low';
+      const trendCls  = st.in_uptrend ? 'trend-up' : 'trend-flat';
+      const trendLabel = st.in_uptrend ? '▲ Uptrend' : '— Flat';
+      const mfiCls    = st.mfi >= 60 ? 'pos' : st.mfi <= 40 ? 'neg' : 'neutral';
+      const r1mCls    = (st.r1m ?? 0) >= 0 ? 'pos' : 'neg';
+      html += `<div class="sector-stock-row">
+        <div class="stock-left">
+          <span class="stock-rank-num">${i+1}.</span>
+          <span class="stock-sym">${st.symbol}</span>
+          <span class="stock-trend ${trendCls}">${trendLabel}</span>
+        </div>
+        <div class="stock-right">
+          <span class="stock-mfi"><span class="${mfiCls}">MFI ${st.mfi ?? '—'}</span></span>
+          <span class="stock-price">₹${Number(st.price).toLocaleString('en-IN',{minimumFractionDigits:2,maximumFractionDigits:2})}</span>
+          <span class="ibd-badge ${ibdCls}">${score.toFixed(0)}</span>
+        </div>
+      </div>`;
+    }
+    html += `</div>`;
+  }
+  grid.innerHTML = html;
+  document.getElementById('sectorCardsWrap').style.display = 'block';
+}
+
+function fmtPct(v) {
+  if (v === null || v === undefined) return '<span class="neutral">—</span>';
+  const n = Number(v);
+  const cls = n > 0 ? 'pos' : n < 0 ? 'neg' : 'neutral';
+  return `<span class="${cls}">${n > 0 ? '+' : ''}${n.toFixed(2)}%</span>`;
+}
+
+// ── Breakout Scanner ───────────────────────────────────────────────────────
+let _brkData    = [];
+let _brkTfFilt  = 'ALL';
+let _brkPtFilt  = 'ALL';
+let _brkPollId  = null;
+
+function startBreakoutScan() {
+  fetch('/api/breakout/scan', {method:'POST'})
+    .then(r => r.json())
+    .then(d => {
+      if (d.status === 'started' || d.status === 'already_running') {
+        document.getElementById('breakoutProgressWrap').style.display = 'block';
+        document.getElementById('breakoutEmpty').style.display = 'none';
+        document.getElementById('breakoutTableWrap').style.display = 'none';
+        document.getElementById('breakoutFiltersWrap').style.display = 'none';
+        document.getElementById('breakoutBtn').disabled = true;
+        _brkPollId = setInterval(pollBreakout, 1500);
+      }
+    });
+}
+
+function pollBreakout() {
+  fetch('/api/breakout/status').then(r => r.json()).then(d => {
+    document.getElementById('breakoutProgressBar').style.width  = d.pct + '%';
+    document.getElementById('breakoutProgressPct').textContent  = d.pct.toFixed(0) + '%';
+    document.getElementById('breakoutProgressLabel').textContent = d.message || 'Scanning…';
+
+    if (!d.running) {
+      clearInterval(_brkPollId);
+      document.getElementById('breakoutProgressWrap').style.display = 'none';
+      document.getElementById('breakoutBtn').disabled = false;
+
+      if (d.error) {
+        document.getElementById('breakoutEmpty').innerHTML =
+          `<div style="font-size:48px">❌</div><p>Error: ${d.error}</p>`;
+        document.getElementById('breakoutEmpty').style.display = 'block';
+        return;
+      }
+      if (d.result && d.result.results && d.result.results.length > 0) {
+        _brkData = d.result.results;
+        const meta = `${d.result.total_scanned} stocks scanned · ${_brkData.length} breakouts`;
+        document.getElementById('breakoutScanMeta').textContent = meta;
+        updateBreakoutStats(d.result);
+        document.getElementById('breakoutFiltersWrap').style.display = 'block';
+        document.getElementById('breakoutStatsRow').style.display    = 'grid';
+        renderBreakoutTable();
+      } else {
+        document.getElementById('breakoutEmpty').style.display = 'block';
+      }
+    }
+  });
+}
+
+function updateBreakoutStats(result) {
+  const rs = result.results;
+  document.getElementById('brkScanned').textContent  = result.total_scanned.toLocaleString();
+  document.getElementById('brkFound').textContent    = rs.length;
+  const athCount = rs.filter(r => r.patterns.includes('ATH')).length;
+  const vcpCount = rs.filter(r => r.patterns.includes('VCP')).length;
+  document.getElementById('brkPatterns').textContent = `${athCount} / ${vcpCount}`;
+  const multi = rs.filter(r => r.timeframes.length >= 2).length;
+  document.getElementById('brkMultiTF').textContent  = multi;
+}
+
+function filterBreakout(type, val, btn) {
+  if (type === 'tf') {
+    _brkTfFilt = val;
+    document.querySelectorAll('[data-tf]').forEach(b => b.classList.remove('active'));
+  } else {
+    _brkPtFilt = val;
+    document.querySelectorAll('[data-pt]').forEach(b => b.classList.remove('active'));
+  }
+  btn.classList.add('active');
+  renderBreakoutTable();
+}
+
+function renderBreakoutTable() {
+  const search = (document.getElementById('breakoutSearch').value || '').toUpperCase();
+  let rows = _brkData.filter(r => {
+    if (search && !r.symbol.includes(search)) return false;
+    if (_brkTfFilt !== 'ALL' && !r.timeframes.includes(_brkTfFilt)) return false;
+    if (_brkPtFilt !== 'ALL' && !r.patterns.includes(_brkPtFilt)) return false;
+    return true;
+  });
+
+  if (rows.length === 0) {
+    document.getElementById('breakoutTableWrap').style.display = 'none';
+    document.getElementById('breakoutEmpty').style.display = 'block';
+    document.getElementById('breakoutEmpty').innerHTML =
+      '<div style="font-size:36px">🔍</div><p>No matches for the selected filters.</p>';
+    return;
+  }
+
+  document.getElementById('breakoutEmpty').style.display = 'none';
+  document.getElementById('breakoutTableWrap').style.display = 'block';
+
+  const tbody = document.getElementById('breakoutTbody');
+  let html = '';
+  rows.forEach((r, i) => {
+    const tfBadges = r.timeframes.map(t =>
+      `<span class="tf-badge tf-${t}">${t}</span>`).join('');
+    const ptBadges = r.patterns.map(p =>
+      `<span class="tf-badge pat-${p.replace(' ','')}">${p}</span>`).join('');
+    const vrCls    = r.vol_ratio >= 2 ? 'pos' : r.vol_ratio >= 1.5 ? 'neutral' : '';
+    const ma50Cls  = r.above_ma50  ? 'ma-ok' : 'ma-bad';
+    const ma200Cls = r.above_ma200 ? 'ma-ok' : 'ma-bad';
+
+    // Risk/Reward colour coding
+    const rrCls    = r.rr >= 2   ? 'pos'
+                   : r.rr >= 1.5 ? 'neutral'
+                   : 'neg';
+    const riskCls  = r.risk_pct <= 4 ? 'pos'
+                   : r.risk_pct <= 7 ? 'neutral'
+                   : 'neg';
+
+    const fmt2 = v => v != null ? '₹' + v.toLocaleString('en-IN', {minimumFractionDigits:2, maximumFractionDigits:2}) : '—';
+
+    html += `<tr>
+      <td style="color:var(--muted);font-size:11px">${i+1}</td>
+      <td><strong style="color:var(--accent)">${r.symbol}</strong></td>
+      <td style="font-weight:600">${fmt2(r.price)}</td>
+      <td>${tfBadges}</td>
+      <td>${ptBadges}</td>
+      <td style="font-weight:600;color:var(--accent)">${fmt2(r.entry)}</td>
+      <td style="font-weight:600;color:var(--red)">${fmt2(r.sl)}</td>
+      <td style="color:var(--green)">${fmt2(r.t1)}</td>
+      <td style="color:var(--green);font-weight:600">${fmt2(r.t2)}</td>
+      <td style="color:#d29922;font-weight:600">${fmt2(r.t3)}</td>
+      <td><span class="${riskCls}">${r.risk_pct != null ? r.risk_pct.toFixed(1)+'%' : '—'}</span></td>
+      <td><span class="${rrCls}" style="font-weight:700">${r.rr != null ? r.rr.toFixed(1)+'R' : '—'}</span></td>
+      <td><span class="${r.tt_score >= 7 ? 'pos' : r.tt_score >= 5 ? 'neutral' : ''}" style="font-weight:700">${r.tt_score != null ? r.tt_score+'/8' : '—'}</span></td>
+      <td><span class="${r.stage === 2 ? 'pos' : r.stage >= 3 ? 'neg' : 'neutral'}">${r.stage_label || '—'}</span></td>
+      <td style="font-size:10px">${(r.candles||[]).map(c=>`<span class="tf-badge pat-Box" style="font-size:9px;padding:1px 4px">${c}</span>`).join('') || '—'}</td>
+      <td><span class="${vrCls}">${r.vol_ratio}x</span></td>
+      <td>
+        <span class="${ma50Cls}">50${r.above_ma50 ? '✓' : '✗'}</span>
+        <span class="${ma200Cls}" style="margin-left:3px">200${r.above_ma200 ? '✓' : '✗'}</span>
+      </td>
+    </tr>`;
+  });
+  tbody.innerHTML = html;
+}
+
+// ══════════════════════════════════════════════════════ INSTITUTIONAL SCANNER
+
+let _instData = [];
+let _instFilt = 'ALL';
+let _instPoll = null;
+
+function startInstScan() {
+  document.getElementById('instBtn').disabled = true;
+  document.getElementById('instBtn').textContent = 'Scanning…';
+  document.getElementById('instProgressWrap').style.display = 'block';
+  document.getElementById('instStatsRow').style.display    = 'none';
+  document.getElementById('instFiltersWrap').style.display = 'none';
+  document.getElementById('instTableWrap').style.display   = 'none';
+  document.getElementById('instEmpty').style.display       = 'block';
+  document.getElementById('instEmpty').innerHTML =
+    '<div style="font-size:36px;margin-bottom:12px">⏳</div><p>Scanning all NSE stocks for institutional setups…</p>';
+
+  fetch('/api/institutional/scan', {method:'POST'})
+    .then(r => r.json())
+    .then(() => { _instPoll = setInterval(pollInstStatus, 2000); });
+}
+
+function pollInstStatus() {
+  fetch('/api/institutional/status')
+    .then(r => r.json())
+    .then(d => {
+      document.getElementById('instProgressBar').style.width   = d.pct + '%';
+      document.getElementById('instProgressPct').textContent   = d.pct.toFixed(1) + '%';
+      document.getElementById('instProgressLabel').textContent = d.message || 'Scanning…';
+
+      if (!d.running && (d.result || d.error)) {
+        clearInterval(_instPoll);
+        document.getElementById('instProgressWrap').style.display = 'none';
+        document.getElementById('instBtn').disabled    = false;
+        document.getElementById('instBtn').textContent = 'Run Institutional Scan';
+
+        if (d.error) {
+          document.getElementById('instEmpty').style.display = 'block';
+          document.getElementById('instEmpty').innerHTML =
+            `<div style="color:var(--red)">Error: ${d.error}</div>`;
+          return;
+        }
+
+        _instData = d.result.results || [];
+        const pp  = d.result.pp_count || 0;
+        const ear = d.result.earnings_count || 0;
+        const both = _instData.filter(r => r.setup_types.length >= 2).length;
+        const avgScore = _instData.length
+          ? (_instData.reduce((s,r)=>s+r.inst_score,0) / _instData.length).toFixed(1)
+          : '—';
+
+        document.getElementById('instScanned').textContent = (d.result.total_scanned||0).toLocaleString();
+        document.getElementById('instPP').textContent  = pp;
+        document.getElementById('instEar').textContent = ear;
+        document.getElementById('instBoth').textContent = both;
+        document.getElementById('instAvgScore').textContent = avgScore;
+        document.getElementById('instScanMeta').textContent =
+          `${d.result.total_scanned} stocks · ${_instData.length} setups · ${pp} PP · ${ear} Earnings`;
+
+        document.getElementById('instStatsRow').style.display    = 'grid';
+        document.getElementById('instFiltersWrap').style.display = 'block';
+        document.getElementById('instEmpty').style.display = 'none';
+        renderInstTable();
+      }
+    });
+}
+
+function filterInst(val, btn) {
+  _instFilt = val;
+  document.querySelectorAll('[data-ist]').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  renderInstTable();
+}
+
+function renderInstTable() {
+  const search = (document.getElementById('instSearch').value || '').toUpperCase();
+  let rows = _instData.filter(r => {
+    if (search && !r.symbol.includes(search)) return false;
+    if (_instFilt === 'BOTH')         return r.setup_types.length >= 2;
+    if (_instFilt !== 'ALL')          return r.setup_types.includes(_instFilt);
+    return true;
+  });
+
+  const tbody = document.getElementById('instTbody');
+  if (rows.length === 0) {
+    document.getElementById('instTableWrap').style.display = 'none';
+    document.getElementById('instEmpty').style.display = 'block';
+    document.getElementById('instEmpty').innerHTML =
+      '<div style="font-size:36px">🔍</div><p>No matches for the selected filter.</p>';
+    tbody.innerHTML = '';
+    return;
+  }
+
+  document.getElementById('instEmpty').style.display   = 'none';
+  document.getElementById('instTableWrap').style.display = 'block';
+
+  const fmt2 = v => v != null ? '₹' + Number(v).toLocaleString('en-IN',{minimumFractionDigits:2,maximumFractionDigits:2}) : '—';
+  const fmtN = (v, suffix='') => v != null ? Number(v).toFixed(1) + suffix : '—';
+
+  let html = '';
+  rows.forEach((r, i) => {
+    // Setup badges
+    const setupBadges = r.setup_types.map(s => {
+      const cls = s === 'PocketPivot' ? 'pat-VCP' : 'pat-Box';
+      const lbl = s === 'PocketPivot' ? '⚡ PP' : '📈 Earn';
+      return `<span class="tf-badge ${cls}">${lbl}</span>`;
+    }).join('');
+
+    // Institutional score colour
+    const isCls = r.inst_score >= 70 ? 'pos' : r.inst_score >= 45 ? 'neutral' : '';
+    const rsCls  = r.rs_rating  >= 80 ? 'pos' : r.rs_rating  >= 60 ? 'neutral' : 'neg';
+    const rrCls  = r.rr >= 2   ? 'pos' : r.rr >= 1.5 ? 'neutral' : 'neg';
+    const riskCls= r.risk_pct <= 4 ? 'pos' : r.risk_pct <= 7 ? 'neutral' : 'neg';
+    const udrCls = r.udr >= 1.5 ? 'pos' : r.udr >= 1.0 ? 'neutral' : 'neg';
+    const accCls = r.acc_days >= 3 ? 'pos' : '';
+    const distCls= r.dist_days >= 4 ? 'neg' : r.dist_days >= 2 ? 'neutral' : 'pos';
+    const tightCls = r.tightness <= 2.5 ? 'pos' : r.tightness <= 4 ? 'neutral' : '';
+    const ma50Cls  = r.above_ma50  ? 'ma-ok' : 'ma-bad';
+    const ma200Cls = r.above_ma200 ? 'ma-ok' : 'ma-bad';
+
+    // Details cell: PP shows %_from_MA50 + vol_vs_down; Earnings shows days_since_gap + range
+    let detailHtml = '';
+    if (r.pct_from_ma50 != null) {
+      detailHtml += `<span style="font-size:11px;color:var(--muted)">MA50+${r.pct_from_ma50.toFixed(1)}%</span> `;
+    }
+    if (r.vol_vs_down != null) {
+      detailHtml += `<span style="font-size:11px;color:var(--accent)">${r.vol_vs_down}×↑</span>`;
+    }
+    if (r.days_since_gap != null) {
+      detailHtml += `<span style="font-size:11px;color:var(--yellow)">${r.days_since_gap}d post-gap</span>`;
+    }
+    if (r.consolidation_range_pct != null) {
+      detailHtml += ` <span style="font-size:11px;color:var(--muted)">${r.consolidation_range_pct}% rng</span>`;
+    }
+
+    html += `<tr>
+      <td style="color:var(--muted);font-size:11px">${i+1}</td>
+      <td><strong style="color:var(--accent)">${r.symbol}</strong>
+        <div style="font-size:10px;color:var(--muted)">ADTV ₹${r.adtv_cr}Cr</div></td>
+      <td style="font-weight:600">₹${r.price.toLocaleString('en-IN',{minimumFractionDigits:2,maximumFractionDigits:2})}</td>
+      <td>${setupBadges}</td>
+      <td><span class="${isCls}" style="font-weight:700">${r.inst_score}</span></td>
+      <td><span class="${rsCls}" style="font-weight:700">${r.rs_rating}</span></td>
+      <td style="font-weight:600;color:var(--accent)">${fmt2(r.entry)}</td>
+      <td style="font-weight:600;color:var(--red)">${fmt2(r.sl)}</td>
+      <td style="color:var(--green)">${fmt2(r.t1)}</td>
+      <td style="color:var(--green);font-weight:600">${fmt2(r.t2)}</td>
+      <td style="color:#d29922;font-weight:600">${fmt2(r.t3)}</td>
+      <td><span class="${riskCls}">${r.risk_pct != null ? r.risk_pct.toFixed(1)+'%' : '—'}</span></td>
+      <td><span class="${rrCls}" style="font-weight:700">${r.rr != null ? r.rr.toFixed(1)+'R' : '—'}</span></td>
+      <td><span class="${udrCls}">${r.udr != null ? r.udr.toFixed(2)+'x' : '—'}</span></td>
+      <td>
+        <span class="${accCls}">${r.acc_days}A</span> /
+        <span class="${distCls}">${r.dist_days}D</span>
+      </td>
+      <td><span class="${tightCls}">${r.tightness != null ? r.tightness.toFixed(1)+'%' : '—'}</span></td>
+      <td><span class="${r.tt_score >= 7 ? 'pos' : r.tt_score >= 5 ? 'neutral' : ''}" style="font-weight:700">${r.tt_score != null ? r.tt_score+'/8' : '—'}</span></td>
+      <td><span class="${r.stage === 2 ? 'pos' : r.stage >= 3 ? 'neg' : 'neutral'}">${r.stage_label || '—'}</span></td>
+      <td style="font-size:11px">${(r.extra_signals||[]).map(s => `<span class="tf-badge" style="font-size:10px">${s}</span>`).join('') || '—'}</td>
+      <td style="font-size:11px">${detailHtml || '—'}</td>
+      <td>
+        <span class="${ma50Cls}">50${r.above_ma50 ? '✓' : '✗'}</span>
+        <span class="${ma200Cls}" style="margin-left:3px">200${r.above_ma200 ? '✓' : '✗'}</span>
+      </td>
+    </tr>`;
+  });
+  tbody.innerHTML = html;
+}
+
+// ══════════════════════════════════════════════════════════ ADVANCED SETUPS
+
+let _advData = [], _advFilt = 'ALL', _advTTFilt = 'ALL', _advStageFilt = 'ALL';
+let _advPoll = null;
+
+function startAdvancedScan() {
+  document.getElementById('advBtn').disabled = true;
+  document.getElementById('advBtn').textContent = 'Scanning…';
+  document.getElementById('advProgressWrap').style.display = 'block';
+  document.getElementById('advStatsRow').style.display    = 'none';
+  document.getElementById('advFiltersWrap').style.display = 'none';
+  document.getElementById('advTableWrap').style.display   = 'none';
+  document.getElementById('advEmpty').style.display       = 'block';
+  document.getElementById('advEmpty').innerHTML = '<div style="font-size:36px">⏳</div><p>Scanning all NSE stocks…</p>';
+  fetch('/api/advanced/scan', {method:'POST'}).then(r => r.json())
+    .then(() => { _advPoll = setInterval(pollAdvStatus, 2500); });
+}
+
+function pollAdvStatus() {
+  fetch('/api/advanced/status').then(r => r.json()).then(d => {
+    document.getElementById('advProgressBar').style.width = d.pct + '%';
+    document.getElementById('advProgressPct').textContent = d.pct.toFixed(1) + '%';
+    document.getElementById('advProgressLabel').textContent = d.message || 'Scanning…';
+
+    if (!d.running && (d.result || d.error)) {
+      clearInterval(_advPoll);
+      document.getElementById('advProgressWrap').style.display = 'none';
+      document.getElementById('advBtn').disabled = false;
+      document.getElementById('advBtn').textContent = 'Run Advanced Scan';
+
+      if (d.error) {
+        document.getElementById('advEmpty').innerHTML = `<div style="color:var(--red)">Error: ${d.error}</div>`;
+        return;
+      }
+
+      _advData = d.result.results || [];
+      const c = d.result.counts || {};
+      document.getElementById('advScanned').textContent = (d.result.total_scanned||0).toLocaleString();
+      document.getElementById('advHTF').textContent  = c.htf    || 0;
+      document.getElementById('advNR7').textContent  = c.nr7    || 0;
+      document.getElementById('adv3WT').textContent  = c.three_wt || 0;
+      document.getElementById('advRSNH').textContent = c.rs_line || 0;
+      document.getElementById('advTT7').textContent  = c.tt_7plus || 0;
+      document.getElementById('advScanMeta').textContent =
+        `${d.result.total_scanned} stocks · ${_advData.length} setups · ${c.htf||0} HTF · ${c.rs_line||0} RS New High · ${c.tt_7plus||0} TT≥7`;
+
+      document.getElementById('advStatsRow').style.display    = 'grid';
+      document.getElementById('advFiltersWrap').style.display = 'block';
+      document.getElementById('advEmpty').style.display       = 'none';
+      renderAdvTable();
+    }
+  });
+}
+
+function filterAdv(val, btn) {
+  _advFilt = val;
+  document.querySelectorAll('[data-adv]').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  renderAdvTable();
+}
+function filterAdvTT(val, btn) {
+  _advTTFilt = val;
+  document.querySelectorAll('[data-advtt]').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  renderAdvTable();
+}
+function filterAdvStage(val, btn) {
+  _advStageFilt = val;
+  document.querySelectorAll('[data-advst]').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  renderAdvTable();
+}
+
+function renderAdvTable() {
+  const search = (document.getElementById('advSearch').value || '').toUpperCase();
+  let rows = _advData.filter(r => {
+    if (search && !r.symbol.includes(search)) return false;
+    if (_advFilt !== 'ALL' && !r.setups.includes(_advFilt)) return false;
+    if (_advTTFilt === '7' && r.tt_score < 7) return false;
+    if (_advTTFilt === '5' && (r.tt_score < 5 || r.tt_score > 6)) return false;
+    if (_advStageFilt === '2' && r.stage !== 2) return false;
+    return true;
+  });
+
+  const tbody = document.getElementById('advTbody');
+  if (rows.length === 0) {
+    document.getElementById('advTableWrap').style.display = 'none';
+    document.getElementById('advEmpty').style.display = 'block';
+    document.getElementById('advEmpty').innerHTML = '<div style="font-size:36px">🔍</div><p>No matches.</p>';
+    tbody.innerHTML = '';
+    return;
+  }
+
+  document.getElementById('advEmpty').style.display   = 'none';
+  document.getElementById('advTableWrap').style.display = 'block';
+
+  const fmt2 = v => v != null ? '₹' + Number(v).toLocaleString('en-IN',{minimumFractionDigits:2,maximumFractionDigits:2}) : '—';
+  const setupColors = {'HTF':'#f0a500','NR7':null,'InsideBar':null,'3WT':null,'RSLineHigh':null};
+  const setupIcons  = {'HTF':'🚩','NR7':'📏','InsideBar':'📦','3WT':'🎯','RSLineHigh':'📈'};
+
+  let html = '';
+  rows.forEach((r, i) => {
+    const setupBadges = (r.setups || []).map(s => {
+      const col = setupColors[s] ? `style="background:${setupColors[s]}20;color:${setupColors[s]};border-color:${setupColors[s]}40"` : '';
+      return `<span class="tf-badge" ${col}>${setupIcons[s]||''} ${s}</span>`;
+    }).join('');
+
+    const candleBadges = (r.candles || []).map(c =>
+      `<span class="tf-badge pat-VCP" style="font-size:10px">${c}</span>`
+    ).join('');
+
+    const ttCls   = r.tt_score >= 7 ? 'pos' : r.tt_score >= 5 ? 'neutral' : '';
+    const stageCls= r.stage === 2 ? 'pos' : r.stage === 3 || r.stage === 4 ? 'neg' : 'neutral';
+    const rsCls   = r.rs_rating >= 80 ? 'pos' : r.rs_rating >= 60 ? 'neutral' : 'neg';
+    const rrCls   = r.rr >= 2 ? 'pos' : r.rr >= 1.5 ? 'neutral' : 'neg';
+    const riskCls = r.risk_pct <= 4 ? 'pos' : r.risk_pct <= 7 ? 'neutral' : 'neg';
+    const ma50Cls  = r.above_ma50  ? 'ma-ok' : 'ma-bad';
+    const ma200Cls = r.above_ma200 ? 'ma-ok' : 'ma-bad';
+
+    let details = '';
+    if (r.htf_run_pct != null)  details += `<span style="color:#f0a500;font-size:11px">+${r.htf_run_pct}% run</span> `;
+    if (r.htf_flag_pct != null) details += `<span style="color:var(--muted);font-size:11px">${r.htf_flag_pct}% flag</span>`;
+
+    // Composite rank badge
+    const cr = r.comp_rank || 0;
+    const crCls = cr >= 75 ? '#3fb950' : cr >= 55 ? '#d29922' : '#8b949e';
+    const crBg  = cr >= 75 ? 'rgba(63,185,80,0.15)' : cr >= 55 ? 'rgba(210,153,34,0.15)' : 'rgba(139,148,158,0.1)';
+    // Power Trend
+    const ptBadge = r.power_trend
+      ? `<span style="background:rgba(63,185,80,0.2);color:var(--green);padding:1px 6px;border-radius:4px;font-size:10px;font-weight:700">⚡PT</span>`
+      : `<span style="color:var(--muted);font-size:11px">—</span>`;
+    // P/V character
+    const pvCls = r.pv_char === 'Accumulation' ? 'pos' : r.pv_char === 'Distribution' ? 'neg' : 'neutral';
+    // Delivery trend
+    const dtCls = r.deliv_trend === 'Rising' ? 'pos' : r.deliv_trend === 'Falling' ? 'neg' : 'neutral';
+    // Gap
+    const gapBadge = r.gap
+      ? `<span class="tf-badge" style="background:rgba(88,166,255,0.15);color:var(--accent);font-size:10px">${r.gap}</span>`
+      : '—';
+    // Base count
+    const baseLabel = r.base_count === 1 ? `<span class="pos">B1 ✓</span>` :
+                      r.base_count === 2 ? `<span class="neutral">B2</span>` :
+                      r.base_count >= 3  ? `<span class="neg">B${r.base_count}</span>` : '—';
+
+    html += `<tr>
+      <td style="color:var(--muted);font-size:11px">${i+1}</td>
+      <td><strong style="color:var(--accent)">${r.symbol}</strong>
+        <div style="font-size:10px;color:var(--muted)">ADTV ₹${r.adtv_cr}Cr</div></td>
+      <td style="font-weight:600">₹${r.price.toLocaleString('en-IN',{minimumFractionDigits:2,maximumFractionDigits:2})}</td>
+      <td><span style="display:inline-block;min-width:36px;text-align:center;padding:3px 8px;border-radius:12px;font-weight:800;font-size:13px;background:${crBg};color:${crCls}">${cr}</span></td>
+      <td>${setupBadges}</td>
+      <td>${candleBadges || '<span style="color:var(--muted);font-size:11px">—</span>'}</td>
+      <td><span class="${ttCls}" style="font-weight:700">${r.tt_score}/8</span></td>
+      <td><span class="${stageCls}" style="font-weight:600">${r.stage_label || '—'}</span></td>
+      <td><span class="${rsCls}" style="font-weight:700">${r.rs_rating}</span></td>
+      <td>${ptBadge}</td>
+      <td>${baseLabel}</td>
+      <td><span class="${pvCls}" style="font-size:11px">${r.pv_char || '—'}</span></td>
+      <td style="font-size:11px"><span class="${dtCls}">${r.deliv_trend || '—'}</span>
+        ${r.deliv_avg != null ? `<div style="font-size:10px;color:var(--muted)">${r.deliv_avg}%</div>` : ''}</td>
+      <td>${gapBadge}</td>
+      <td style="font-weight:600;color:var(--accent)">${fmt2(r.entry)}</td>
+      <td style="font-weight:600;color:var(--red)">${fmt2(r.sl)}</td>
+      <td style="color:var(--green)">${fmt2(r.t1)}</td>
+      <td style="color:var(--green);font-weight:600">${fmt2(r.t2)}</td>
+      <td style="color:#d29922;font-weight:600">${fmt2(r.t3)}</td>
+      <td><span class="${riskCls}">${r.risk_pct != null ? r.risk_pct.toFixed(1)+'%' : '—'}</span></td>
+      <td><span class="${rrCls}" style="font-weight:700">${r.rr != null ? r.rr.toFixed(1)+'R' : '—'}</span></td>
+      <td>
+        <span class="${ma50Cls}">50${r.above_ma50 ? '✓' : '✗'}</span>
+        <span class="${ma200Cls}" style="margin-left:3px">200${r.above_ma200 ? '✓' : '✗'}</span>
+      </td>
+    </tr>`;
+  });
+  tbody.innerHTML = html;
+}
+
+// ══════════════════════════════════════════════════════════ MARKET BREADTH
+
+let _breadthPoll = null;
+
+function startBreadthScan() {
+  document.getElementById('breadthBtn').disabled = true;
+  document.getElementById('breadthBtn').textContent = 'Loading…';
+  document.getElementById('breadthProgress').style.display = 'block';
+  document.getElementById('breadthEmpty').style.display = 'none';
+
+  fetch('/api/breadth/refresh', {method:'POST'}).then(r => r.json())
+    .then(() => { _breadthPoll = setInterval(pollBreadthStatus, 2000); });
+}
+
+function pollBreadthStatus() {
+  fetch('/api/breadth/status').then(r => r.json()).then(d => {
+    if (!d.running && (d.result || d.error)) {
+      clearInterval(_breadthPoll);
+      document.getElementById('breadthProgress').style.display = 'none';
+      document.getElementById('breadthBtn').disabled = false;
+      document.getElementById('breadthBtn').textContent = 'Refresh Breadth';
+
+      if (d.error) {
+        document.getElementById('breadthEmpty').style.display = 'block';
+        document.getElementById('breadthEmpty').innerHTML = `<div style="color:var(--red)">Error: ${d.error}</div>`;
+        return;
+      }
+      renderBreadth(d.result);
+    }
+  });
+}
+
+function renderBreadth(data) {
+  const b    = data.breadth;
+  const t    = data.timing;
+  const dist = data.dist_days;
+
+  // Timing card
+  const timingEl = document.getElementById('breadthTimingCard');
+  const inner    = document.getElementById('breadthTimingInner');
+  const statusEl = document.getElementById('breadthTimingStatus');
+  const detailEl = document.getElementById('breadthTimingDetail');
+
+  const bgMap = {
+    'Bull Market':       '#3fb95020',
+    'Uptrend (Caution)': '#d2992220',
+    'Correction':        '#f8514920',
+    'Bear Market':       '#f8514930',
+  };
+  const colMap = {
+    'Bull Market':       'var(--green)',
+    'Uptrend (Caution)': 'var(--yellow)',
+    'Correction':        'var(--red)',
+    'Bear Market':       'var(--red)',
+  };
+
+  inner.style.background = bgMap[t.status] || '';
+  statusEl.style.color   = colMap[t.status] || 'var(--text)';
+  statusEl.textContent   = t.status;
+  detailEl.textContent   = `Timing score: ${t.score}/${t.max} · ${b.total_stocks} NSE stocks analysed`;
+  timingEl.style.display = 'block';
+
+  // Metric cards
+  const p50 = b.pct_above_50ma, p200 = b.pct_above_200ma;
+  const adr = b.adv_decl_ratio;
+
+  const el = id => document.getElementById(id);
+  el('brd50').textContent  = p50 + '%';
+  el('brd50').className    = 'stat-val ' + (p50 >= 60 ? 'pos' : p50 >= 40 ? 'neutral' : 'neg');
+  el('brd200').textContent = p200 + '%';
+  el('brd200').className   = 'stat-val ' + (p200 >= 55 ? 'pos' : p200 >= 35 ? 'neutral' : 'neg');
+  el('brdHL').textContent  = b.new_highs + ' / ' + b.new_lows;
+  el('brdHL').className    = 'stat-val ' + (b.new_highs > b.new_lows * 2 ? 'pos' : b.new_highs < b.new_lows ? 'neg' : 'neutral');
+  el('brdHLsub').textContent = `H/L ratio: ${(b.new_highs/(b.new_highs+b.new_lows+1)*100).toFixed(0)}%`;
+  el('brdADR').textContent = adr + 'x';
+  el('brdADR').className   = 'stat-val ' + (adr >= 1.5 ? 'pos' : adr >= 1.0 ? 'neutral' : 'neg');
+  el('brdADRsub').textContent = `${b.advance} up · ${b.decline} down`;
+
+  el('brdStage').textContent = data.nifty_stage_label || '—';
+  el('brdStage').className   = 'stat-val ' + (data.nifty_stage === 2 ? 'pos' : data.nifty_stage >= 3 ? 'neg' : 'neutral');
+  el('brdDist').textContent  = dist;
+  el('brdDist').className    = 'stat-val ' + (dist <= 3 ? 'pos' : dist <= 5 ? 'neutral' : 'neg');
+  const n1 = data.nifty_r1m != null ? (data.nifty_r1m > 0 ? '+' : '') + data.nifty_r1m.toFixed(1) + '%' : '—';
+  const n3 = data.nifty_r3m != null ? (data.nifty_r3m > 0 ? '+' : '') + data.nifty_r3m.toFixed(1) + '%' : '—';
+  el('brdNifty').textContent = `${n1} / ${n3}`;
+  el('brdTotal').textContent = (b.total_stocks || 0).toLocaleString();
+
+  document.getElementById('breadthMetrics').style.display   = 'grid';
+  document.getElementById('breadthSecondary').style.display = 'grid';
+  document.getElementById('breadthEmpty').style.display     = 'none';
+
+  // New highs list
+  const highs = data.new_highs_list || [];
+  document.getElementById('breadthHighsList').style.display = highs.length ? 'block' : 'none';
+  document.getElementById('breadthMeta').textContent =
+    `${b.total_stocks} stocks · ${b.new_highs} new highs · ${b.new_lows} new lows`;
+
+  let html = '';
+  highs.forEach((r, i) => {
+    const vrCls = r.vol_ratio >= 2 ? 'pos' : r.vol_ratio >= 1.3 ? 'neutral' : '';
+    const r3Cls = r.r3m >= 20 ? 'pos' : r.r3m >= 0 ? 'neutral' : 'neg';
+    html += `<tr>
+      <td style="color:var(--muted);font-size:11px">${i+1}</td>
+      <td><strong style="color:var(--accent)">${r.symbol}</strong></td>
+      <td>₹${r.price.toLocaleString('en-IN',{minimumFractionDigits:2,maximumFractionDigits:2})}</td>
+      <td>${r.adtv_cr}</td>
+      <td><span class="${vrCls}">${r.vol_ratio}x</span></td>
+      <td><span class="${r3Cls}">${r.r3m > 0 ? '+' : ''}${r.r3m}%</span></td>
+    </tr>`;
+  });
+  document.getElementById('breadthHighsTbody').innerHTML = html;
+
+  // Follow-Through Day
+  const ftd = data.ftd || {};
+  if (ftd.rally_attempt !== undefined) {
+    document.getElementById('ftdCard').style.display = 'block';
+    document.getElementById('ftdRally').textContent  = ftd.rally_attempt ? 'Yes ✓' : 'No';
+    document.getElementById('ftdRally').className    = 'value ' + (ftd.rally_attempt ? 'pos' : 'neutral');
+    document.getElementById('ftdDays').textContent   = ftd.rally_attempt ? `Day ${ftd.days_since_trough + 1}` : '—';
+    const tpct = ftd.trough_to_now_pct;
+    document.getElementById('ftdTrough').textContent = tpct ? `+${tpct.toFixed(1)}%` : '—';
+    document.getElementById('ftdToday').textContent  = ftd.ftd_today ? '🚀 YES' : 'No';
+    document.getElementById('ftdToday').className    = 'value ' + (ftd.ftd_today ? 'pos' : 'neutral');
+    const tc = ftd.today_chg_pct || 0;
+    document.getElementById('ftdTodayChg').textContent = (tc >= 0 ? '+' : '') + tc.toFixed(2) + '%';
+    document.getElementById('ftdTodayChg').className   = 'value ' + (tc >= 1.7 ? 'pos' : tc >= 0 ? 'neutral' : 'neg');
+    document.getElementById('ftdWindow').textContent = ftd.ftd_in_window ? 'Confirmed ✓' : 'Not yet';
+    document.getElementById('ftdWindow').className   = 'value ' + (ftd.ftd_in_window ? 'pos' : 'neutral');
+  }
+}
+
+// ══════════════════════════════════════════════════════ INDUSTRY GROUPS JS
+
+let _indPoll = null;
+
+function startIndustry() {
+  document.getElementById('indBtn').disabled = true;
+  document.getElementById('indBtn').textContent = 'Loading…';
+  document.getElementById('indProgress').style.display = 'block';
+  document.getElementById('indEmpty').style.display    = 'none';
+
+  fetch('/api/industry/refresh', {method:'POST'}).then(r => r.json())
+    .then(() => { _indPoll = setInterval(pollIndustryStatus, 2000); });
+}
+
+function pollIndustryStatus() {
+  fetch('/api/industry/status').then(r => r.json()).then(d => {
+    document.getElementById('indProgressPct').textContent  = d.pct + '%';
+    document.getElementById('indProgressBar').style.width  = d.pct + '%';
+    document.getElementById('indProgressLabel').textContent = d.message || 'Processing…';
+
+    if (!d.running && (d.result || d.error)) {
+      clearInterval(_indPoll);
+      document.getElementById('indProgress').style.display = 'none';
+      document.getElementById('indBtn').disabled = false;
+      document.getElementById('indBtn').textContent = 'Refresh';
+      if (d.error) {
+        document.getElementById('indEmpty').style.display = 'block';
+        document.getElementById('indEmpty').innerHTML = `<div style="color:var(--red)">Error: ${d.error}</div>`;
+        return;
+      }
+      renderIndustry(d.result);
+    }
+  });
+}
+
+function renderIndustry(data) {
+  const groups = data.groups || [];
+  if (!groups.length) return;
+  document.getElementById('indEmpty').style.display    = 'none';
+  document.getElementById('indTableWrap').style.display = 'block';
+  const ts = data.computed_at ? new Date(data.computed_at*1000).toLocaleTimeString() : '';
+  document.getElementById('indMeta').textContent = `${groups.length} groups · ${ts}`;
+
+  let html = '';
+  groups.forEach(g => {
+    const rsCls = g.rs_vs_nifty >= 5 ? 'pos' : g.rs_vs_nifty >= 0 ? 'neutral' : 'neg';
+    const r1Cls = g.r1m >= 0 ? 'pos' : 'neg';
+    const r3Cls = g.r3m >= 0 ? 'pos' : 'neg';
+    const r6Cls = g.r6m >= 0 ? 'pos' : 'neg';
+    const rankBadge = g.rank <= 3 ? `rank-${g.rank}` : '';
+    const topSyms = (g.symbols || []).slice(0,4).join(', ');
+    html += `<tr>
+      <td><span class="rank-badge ${rankBadge}">${g.rank}</span></td>
+      <td style="font-weight:700;min-width:170px">${g.group}</td>
+      <td><span class="${r1Cls}">${g.r1m > 0 ? '+' : ''}${g.r1m}%</span></td>
+      <td><span class="${r3Cls}" style="font-weight:700">${g.r3m > 0 ? '+' : ''}${g.r3m}%</span></td>
+      <td><span class="${r6Cls}">${g.r6m > 0 ? '+' : ''}${g.r6m}%</span></td>
+      <td><span class="${rsCls}" style="font-weight:800">${g.rs_vs_nifty > 0 ? '+' : ''}${g.rs_vs_nifty}%</span></td>
+      <td style="color:var(--muted)">${g.member_count}</td>
+      <td style="color:var(--muted);font-size:11px;max-width:200px;white-space:normal">${topSyms}</td>
+    </tr>`;
+  });
+  document.getElementById('indTbody').innerHTML = html;
+}
+
+// ── Theme toggle ───────────────────────────────────────────────────────────
+function toggleTheme() {
+  const isLight = document.body.classList.toggle('light');
+  const btn = document.getElementById('themeBtn');
+  btn.textContent = isLight ? '🌑 Dark' : '🌙 Dark';
+  localStorage.setItem('theme', isLight ? 'light' : 'dark');
+}
+(function() {
+  if (localStorage.getItem('theme') === 'light') {
+    document.body.classList.add('light');
+    document.getElementById('themeBtn').textContent = '🌑 Dark';
+  }
+})();
+
+</script>
+</body>
+</html>
