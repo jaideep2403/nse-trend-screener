@@ -280,7 +280,7 @@
     </div>
   </div>
 
-  <p class="disclaimer">Not financial advice. Data from Yahoo Finance. For educational purposes only.</p>
+  <p class="disclaimer">Not financial advice. Data from NSE Bhavcopy. For educational purposes only.</p>
 </div>
 </div>
 
@@ -950,7 +950,7 @@ function startScan() {
   document.getElementById('statsRow').style.display = 'none';
   document.getElementById('funnelWrap').style.display = 'none';
   document.getElementById('tableContainer').innerHTML =
-    '<div class="empty-state"><span class="spinner"></span> Fetching data from Yahoo Finance…</div>';
+    '<div class="empty-state"><span class="spinner"></span> Fetching data from NSE Bhavcopy…</div>';
 
   fetch('/api/scan', {
     method: 'POST',
@@ -1153,12 +1153,12 @@ function pollSector() {
         renderSectorHeatmap(d.result.sectors);
         renderSectorCards(d.result.sectors, d.result.top5);
       } else {
-        // Got empty results — likely Yahoo rate-limited; ask user to retry
+        // Got empty results — bhavcopy cold start still downloading
         document.getElementById('sectorEmpty').style.display = 'block';
         document.getElementById('sectorEmpty').innerHTML =
           `<div class="icon">⏳</div>
-           <p>No sector data returned — Yahoo Finance may be rate-limiting.</p>
-           <p style="margin-top:6px;font-size:11px">Run the <strong>Stock Screener</strong> first, then click Load Sector Data again.</p>`;
+           <p>No sector data yet — NSE bhavcopy data is still loading (cold start takes 2–3 min).</p>
+           <p style="margin-top:6px;font-size:11px">Run the <strong>Stock Screener</strong> first to warm the cache, then click Load Sector Data again.</p>`;
       }
     }
   });
