@@ -16,8 +16,9 @@ from datetime import date, timedelta
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # ── Directories ────────────────────────────────────────────────────────────────
-BHAV_DIR   = Path("/tmp/nse_bhav_days")    # one pkl per trading day
-OHLCV_DIR  = Path("/tmp/nse_ohlcv_pkl")   # one pkl per stock (same as before)
+import os
+BHAV_DIR   = Path(os.getenv("BHAV_DIR",  "/tmp/nse_bhav_days"))
+OHLCV_DIR  = Path(os.getenv("OHLCV_DIR", "/tmp/nse_ohlcv_pkl"))
 OHLCV_TTL  = 6 * 3600                      # reuse stock pkl for 6 hours
 BHAV_DIR.mkdir(exist_ok=True)
 OHLCV_DIR.mkdir(exist_ok=True)
