@@ -7,8 +7,10 @@ import time
 import pandas as pd
 from data_fetcher import _weekdays_back, _download_one_day
 
-_cache    = {"data": None, "ts": 0}
-CACHE_TTL = 3600   # 1 hour
+_cache        = {"data": None, "ts": 0}
+_stocks_cache = {"data": None, "ts": 0}
+CACHE_TTL     = 3600   # 1 hour
+STOCKS_TTL    = 3600   # reuse loaded stocks for 1 hour
 
 _NIFTY_SYMS = [
     "RELIANCE", "TCS", "HDFCBANK", "ICICIBANK", "INFOSYS",
@@ -152,13 +154,141 @@ def _group_rs(stocks: dict, nifty: pd.Series) -> list[dict]:
     return results
 
 
+# ── Cached stock loader (shared between industry analysis + RRG) ──────────────
+
+def _get_stocks(progress_callback=None) -> dict:
+    if _stocks_cache["data"] and time.time() - _stocks_cache["ts"] < STOCKS_TTL:
+        return _stocks_cache["data"]
+    stocks = _load_stocks(progress_callback)
+    _stocks_cache["data"] = stocks
+    _stocks_cache["ts"]   = time.time()
+    return stocks
+
+
+# ── RRG computation ───────────────────────────────────────────────────────────
+
+def _compute_rrg(stocks: dict, nifty: pd.Series) -> list[dict]:
+    """
+    Compute Relative Rotation Graph positions for each industry group.
+
+    Algorithm (approximates JdK RRG):
+    1. Build a daily price index for each group (equal-weight mean of constituents)
+    2. Compute raw RS line = group_index / nifty_index
+    3. Resample to weekly (last trading day of each ISO week)
+    4. RS-Ratio  = weekly RS / 26-week rolling mean × 100  (>100 = outperforming)
+    5. RS-Momentum = (RS-Ratio[t] / RS-Ratio[t-4]) × 100   (>100 = improving)
+    6. Return the last 5 weekly (x=RS-Ratio, y=RS-Momentum) as a trail
+
+    Quadrants (centred at 100, 100):
+      Leading   : x≥100, y≥100   Weakening : x≥100, y<100
+      Improving : x<100,  y≥100  Lagging   : x<100,  y<100
+    """
+    # Ensure nifty has a proper DatetimeIndex for weekly resampling
+    nifty = nifty.copy()
+    if not isinstance(nifty.index, pd.DatetimeIndex):
+        nifty.index = pd.to_datetime(nifty.index)
+
+    results = []
+
+    for group_name, symbols in INDUSTRY_GROUPS.items():
+        group_closes = []
+        for sym in symbols:
+            df = stocks.get(sym)
+            if df is not None and len(df) >= 60:
+                c = df["Close"].dropna()
+                if not isinstance(c.index, pd.DatetimeIndex):
+                    c.index = pd.to_datetime(c.index)
+                group_closes.append(c)
+
+        if len(group_closes) < 2:
+            continue
+
+        # Daily group price index
+        combined  = pd.concat(group_closes, axis=1).dropna(how="all")
+        group_idx = combined.mean(axis=1)
+
+        # Align with nifty
+        common = group_idx.index.intersection(nifty.index)
+        if len(common) < 80:
+            continue
+
+        g = group_idx[common]
+        n = nifty[common]
+
+        # Raw relative-strength line
+        rs_daily = g / n
+
+        # Weekly resampling (ISO week, last bar)
+        rs_weekly = rs_daily.resample("W").last().dropna()
+        if len(rs_weekly) < 12:
+            continue
+
+        # RS-Ratio: normalise to 100 via 26-week rolling mean
+        rolling_mean = rs_weekly.rolling(window=26, min_periods=10).mean()
+        rs_ratio     = (rs_weekly / rolling_mean * 100).dropna()
+        if len(rs_ratio) < 8:
+            continue
+
+        # RS-Momentum: 4-week rate of change of RS-Ratio, anchored at 100
+        rs_mom = (rs_ratio / rs_ratio.shift(4) * 100).dropna()
+        if len(rs_mom) < 3:
+            continue
+
+        # Build trail from last 5 common weekly points
+        common_idx = rs_ratio.index.intersection(rs_mom.index)
+        rs_ratio   = rs_ratio[common_idx]
+        rs_mom     = rs_mom[common_idx]
+
+        n_trail = min(5, len(rs_ratio))
+        trail   = [
+            {"x": round(float(rs_ratio.iloc[i]), 2),
+             "y": round(float(rs_mom.iloc[i]),   2)}
+            for i in range(-n_trail, 0)
+        ]
+        if not trail:
+            continue
+
+        cur = trail[-1]
+        quadrant = (
+            "Leading"   if cur["x"] >= 100 and cur["y"] >= 100 else
+            "Weakening" if cur["x"] >= 100 and cur["y"] <  100 else
+            "Improving" if cur["x"] <  100 and cur["y"] >= 100 else
+            "Lagging"
+        )
+
+        results.append({
+            "group":       group_name,
+            "trail":       trail,
+            "quadrant":    quadrant,
+            "rs_ratio":    cur["x"],
+            "rs_momentum": cur["y"],
+        })
+
+    # Sort for deterministic rendering (Leading first, then Weakening, Improving, Lagging)
+    order = {"Leading": 0, "Weakening": 1, "Improving": 2, "Lagging": 3}
+    results.sort(key=lambda r: order.get(r["quadrant"], 4))
+    return results
+
+
+def run_rrg_analysis() -> dict:
+    """Load stocks (from cache) and compute RRG data. Zero new NSE API calls."""
+    stocks = _get_stocks()
+    if not stocks:
+        return {"sectors": [], "computed_at": int(time.time())}
+    nifty = _build_nifty(stocks)
+    if nifty is None:
+        return {"sectors": [], "computed_at": int(time.time())}
+    sectors = _compute_rrg(stocks, nifty)
+    return {"sectors": sectors, "computed_at": int(time.time())}
+
+
 # ── Main entry ────────────────────────────────────────────────────────────────
 
 def run_industry_analysis(progress_callback=None) -> dict:
     if _cache["data"] and time.time() - _cache["ts"] < CACHE_TTL:
         return _cache["data"]
 
-    stocks = _load_stocks(progress_callback)
+    stocks = _get_stocks(progress_callback)
     if not stocks:
         return {"groups": [], "computed_at": int(time.time()), "total_groups": 0}
 

@@ -1,12 +1,26 @@
+# Python bytecode
 __pycache__/
 *.pyc
 *.pyo
+*.pyd
+
+# Runtime data — lives in /data volume, not baked into the image
+fundamentals.db
+.nse_universe_cache.pkl
+
+# Logs
+*.log
+nohup.out
+
+# Dev / OS
 .env
 .venv
 venv/
+.DS_Store
 .git/
-*.log
-nohup.out
+.gitignore
+
+# Unused scripts (not needed in container)
 backtester.py
 bulk_deals.py
 trade_journal.py

@@ -98,6 +98,7 @@ def apply_filters(df: pd.DataFrame, params: dict):
 def run_screener(params=None, progress_callback=None):
     if params is None:
         params = {}
+    # Universe is already Nifty 500 (large-cap) via get_nse_tickers() — no ADTV proxy needed
 
     tickers = list(dict.fromkeys(get_nse_tickers()))
     total   = len(tickers)

@@ -13,9 +13,16 @@ from analysis_utils import (
     trend_template_score, stage_analysis, stage_label,
     is_high_tight_flag, detect_candle_signals,
 )
+from industry_groups import INDUSTRY_GROUPS
+
+# ── Symbol → Group lookup (built once at import) ──────────────────────────────
+_SYM_TO_GROUP: dict[str, str] = {}
+for _grp, _syms in INDUSTRY_GROUPS.items():
+    for _s in _syms:
+        _SYM_TO_GROUP[_s] = _grp
 
 MIN_BARS     = 60      # minimum trading days required
-MIN_ADTV_CR  = 0.5    # ₹0.5 Cr minimum avg daily turnover (filters penny stocks)
+MIN_ADTV_CR  = 0.5    # Minimal liquidity guard only — universe filtered by Nifty500 membership
 SCAN_WORKERS = 8
 _cache = {"data": None, "ts": 0}
 CACHE_TTL = 3600       # 1 hour
@@ -39,10 +46,18 @@ def _load_all_stocks(progress_callback=None) -> dict[str, pd.DataFrame]:
     if not frames:
         return {}
 
+    # Universe: Nifty50 ∪ NiftyNext50 ∪ Nifty500 ∪ NiftySmallcap250
+    try:
+        from nse_stocks import get_nifty500_symbols
+        _universe = set(get_nifty500_symbols())
+    except Exception:
+        _universe = set()
     combined = pd.concat(frames, ignore_index=True).sort_values("Date")
 
     stocks = {}
     for sym, grp in combined.groupby("Symbol"):
+        if _universe and sym not in _universe:
+            continue
         g = grp.set_index("Date")[["Open", "High", "Low", "Close", "Volume"]]
         g = g[~g.index.duplicated(keep="last")].sort_index()
         if len(g) >= MIN_BARS:
@@ -325,9 +340,9 @@ def _compute_levels(df: pd.DataFrame, entry: float, base_high: float, base_low: 
 
     base_height = base_high - base_low if base_high > base_low else risk
 
-    t1 = round(entry + base_height, 2)           # measured move
-    t2 = round(entry + 2.0 * risk, 2)            # 2R
-    t3 = round(max(ath * 1.001, entry + 3.0 * risk), 2)   # 3R or ATH+
+    t1 = round(entry + min(base_height, 1.5 * risk), 2)  # measured move, capped at 1.5R so T1 < T2
+    t2 = round(entry + 2.0 * risk, 2)                    # 2R
+    t3 = round(max(ath * 1.001, entry + 3.0 * risk), 2)  # 3R or ATH+
 
     risk_pct = round(risk / entry * 100, 2)
     rr       = round((t2 - entry) / risk, 2) if risk > 0 else 0.0
@@ -340,6 +355,69 @@ def _compute_levels(df: pd.DataFrame, entry: float, base_high: float, base_low: 
         "risk_pct": risk_pct,
         "rr":       rr,
     }
+
+
+# ── Buyer Demand rating (A–E) ─────────────────────────────────────────────────
+
+def _buyer_demand(df: pd.DataFrame) -> str:
+    """
+    IBD-style Accumulation/Distribution rating over 13 weeks (65 sessions).
+    Weights each session's direction by its volume relative to average.
+    A = strong accumulation · E = heavy distribution
+    """
+    try:
+        if len(df) < 20:
+            return "C"
+        recent  = df.iloc[-65:].copy() if len(df) >= 65 else df.copy()
+        avg_vol = float(recent["Volume"].mean())
+        if avg_vol <= 0:
+            return "C"
+        norm_vol  = recent["Volume"] / avg_vol
+        direction = np.sign(recent["Close"] - recent["Open"])
+        score     = float((norm_vol * direction).sum()) / len(recent)
+        if score >  0.3:  return "A"
+        if score >  0.1:  return "B"
+        if score > -0.1:  return "C"
+        if score > -0.3:  return "D"
+        return "E"
+    except Exception:
+        return "C"
+
+
+# ── Industry Group Ranks (computed from all loaded stocks) ────────────────────
+
+def _compute_group_ranks(stocks: dict) -> dict[str, int]:
+    """
+    Rank each industry group 1–N by 3-month RS vs Nifty proxy.
+    Uses only the already-loaded bhavcopy data — zero extra API calls.
+    Returns {group_name: rank}  (1 = strongest group).
+    """
+    try:
+        nifty_syms = ["RELIANCE", "TCS", "HDFCBANK", "ICICIBANK", "INFOSYS",
+                      "HINDUNILVR", "SBIN", "BHARTIARTL", "ITC", "KOTAKBANK"]
+        nifty_closes = [stocks[s]["Close"].dropna()
+                        for s in nifty_syms if s in stocks and len(stocks[s]) >= 63]
+        if not nifty_closes:
+            return {}
+        nifty      = pd.concat(nifty_closes, axis=1).dropna(how="all").mean(axis=1)
+        nifty_r3m  = (float(nifty.iloc[-1]) / float(nifty.iloc[-63]) - 1) * 100 if len(nifty) > 63 else 0.0
+
+        group_rs: dict[str, float] = {}
+        for grp, syms in INDUSTRY_GROUPS.items():
+            closes = [stocks[s]["Close"].dropna()
+                      for s in syms if s in stocks and len(stocks[s]) >= 63]
+            if len(closes) < 2:
+                continue
+            grp_idx = pd.concat(closes, axis=1).dropna(how="all").mean(axis=1)
+            if len(grp_idx) < 63:
+                continue
+            r3m = (float(grp_idx.iloc[-1]) / float(grp_idx.iloc[-63]) - 1) * 100
+            group_rs[grp] = r3m - nifty_r3m
+
+        sorted_grps = sorted(group_rs, key=lambda x: group_rs[x], reverse=True)
+        return {grp: i + 1 for i, grp in enumerate(sorted_grps)}
+    except Exception:
+        return {}
 
 
 # ── Per-stock analysis ────────────────────────────────────────────────────────
@@ -403,6 +481,8 @@ def _analyze(symbol: str, df: pd.DataFrame) -> dict | None:
         tt_score, tt_met = trend_template_score(close, rs_rating=0)
         stage            = stage_analysis(close)
         candles          = detect_candle_signals(df)
+        bd               = _buyer_demand(df)
+        grp_name         = _SYM_TO_GROUP.get(symbol, "Other")
 
         return {
             "symbol":      symbol,
@@ -423,6 +503,12 @@ def _analyze(symbol: str, df: pd.DataFrame) -> dict | None:
             "stage_label": stage_label(stage),
             "candles":     candles,
             "rs_rating":   50,    # updated after full scan
+            # ── MarketSmith-style ratings (updated after full scan) ──
+            "price_str":    50,   # RS Rating 0-99 (updated after scan)
+            "buyer_demand": bd,   # A/B/C/D/E — 13-week A/D rating
+            "group_name":   grp_name,
+            "group_rank":   0,    # updated after group RS computed
+            "total_groups": 0,
             # ── Trading levels ───────────────────────────────────────
             "entry":       entry,
             "sl":          lvls["sl"],
@@ -476,11 +562,21 @@ def run_breakout_scan(progress_callback=None) -> dict:
         r3m_s  = pd.Series([r["r3m"] for r in results])
         rs_arr = (r3m_s.rank(pct=True) * 99).round(0).astype(int).tolist()
         for r, rs in zip(results, rs_arr):
-            r["rs_rating"] = int(rs)
+            r["rs_rating"]  = int(rs)
+            r["price_str"]  = int(rs)   # Price Strength = RS Rating 0-99
             # Recompute TT with real RS
             r["tt_score"], r["tt_met"] = trend_template_score(
                 stocks[r["symbol"]]["Close"].dropna(), rs_rating=rs
             )
+
+    # 3b. Compute industry group ranks from already-loaded stock data
+    if results:
+        group_ranks  = _compute_group_ranks(stocks)
+        total_groups = len(group_ranks)
+        for r in results:
+            grp = r.get("group_name", "Other")
+            r["group_rank"]   = group_ranks.get(grp, 0)
+            r["total_groups"] = total_groups
 
     # 4. Sort: multi-timeframe first, then HTF > ATH > VCP > Box > Rectangular, then TT score
     def _sort_key(r):

@@ -24,7 +24,7 @@ from analysis_utils import (
 )
 
 MIN_BARS    = 60
-MIN_ADTV_CR = 1.0    # ₹1 Cr ADTV — institutional quality floor
+MIN_ADTV_CR = 0.5    # Minimal liquidity guard only — universe filtered by Nifty500 membership
 SCAN_WORKERS = 8
 _cache = {"data": None, "ts": 0}
 CACHE_TTL = 3600
@@ -52,9 +52,17 @@ def _load_all_stocks(progress_callback=None) -> dict[str, pd.DataFrame]:
             progress_callback(i, total, f"Loading historical data… {i}/{total} days")
     if not frames:
         return {}
+    # Filter to Nifty50 ∪ NiftyNext50 ∪ Nifty500 ∪ NiftySmallcap250
+    try:
+        from nse_stocks import get_nifty500_symbols
+        _universe = set(get_nifty500_symbols())
+    except Exception:
+        _universe = set()
     combined = pd.concat(frames, ignore_index=True).sort_values("Date")
     stocks = {}
     for sym, grp in combined.groupby("Symbol"):
+        if _universe and sym not in _universe:
+            continue
         g = grp.set_index("Date")[["Open", "High", "Low", "Close", "Volume"]]
         g = g[~g.index.duplicated(keep="last")].sort_index()
         if len(g) >= MIN_BARS:

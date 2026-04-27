@@ -1,9 +1,42 @@
 """
-NSE screener universe — Nifty 50 + Nifty Next 50 + Nifty 500 + Nifty Smallcap 250
-~500 unique stocks hardcoded. No network call. Instant startup.
+NSE stock universe — Nifty 50 + Nifty Next 50 + Nifty 500 + Nifty Smallcap 250.
+
+Downloads 4 index CSVs from NSE archives (no auth, no rate limits).
+Cached locally for 7 days so we never hammer NSE on every startup.
+
+Combined unique universe ≈ 500 stocks (Nifty Smallcap 250 is the smallcap
+tier *inside* Nifty 500, so the 4 lists deduplicate to ~500 stocks).
 """
 
-_NIFTY50 = [
+import os
+import time
+import pickle
+import requests
+import io
+import pandas as pd
+
+_CACHE_PATH = os.path.join(os.environ.get("DATA_DIR", os.path.dirname(__file__)), ".nse_universe_cache.pkl")
+_CACHE_TTL  = 7 * 86400   # refresh weekly
+
+_HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/122.0.0.0 Safari/537.36"
+    ),
+    "Accept": "text/html,application/xhtml+xml,*/*",
+}
+
+# All 4 index CSV URLs — publicly available on NSE archives, no login needed
+_INDEX_URLS = {
+    "Nifty50":          "https://archives.nseindia.com/content/indices/ind_nifty50list.csv",
+    "NiftyNext50":      "https://archives.nseindia.com/content/indices/ind_niftynext50list.csv",
+    "Nifty500":         "https://archives.nseindia.com/content/indices/ind_nifty500list.csv",
+    "NiftySmallcap250": "https://archives.nseindia.com/content/indices/ind_niftysmallcap250list.csv",
+}
+
+# Fallback Nifty 100 hardcoded — used only if ALL 4 NSE downloads fail
+_FALLBACK = [
     "ADANIENT","ADANIPORTS","APOLLOHOSP","ASIANPAINT","AXISBANK",
     "BAJAJ-AUTO","BAJAJFINSV","BAJFINANCE","BHARTIARTL","BPCL",
     "BRITANNIA","CIPLA","COALINDIA","DIVISLAB","DLF",
@@ -14,9 +47,6 @@ _NIFTY50 = [
     "NTPC","ONGC","POWERGRID","RELIANCE","SBILIFE",
     "SBIN","SHRIRAMFIN","SUNPHARMA","TATAMOTORS","TATASTEEL",
     "TCS","TECHM","TITAN","TVSMOTOR","ULTRACEMCO","WIPRO",
-]
-
-_NIFTY_NEXT50 = [
     "ABB","AMBUJACEM","AUBANK","BAJAJHFL","BANKBARODA",
     "BEL","BERGEPAINT","BOSCHLTD","BSE","CANBK",
     "CGPOWER","CHOLAFIN","COFORGE","COLPAL","CUMMINSIND",
@@ -30,138 +60,85 @@ _NIFTY_NEXT50 = [
     "VEDL","ZOMATO",
 ]
 
-_NIFTY500_MID = [
-    # Banks & Finance
-    "BANDHANBNK","CANFINHOME","CHOLAHLDNG","CREDITACC","CSBBANK",
-    "CUB","DCBBANK","EDELWEISS","EQUITASBNK","ESAFSFB",
-    "FIVESTAR","HOMEFIRST","IDFCFIRSTB","IIFL","J&KBANK",
-    "JMFINANCIL","KARURVYSYA","KFINTECH","LICHSGFIN","MANAPPURAM",
-    "MOTILALOFS","MUTHOOTCAP","MUTHOOTFIN","PIRAMALFIN","POONAWALLA",
-    "RBLBANK","REPCOHOME","SPANDANA","SURYODAY","TMB",
-    "UCOBANK","UJJIVANSFB","UNIONBANK","UTIAMC","UTKARSHBNK","INDIANB",
-    # IT & Tech
-    "ANGELONE","CIGNITITEC","CYIENT","CYIENTDLM","ECLERX",
-    "EMUDHRA","HAPPSTMNDS","INTELLECT","LATENTVIEW","MASTEK",
-    "MCX","MSTCLTD","NAZARA","NETWEB","NEWGEN",
-    "NUCLEUS","NUVAMA","NYKAA","PAYTM","QUESS",
-    "RATEGAIN","ROUTE","TANLA","TATAELXSI","TEAMLEASE",
-    "TEJASNET","ZAGGLE","ZENSARTECH","AURIONPRO","DATAPATTNS",
-    # Pharma & Healthcare
-    "AJANTPHARM","ALKEM","ASTRAZEN","AUROPHARMA","BIOCON",
-    "CONCORDBIO","ERIS","FDC","GLAND","GLAXO",
-    "GLENMARK","GRANULES","HERANBA","HIKAL","JBCHEPHARM",
-    "LAURUSLABS","LAXMIDENTL","MANKIND","MARKSANS","NATCOPHARM",
-    "NEULANDLAB","ORCHPHARMA","PFIZER","PGHL","SUVEN",
-    "THYROCARE","UNICHEMLAB","WOCKPHARMA","ZYDUSLIFE","ZYDUSWELL","EMCURE","MEDANTA",
-    # Auto & Ancillaries
-    "BALKRISIND","BHARATFORG","CIEINDIA","ENDURANCE","ESCORTS",
-    "EXIDEIND","FMGOETZE","FORCEMOT","GABRIEL","JAMNAAUTO",
-    "JTEKTINDIA","KIRLOSBROS","KIRLOSENG","LUMAXTECH","MINDACORP",
-    "MOTHERSON","MRF","NRBBEARING","PRICOLLTD","ROLEXRINGS",
-    "SANSERA","SONACOMS","SUBROS","SUPRAJIT","TALBROAUTO",
-    "TVSHLTD","TVSSRICHAK","UNOMINDA","TIIL","TIMKEN",
-    # Capital Goods & Infra & Defence
-    "ADANIGREEN","ADANIPOWER","ATGL","BHEL","BRIGADE",
-    "CEIGALL","CRAFTSMAN","DREDGECORP","ENGINERSIN","GRSE",
-    "HGINFRA","HUDCO","INOXGREEN","IRCON","IREDA",
-    "IRFC","KEC","KNRCON","MIDHANI","MONTECARLO",
-    "NBCC","NCC","NHPC","NLCINDIA","NTPCGREEN",
-    "OLECTRA","POWERMECH","PSPPROJECT","PTC","RAILTEL",
-    "RITES","RVNL","SJVN","STLTECH","SWSOLAR",
-    "TITAGARH","TRANSRAILL","WAAREEENER","WABAG","WEBELSOLAR",
-    "COCHINSHIP","MAZDOCK","PNCINFRA","TRIDENT",
-    # FMCG & Consumer
-    "BIKAJI","BATAINDIA","CAMPUS","DEVYANI","DODLA",
-    "DOMS","GILLETTE","GOPAL","HERITGFOOD","HONASA",
-    "JYOTHYLAB","KKCL","KRBL","LUXIND","MANYAVAR",
-    "MATRIMONY","MEDPLUS","METROBRAND","PAGEIND","PARAGMILK",
-    "PATANJALI","PVRINOX","RADICO","RAINBOW","RELAXO",
-    "SAFARI","SHOPERSTOP","SPENCERS","SUNTV","UBL",
-    "VSTIND","VSTTILLERS","VBL","WESTLIFE","WONDERLA","ZEEL","VENKEYS",
-    # Chemicals & Energy
-    "ALKYLAMINE","AARTIIND","AARTISURF","ADVENZYMES","AETHER",
-    "BODALCHEM","CARBORUNIV","CHEMCON","CHEMPLASTS","COROMANDEL",
-    "DEEPAKFERT","DEEPAKNTR","EIDPARRY","EPIGRAL","FINEORG",
-    "FLUOROCHEM","GHCL","GNFC","GUJALKALI","GUJGASLTD",
-    "IGL","IONEXCHANG","LXCHEM","NOCIL","PCBL",
-    "RALLIS","ROSSARI","SUMICHEM","VINATIORGA","YASHO",
-    "CHAMBLFERT","GSPL","GAIL","PETRONET","MGL",
-    # Metals
-    "APLAPOLLO","GPIL","HINDZINC","JINDALSAW","JSL",
-    "JSWCEMENT","KIOCL","MOIL","MRPL","NATIONALUM",
-    "NAVA","NMDC","RATNAMANI","SAIL","WELCORP","JSWENERGY",
-    # Realty
-    "AJMERA","ANANTRAJ","CHALET","DBREALTY","GODREJIND",
-    "KOLTEPATIL","MAHLIFE","MAXESTATES","OMAXE","PHOENIXLTD",
-    "PRESTIGE","SUNTECK","SOBHA","PURVA",
-    # Textiles
-    "ABFRL","ARVIND","RAYMOND","WELSPUNLIV","VARDHACRLC",
-    # Diversified / Others
-    "ASTRAL","CAMS","CARTRADE","CDSL","CERA",
-    "DREAMFOLKS","EASEMYTRIP","ETHOSLTD","FLAIR","GICL",
-    "GICRE","GRAVITA","GREENPANEL","GREENLAM","GRINDWELL",
-    "IEX","INDHOTEL","INOXINDIA","ITCHOTELS","JSWINFRA",
-    "JUBLINGREA","JUBLPHARMA","JUSTDIAL","KAJARIACER","KALPATARU",
-    "KALYANKJIL","KAYNES","KEI","KIMS","MFSL",
-    "NESCO","NUVOCO","OIL","POLYCAB","POLYMED",
-    "PRINCEPIPE","PRSMJOHNSN","PROTEAN","PRUDENT","SCI",
-    "SENCO","SFL","SKFINDIA","SOLARINDS","SOMANYCERA",
-    "SONAMLTD","SONATSOFTW","SRF","STCINDIA","SUPREME",
-    "SUPREMEIND","SYRMA","TARSONS","TATACAP","TATACOMM",
-    "TATAINVEST","TATATECH","TCI","TCIEXP","THERMAX",
-    "THOMASCOOK","UNIPARTS","VGUARD","VOLTAS","VOLTAMP",
-    "VMART","VRLLOG","WHIRLPOOL","WINDLAS","XPROINDIA",
-    "CROMPTON","BLUESTARCO","AMBER","DIXON","ELGIEQUIP",
-    "SEAMECLTD","SAREGAMA","SANDHAR","SANOFI","SPARC",
-    "ROOSARI","ROUTE","SAFARI","SAGILITY",
-]
 
-_NIFTY_SMALLCAP250 = [
-    "AADHARHFC","ACEINTEG","ACMESOLAR","AEGISLOG","AEGISVOPAK",
-    "AFFLE","AGI","AJAXENGG","AJOONI","AKUMS",
-    "ALICON","ALLCARGO","ALPHAGEO","AMBIKCO","ANANDRATHI",
-    "ANUP","APCOTEXIND","APOLLOPIPE","ARCHIDPLY","ARMANFIN",
-    "ARTEMISMED","ASAHIINDIA","ASHIANA","ASHOKA","ASTEC",
-    "ASTERDM","AVANTIFEED","BAJAJELEC","BANSALWIRE","BAYERCROP",
-    "BEPL","BHAGERIA","BLISSGVS","BLUEDART","BLUEJET",
-    "BSOFT","BUTTERFLY","CAPACITE","CAPLIPOINT","CARERATING",
-    "CARYSIL","CASTROLIND","CEATLTD","CENTUM","CENTURYPLY",
-    "CHOICEIN","CLEAN","CMSINFO","CONTROLPR","CRISIL",
-    "CUPID","DCXINDIA","DEEPINDS","DICIND","ELECON",
-    "ELIN","EMAMIPAP","EMKAY","EMMBI","ENIL",
-    "ENTERO","ETHOSLTD","EXICOM","EXPLEOSOL","GABRIEL",
-    "GAEL","GALAXYSURF","GANDHAR","GANESHBE","GARUDA",
-    "GEECEE","GENUSPAPER","GENUSPOWER","GEOJITFSL","GESHIP",
-    "GHCLTEXTIL","GILLANDERS","GINNIFILA","GIPCL","GKENERGY",
-    "GLOBUSSPR","GOCLCORP","GOCOLORS","GODREJAGRO","GOKUL",
-    "GOLDIAM","GOODLUCK","GPTINFRA","GREAVESCOT","GREENPLY",
-    "GUFICBIO","GULFOILLUB","HARDWYN","HARIOMPIPE","HARSHA",
-    "HCC","HCG","HEG","HESTERBIO","HFCL",
-    "HUHTAMAKI","IMFA","INDIGOPNTS","IRIS","ISGEC",
-    "IKIO","IRB","IXIGO","JASH","JBMA",
-    "JKIPL","JKLAKSHMI","JKPAPER","JKTYRE","JPPOWER",
-    "JYOTHYLAB","KALYANIFRG","KANSAINER","KRBL","LEMONTREE",
-    "LTFOODS","MAPMYINDIA","MOIL","MOLDTKPAC","MOREPENLAB",
-    "MTARTECH","NAVINFLUOR","NAVKARCORP","NELCO","NIITLTD",
-    "NILKAMAL","NTPCGREEN","OLECTRA","ORIENTBELL","ORIENTELEC",
-    "PANAMAPET","PATELENG","PENIND","PRINCEPIPE","PVRINOX",
-    "RAIN","RALLIS","RAMCOCEM","RAMCOSYS","RATNAMANI",
-    "REDTAPE","RITES","ROSSARI","SAFARI","SAREGAMA",
-    "SEAMECLTD","SENCO","SJVN","SKIPPER","SOLARINDS",
-    "SPARC","STLTECH","SUBROS","SUNDARMFIN","SUNDRMBRAK",
-    "SUPRAJIT","SURYAROSNI","SUZLON","SYMPHONY","SYNGENE",
-    "TEAMLEASE","TEGA","THYROCARE","TITAGARH","TORNTPOWER",
-    "UNICHEMLAB","UNIPARTS","VENKEYS","VINATIORGA","VIPIND",
-    "VOLTAMP","VRLLOG","WABAG","WELCORP","WONDERLA",
-    "YASHO","YESBANK","ZEEL","ZENSARTECH",
-]
+# ── Cache helpers ──────────────────────────────────────────────────────────────
 
-# Deduplicated combined universe
-_ALL = list(dict.fromkeys(
-    _NIFTY50 + _NIFTY_NEXT50 + _NIFTY500_MID + _NIFTY_SMALLCAP250
-))
+def _load_cache() -> list[str] | None:
+    try:
+        if os.path.exists(_CACHE_PATH):
+            with open(_CACHE_PATH, "rb") as f:
+                data = pickle.load(f)
+            if time.time() - data["ts"] < _CACHE_TTL:
+                return data["symbols"]
+    except Exception:
+        pass
+    return None
 
 
-def get_nse_tickers():
-    """Return combined Nifty50+Next50+500+Smallcap250 in yfinance format."""
-    return [f"{s}.NS" for s in _ALL]
+def _save_cache(symbols: list[str]) -> None:
+    try:
+        with open(_CACHE_PATH, "wb") as f:
+            pickle.dump({"ts": time.time(), "symbols": symbols}, f)
+    except Exception:
+        pass
+
+
+# ── Downloader ─────────────────────────────────────────────────────────────────
+
+def _fetch_index(name: str, url: str) -> list[str]:
+    """Download one NSE index CSV. Returns [] on any failure."""
+    try:
+        r = requests.get(url, headers=_HEADERS, timeout=15)
+        if r.status_code != 200:
+            return []
+        df = pd.read_csv(io.BytesIO(r.content))
+        if "Symbol" not in df.columns:
+            return []
+        return df["Symbol"].dropna().str.strip().tolist()
+    except Exception:
+        return []
+
+
+def _build_universe() -> list[str]:
+    """
+    Download all 4 index lists, deduplicate, return sorted symbol list.
+    Uses whatever indices are available — at least one must succeed.
+    """
+    seen: dict[str, None] = {}   # ordered-set via dict
+    fetched_any = False
+
+    for name, url in _INDEX_URLS.items():
+        syms = _fetch_index(name, url)
+        if syms:
+            fetched_any = True
+            for s in syms:
+                seen[s] = None   # dedup, preserve first-seen order
+
+    if not fetched_any:
+        return list(_FALLBACK)
+
+    return list(seen.keys())
+
+
+# ── Public API ─────────────────────────────────────────────────────────────────
+
+def get_nifty500_symbols() -> list[str]:
+    """
+    Return deduplicated universe: Nifty50 ∪ NiftyNext50 ∪ Nifty500 ∪ NiftySmallcap250.
+    Uses local 7-day cache. Falls back to hardcoded Nifty100 if NSE unreachable.
+    """
+    cached = _load_cache()
+    if cached:
+        return cached
+
+    universe = _build_universe()
+    if universe:
+        _save_cache(universe)
+    return universe
+
+
+def get_nse_tickers() -> list[str]:
+    """
+    Return universe in .NS suffix format used by all scanners and the screener.
+    """
+    return [f"{s}.NS" for s in get_nifty500_symbols()]

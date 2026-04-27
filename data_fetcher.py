@@ -108,16 +108,33 @@ def _download_one_day(dt: date) -> pd.DataFrame | None:
 
 
 def _weekdays_back(n: int) -> list[date]:
-    """Generate Mon–Fri dates going back n calendar days from today."""
+    """Generate Mon–Fri dates going back n calendar days from today.
+    Always tries today first — _download_one_day() returns None gracefully
+    if today's bhavcopy isn't published yet (NSE publishes ~6pm IST).
+    """
     today  = date.today()
     result = []
-    d = today - timedelta(days=1)  # start from yesterday (today not published yet)
+    d = today  # try today; skipped automatically if not a weekday or file not live yet
     cutoff = today - timedelta(days=n)
     while d >= cutoff:
         if d.weekday() < 5:   # 0=Mon … 4=Fri
             result.append(d)
         d -= timedelta(days=1)
     return result
+
+
+# ── Latest available bhavcopy date ────────────────────────────────────────────
+
+def _latest_bhavcopy_date() -> date | None:
+    """
+    Return the most recent date for which a bhavcopy pkl is cached locally.
+    Checks today first, then walks back up to 10 trading days.
+    Returns None only if no cached bhavcopy exists at all.
+    """
+    for dt in _weekdays_back(20):
+        if _bhav_cache_path(dt).exists():
+            return dt
+    return None
 
 
 # ── Per-stock pickle helpers (reuse across screener & sector analysis) ─────────
@@ -127,6 +144,15 @@ def _stock_pkl_path(ticker: str) -> Path:
 
 
 def _stock_pkl_load(ticker: str) -> pd.DataFrame | None:
+    """
+    Load per-stock OHLCV pkl from disk.
+
+    Invalidates (returns None) if:
+      - File doesn't exist or is corrupt
+      - File is older than OHLCV_TTL (time-based staleness)
+      - DataFrame's last row date is older than the latest available
+        bhavcopy — means a new day's data exists that isn't in the pkl
+    """
     p = _stock_pkl_path(ticker)
     if not p.exists():
         return None
@@ -134,7 +160,14 @@ def _stock_pkl_load(ticker: str) -> pd.DataFrame | None:
         return None
     try:
         with open(p, "rb") as f:
-            return pickle.load(f)
+            df = pickle.load(f)
+        # ── Key check: reject pkl if it's missing a newer bhavcopy day ──────
+        latest = _latest_bhavcopy_date()
+        if latest is not None:
+            pkl_last = df.index[-1].date() if hasattr(df.index[-1], "date") else df.index[-1]
+            if pkl_last < latest:
+                return None   # stale — a newer bhavcopy day exists, force rebuild
+        return df
     except Exception:
         return None
 
