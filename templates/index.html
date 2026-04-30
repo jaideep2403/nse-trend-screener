@@ -628,6 +628,28 @@
     </div>
   </div>
 
+  <!-- ── Action Summary Panel (#3) ──────────────────────────────────────────── -->
+  <div class="panel" id="rrgActionPanel" style="display:none;margin-top:16px">
+    <div class="panel-header" style="display:flex;align-items:center;gap:12px">
+      <h2 style="font-size:15px">⚡ Action-Oriented Summary</h2>
+      <span style="font-size:11px;color:var(--muted)">Based on RRG quadrant position + momentum trail</span>
+    </div>
+    <div class="panel-body" style="padding:16px 20px">
+      <div id="rrgActionContent"></div>
+    </div>
+  </div>
+
+  <!-- ── Sector Rotation Table (#1) ─────────────────────────────────────────── -->
+  <div class="panel" id="rrgTablePanel" style="display:none;margin-top:16px">
+    <div class="panel-header" style="display:flex;align-items:center;gap:10px">
+      <h2 style="font-size:15px">📋 Sector Rotation Detail</h2>
+      <span style="font-size:11px;color:var(--muted)">All 25 sectors · click column to sort</span>
+    </div>
+    <div class="panel-body" style="padding:0">
+      <div id="rrgTableContent" style="overflow-x:auto;max-height:600px;overflow-y:auto"></div>
+    </div>
+  </div>
+
   <!-- RRG trigger button (shown before sector scan runs) -->
   <div id="rrgTriggerWrap" style="margin-top:14px;display:none">
     <button class="btn" onclick="loadRRG()"
@@ -2175,6 +2197,8 @@ function loadRRG() {
         return;
       }
       drawRRG(data);
+      if (data.actions) renderRRGActions(data.actions);
+      if (data.sectors) renderRRGTable(data.sectors);
     })
     .catch(e => {
       loading.style.display = 'none';
@@ -2311,6 +2335,246 @@ function drawRRG(data) {
       ctx.textAlign='right'; ctx.fillText(label, last.px-8, last.py+4);
     }
   });
+}
+
+/* ── RRG Action Summary (#3) ───────────────────────────────────────────────── */
+function renderRRGActions(actions) {
+  const panel = document.getElementById('rrgActionPanel');
+  const cont  = document.getElementById('rrgActionContent');
+  if (!actions) return;
+
+  // Direction arrow → color helper
+  const dirColor = d => {
+    if (!d) return 'var(--muted)';
+    if (/↗|↑/.test(d)) return 'var(--green)';
+    if (/↘|↙/.test(d)) return 'var(--red)';
+    if (/↖|↑/.test(d)) return 'var(--accent)';
+    return 'var(--gold)';
+  };
+  // Pattern → pill color
+  const patColor = p => {
+    if (!p) return 'var(--muted)';
+    if (/Holding|acceler/.test(p)) return 'var(--green)';
+    if (/Building/.test(p)) return 'var(--accent)';
+    if (/Topping|Losing|Weak/.test(p)) return 'var(--red)';
+    return 'var(--gold)';
+  };
+
+  const BANDS = [
+    { key: 'buy',        icon: '▲', label: 'BUY / ADD',    color: '#10b981', rgba: 'rgba(16,185,129',  desc: 'Leading · strong momentum',        action: 'Deploy capital' },
+    { key: 'accumulate', icon: '●', label: 'ACCUMULATE',   color: '#3b82f6', rgba: 'rgba(59,130,246',   desc: 'Leading/Improving · holding strength', action: 'Build positions gradually' },
+    { key: 'trim',       icon: '▼', label: 'TRIM / WATCH', color: '#f59e0b', rgba: 'rgba(245,158,11',  desc: 'Weakening quadrant',                action: 'Reduce exposure' },
+    { key: 'avoid',      icon: '✕', label: 'AVOID / EXIT', color: '#ef4444', rgba: 'rgba(239,68,68',   desc: 'Lagging quadrant',                  action: 'Stay out or cut losses' },
+  ];
+
+  let html = '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:16px">';
+  for (const band of BANDS) {
+    const items = actions[band.key] || [];
+    const c = band.color, r = band.rgba;
+    html += `
+      <div style="border-radius:12px;border:1px solid ${c}30;overflow:hidden">
+        <!-- Band header -->
+        <div style="background:${r},0.12);padding:12px 16px;display:flex;align-items:center;gap:10px">
+          <span style="width:28px;height:28px;border-radius:50%;background:${r},0.2);
+                       display:flex;align-items:center;justify-content:center;
+                       font-size:13px;font-weight:800;color:${c}">${band.icon}</span>
+          <div style="flex:1">
+            <div style="font-size:13px;font-weight:800;color:${c};letter-spacing:.4px">${band.label}</div>
+            <div style="font-size:10px;color:${c}cc;margin-top:1px">${band.desc}</div>
+          </div>
+          <span style="background:${r},0.25);color:${c};font-size:11px;font-weight:700;
+                       padding:3px 9px;border-radius:20px;border:1px solid ${c}40">
+            ${items.length} sector${items.length !== 1 ? 's' : ''}
+          </span>
+        </div>
+        <!-- Action hint -->
+        <div style="padding:7px 16px;background:${r},0.05);border-bottom:1px solid ${c}18;
+                    font-size:10px;color:${c}99;font-weight:500;text-transform:uppercase;letter-spacing:.6px">
+          → ${band.action}
+        </div>
+        <!-- Sector rows -->
+        <div style="background:var(--surface);padding:4px 0">
+          ${items.length === 0
+            ? `<div style="padding:16px;text-align:center;font-size:12px;color:var(--muted);font-style:italic">No sectors this week</div>`
+            : items.map(s => {
+                const dc = dirColor(s.tail_direction);
+                const pc = patColor(s.pattern);
+                const dirArrow = s.tail_direction ? s.tail_direction.split(' ')[0] : '';
+                const dirWord  = (s.tail_direction || '').split(' ').slice(1).join(' ');
+                const pat = (s.pattern || '').replace(/[✓⚠❌]/g,'').trim();
+                const pcBg = pc==='#10b981'?'rgba(16,185,129,0.15)':pc==='#ef4444'?'rgba(239,68,68,0.15)':pc==='#3b82f6'?'rgba(59,130,246,0.15)':'rgba(245,158,11,0.15)';
+                return `
+                <div style="padding:10px 14px;border-bottom:1px solid ${c}18;border-left:3px solid ${c}50">
+                  <div style="font-size:13px;font-weight:700;color:var(--white);margin-bottom:5px">${s.group}</div>
+                  <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
+                    <span style="font-size:13px;color:${dc};font-weight:700;line-height:1">${dirArrow}</span>
+                    <span style="font-size:10px;color:${dc}cc">${dirWord}</span>
+                    <span style="font-size:10px;color:${pc};background:${pcBg};
+                                 padding:2px 8px;border-radius:10px;font-weight:600">${pat || '—'}</span>
+                  </div>
+                </div>`;
+              }).join('')}
+        </div>
+      </div>`;
+  }
+  html += '</div>';
+  cont.innerHTML = html;
+  panel.style.display = '';
+}
+
+/* ── RRG Sector Rotation Table (#1) ───────────────────────────────────────── */
+let _rrgSectors = [], _rrgSortCol = 'distance', _rrgSortAsc = false;
+
+function renderRRGTable(sectors) {
+  _rrgSectors = sectors || [];
+  _rrgSortTable();
+  document.getElementById('rrgTablePanel').style.display = '';
+}
+
+function _rrgSortTable() {
+  const col = _rrgSortCol;
+  const asc = _rrgSortAsc;
+  const sorted = [..._rrgSectors].sort((a, b) => {
+    let va = a[col], vb = b[col];
+    if (typeof va === 'string') va = va.toLowerCase();
+    if (typeof vb === 'string') vb = vb.toLowerCase();
+    if (va == null) va = asc ? Infinity : -Infinity;
+    if (vb == null) vb = asc ? Infinity : -Infinity;
+    return asc ? (va > vb ? 1 : -1) : (va < vb ? 1 : -1);
+  });
+
+  const QCOL  = { Leading: '#10b981', Weakening: '#f59e0b', Improving: '#3b82f6', Lagging: '#ef4444' };
+  const QBG   = { Leading: 'rgba(16,185,129,0.13)', Weakening: 'rgba(245,158,11,0.13)', Improving: 'rgba(59,130,246,0.13)', Lagging: 'rgba(239,68,68,0.13)' };
+  const QICON = { Leading: '▲', Weakening: '▼', Improving: '↗', Lagging: '●' };
+
+  const dirColor = d => {
+    if (!d) return 'var(--muted)';
+    if (/↗|↑/.test(d)) return '#10b981';
+    if (/↘|↙/.test(d)) return '#ef4444';
+    if (/↖/.test(d)) return '#3b82f6';
+    return '#f59e0b';
+  };
+  const patColor = p => {
+    if (!p) return 'var(--muted)';
+    if (/Holding|acceler/.test(p)) return '#10b981';
+    if (/Building/.test(p)) return '#3b82f6';
+    if (/Topping|Losing|Weak/.test(p)) return '#ef4444';
+    return '#f59e0b';
+  };
+
+  // Max distance for bar scaling
+  const maxDist = Math.max(..._rrgSectors.map(s => s.distance || 0), 1);
+
+  const cols = [
+    { key: 'group',         label: 'Sector',           tip: 'Sector name' },
+    { key: 'quadrant',      label: 'Position',         tip: 'Current RRG quadrant' },
+    { key: 'distance',      label: 'Strength',         tip: 'Distance from centre (higher = more extreme)' },
+    { key: 'tail_direction',label: 'Momentum',         tip: 'Direction of recent price rotation' },
+    { key: 'pattern',       label: 'Signal',           tip: 'Pattern signal from trail analysis' },
+    { key: 'top_stocks',    label: 'Top 3 Stocks',     tip: '3-month return for top stocks in sector' },
+  ];
+
+  const sortArrow = k => k !== col ? '' : asc
+    ? '<span style="font-size:9px;margin-left:3px;opacity:.8">▲</span>'
+    : '<span style="font-size:9px;margin-left:3px;opacity:.8">▼</span>';
+
+  let html = `<table style="width:100%;font-size:12px;border-collapse:collapse">
+    <thead>
+      <tr style="background:var(--surface2);position:sticky;top:0;z-index:2">
+        ${cols.map(c => `<th onclick="_rrgSetSort('${c.key}')" title="${c.tip}"
+          style="padding:11px 14px;text-align:left;cursor:pointer;white-space:nowrap;user-select:none;
+                 border-bottom:2px solid ${c.key===col?'var(--accent)':'var(--border)'};
+                 color:${c.key===col?'var(--accent)':'var(--text2)'};font-size:11px;font-weight:600;
+                 letter-spacing:.4px;text-transform:uppercase">${c.label}${sortArrow(c.key)}</th>`).join('')}
+      </tr>
+    </thead><tbody>`;
+
+  for (const s of sorted) {
+    const qc   = QCOL[s.quadrant]  || '#94a3b8';
+    const qbg  = QBG[s.quadrant]   || 'rgba(148,163,184,0.1)';
+    const qi   = QICON[s.quadrant] || '●';
+    const pqc  = QCOL[s.prev_quadrant] || '#94a3b8';
+    const moved = s.quadrant !== s.prev_quadrant;
+    const dist  = s.distance != null ? s.distance : 0;
+    const barW  = Math.min((dist / maxDist) * 100, 100).toFixed(1);
+    const dc    = dirColor(s.tail_direction);
+    const pc    = patColor(s.pattern);
+    const patClean = (s.pattern || '').replace(/[✓⚠❌]/g,'').trim();
+    const patIcon  = /Holding|acceler/.test(s.pattern||'') ? '✓' : /Building/.test(s.pattern||'') ? '↗' : /Topping|Losing|Weak/.test(s.pattern||'') ? '⚠' : '';
+
+    const topSt = Array.isArray(s.top_stocks)
+      ? s.top_stocks.slice(0,3).map(t => {
+          const r = typeof t === 'object' ? (t.r3m || 0) : 0;
+          const sym = typeof t === 'object' ? t.symbol : t;
+          const rc = r >= 0 ? '#10b981' : '#ef4444';
+          return `<span style="display:inline-flex;align-items:center;gap:3px;background:var(--surface2);
+                               border-radius:5px;padding:2px 6px;font-size:10px;border:1px solid var(--border)">
+                    <span style="color:var(--white);font-weight:600">${sym}</span>
+                    <span style="color:${rc};font-weight:700">${r>=0?'+':''}${r.toFixed(1)}%</span>
+                  </span>`;
+        }).join(' ')
+      : '<span style="color:var(--muted)">—</span>';
+
+    html += `<tr style="border-bottom:1px solid var(--border);transition:background .12s"
+               onmouseover="this.style.background='var(--surface2)'" onmouseout="this.style.background=''">
+
+      <!-- Sector name -->
+      <td style="padding:12px 14px">
+        <div style="font-size:13px;font-weight:700;color:var(--white)">${s.group}</div>
+        ${moved ? `<div style="font-size:10px;margin-top:3px;color:${pqc}">
+                     was <span style="font-weight:600">${s.prev_quadrant}</span>
+                     <span style="color:var(--gold);margin-left:2px">→ moved ↺</span>
+                   </div>` : ''}
+      </td>
+
+      <!-- Quadrant pill -->
+      <td style="padding:12px 14px;white-space:nowrap">
+        <span style="display:inline-flex;align-items:center;gap:5px;background:${qbg};
+                     color:${qc};font-size:11px;font-weight:700;padding:4px 10px;
+                     border-radius:20px;border:1px solid ${qc}40">
+          ${qi} ${s.quadrant}
+        </span>
+      </td>
+
+      <!-- Distance bar -->
+      <td style="padding:12px 14px;min-width:120px">
+        <div style="display:flex;align-items:center;gap:8px">
+          <div style="flex:1;height:5px;background:var(--border);border-radius:3px;overflow:hidden">
+            <div style="height:100%;width:${barW}%;background:${qc};border-radius:3px;transition:width .4s"></div>
+          </div>
+          <span style="font-size:11px;font-family:var(--mono);color:var(--text2);min-width:30px">${dist.toFixed(1)}</span>
+        </div>
+      </td>
+
+      <!-- Direction -->
+      <td style="padding:12px 14px;white-space:nowrap">
+        <span style="color:${dc};font-size:14px;font-weight:700;margin-right:4px">${s.tail_direction ? s.tail_direction.split(' ')[0] : '—'}</span>
+        <span style="color:var(--muted);font-size:10px">${(s.tail_direction||'').split(' ').slice(1).join(' ')}</span>
+      </td>
+
+      <!-- Signal badge -->
+      <td style="padding:12px 14px">
+        <span style="display:inline-flex;align-items:center;gap:4px;
+                     background:${pc==='#10b981'?'rgba(16,185,129,0.1)':pc==='#ef4444'?'rgba(239,68,68,0.1)':pc==='#3b82f6'?'rgba(59,130,246,0.1)':'rgba(245,158,11,0.1)'};
+                     color:${pc};font-size:11px;font-weight:600;padding:3px 9px;border-radius:10px">
+          ${patIcon} ${patClean || '—'}
+        </span>
+      </td>
+
+      <!-- Top stocks -->
+      <td style="padding:12px 14px">
+        <div style="display:flex;flex-wrap:wrap;gap:4px">${topSt}</div>
+      </td>
+    </tr>`;
+  }
+  html += '</tbody></table>';
+  document.getElementById('rrgTableContent').innerHTML = html;
+}
+
+function _rrgSetSort(col) {
+  if (_rrgSortCol === col) { _rrgSortAsc = !_rrgSortAsc; }
+  else { _rrgSortCol = col; _rrgSortAsc = col === 'group'; }
+  _rrgSortTable();
 }
 
 function renderSectorHeatmap(sectors) {

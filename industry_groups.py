@@ -3,6 +3,7 @@ Industry Group Relative Strength
 Groups NSE stocks into 25 sectors and ranks each by 3-month RS vs Nifty.
 Zero extra NSE API calls — uses bhavcopy cache only.
 """
+import math
 import time
 import pandas as pd
 from data_fetcher import _weekdays_back, _download_one_day
@@ -248,20 +249,67 @@ def _compute_rrg(stocks: dict, nifty: pd.Series) -> list[dict]:
         if not trail:
             continue
 
-        cur = trail[-1]
-        quadrant = (
-            "Leading"   if cur["x"] >= 100 and cur["y"] >= 100 else
-            "Weakening" if cur["x"] >= 100 and cur["y"] <  100 else
-            "Improving" if cur["x"] <  100 and cur["y"] >= 100 else
-            "Lagging"
-        )
+        def _quad(p):
+            return ("Leading"   if p["x"] >= 100 and p["y"] >= 100 else
+                    "Weakening" if p["x"] >= 100 and p["y"] <  100 else
+                    "Improving" if p["x"] <  100 and p["y"] >= 100 else
+                    "Lagging")
+
+        cur          = trail[-1]
+        quadrant     = _quad(cur)
+        prev_quad    = _quad(trail[-2]) if len(trail) >= 2 else quadrant
+        # Distance from RRG centre (100, 100) — proxy for "how deep in this quadrant"
+        distance     = round(math.sqrt((cur["x"] - 100) ** 2 + (cur["y"] - 100) ** 2), 2)
+
+        # Tail direction — vector from previous to current point
+        if len(trail) >= 2:
+            dx = cur["x"] - trail[-2]["x"]
+            dy = cur["y"] - trail[-2]["y"]
+            if   dx > 0.3 and dy > 0.3:    tail_dir = "↗ accelerating"
+            elif dx > 0.3 and dy < -0.3:   tail_dir = "↘ losing momentum"
+            elif dx < -0.3 and dy > 0.3:   tail_dir = "↖ recovering"
+            elif dx < -0.3 and dy < -0.3:  tail_dir = "↙ deteriorating"
+            elif dx > 0.3:                 tail_dir = "→ stronger RS"
+            elif dx < -0.3:                tail_dir = "← weaker RS"
+            elif dy > 0.3:                 tail_dir = "↑ momentum up"
+            elif dy < -0.3:                tail_dir = "↓ momentum down"
+            else:                          tail_dir = "• stable"
+        else:
+            tail_dir = "—"
+
+        # Pattern — quadrant transition tells the story
+        if quadrant == "Leading"   and prev_quad == "Improving": pattern = "🚀 Fresh entry to Leading"
+        elif quadrant == "Weakening" and prev_quad == "Leading":   pattern = "⚠ Topping out"
+        elif quadrant == "Lagging"   and prev_quad == "Weakening": pattern = "📉 Deepening weakness"
+        elif quadrant == "Improving" and prev_quad == "Lagging":   pattern = "🌱 Bottoming"
+        elif quadrant == "Leading":                                pattern = "✓ Holding strength"
+        elif quadrant == "Improving":                              pattern = "📈 Building strength"
+        elif quadrant == "Weakening":                              pattern = "⚠ Losing strength"
+        else:                                                      pattern = "❌ Weak"
+
+        # Top 3 stocks in this sector by 3-month return
+        sector_returns = []
+        for sym in symbols:
+            df = stocks.get(sym)
+            if df is not None:
+                c = df["Close"].dropna()
+                if len(c) >= 66:
+                    r3m_val = (float(c.iloc[-1]) / float(c.iloc[-66]) - 1) * 100
+                    sector_returns.append({"symbol": sym, "r3m": round(r3m_val, 1)})
+        sector_returns.sort(key=lambda x: -x["r3m"])
+        top_stocks = sector_returns[:3]
 
         results.append({
-            "group":       group_name,
-            "trail":       trail,
-            "quadrant":    quadrant,
-            "rs_ratio":    cur["x"],
-            "rs_momentum": cur["y"],
+            "group":          group_name,
+            "trail":          trail,
+            "quadrant":       quadrant,
+            "prev_quadrant":  prev_quad,
+            "rs_ratio":       cur["x"],
+            "rs_momentum":    cur["y"],
+            "distance":       distance,
+            "tail_direction": tail_dir,
+            "pattern":        pattern,
+            "top_stocks":     top_stocks,
         })
 
     # Sort for deterministic rendering (Leading first, then Weakening, Improving, Lagging)
@@ -270,16 +318,61 @@ def _compute_rrg(stocks: dict, nifty: pd.Series) -> list[dict]:
     return results
 
 
+def _build_action_buckets(rrg_results: list) -> dict:
+    """
+    Categorise sectors into 4 action buckets:
+      🟢 BUY        — fresh entry into Leading (Improving → Leading transition)
+      🔵 ACCUMULATE — Leading or Improving with momentum > 100 (still strengthening)
+      🟡 TRIM       — Weakening, or Leading with falling momentum
+      🔴 AVOID      — Lagging, or Improving with falling momentum
+    """
+    buy, accumulate, trim, avoid = [], [], [], []
+
+    for r in rrg_results:
+        q    = r["quadrant"]
+        prev = r["prev_quadrant"]
+        mom  = r["rs_momentum"]
+
+        if q == "Leading" and prev == "Improving":
+            buy.append(r)
+        elif q == "Improving" and prev == "Lagging":
+            buy.append(r)            # bottoming — early entry
+        elif q == "Leading" and mom >= 100:
+            accumulate.append(r)
+        elif q == "Improving" and mom >= 100:
+            accumulate.append(r)
+        elif q == "Weakening":
+            trim.append(r)
+        elif q == "Leading" and mom < 100:
+            trim.append(r)            # losing momentum at the top
+        elif q == "Lagging":
+            avoid.append(r)
+        elif q == "Improving" and mom < 100:
+            avoid.append(r)            # weak and not building
+        else:
+            avoid.append(r)            # safe default
+
+    # Sort each bucket: most-actionable first (highest RS-momentum for buy/accumulate,
+    # furthest distance from centre for trim/avoid → most extreme)
+    buy.sort(key=lambda r: -r["rs_momentum"])
+    accumulate.sort(key=lambda r: -r["rs_momentum"])
+    trim.sort(key=lambda r: -r["distance"])
+    avoid.sort(key=lambda r: -r["distance"])
+
+    return {"buy": buy, "accumulate": accumulate, "trim": trim, "avoid": avoid}
+
+
 def run_rrg_analysis() -> dict:
     """Load stocks (from cache) and compute RRG data. Zero new NSE API calls."""
     stocks = _get_stocks()
     if not stocks:
-        return {"sectors": [], "computed_at": int(time.time())}
+        return {"sectors": [], "actions": {}, "computed_at": int(time.time())}
     nifty = _build_nifty(stocks)
     if nifty is None:
-        return {"sectors": [], "computed_at": int(time.time())}
+        return {"sectors": [], "actions": {}, "computed_at": int(time.time())}
     sectors = _compute_rrg(stocks, nifty)
-    return {"sectors": sectors, "computed_at": int(time.time())}
+    actions = _build_action_buckets(sectors)
+    return {"sectors": sectors, "actions": actions, "computed_at": int(time.time())}
 
 
 # ── Main entry ────────────────────────────────────────────────────────────────
