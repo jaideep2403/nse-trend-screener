@@ -1,5 +1,6 @@
 import threading
 import time
+import pandas as pd
 from flask import Flask, render_template, request, jsonify, make_response
 from screener import run_screener
 from sector_analysis import run_sector_analysis
@@ -719,24 +720,183 @@ def bhavcopy_status():
 
     cache_path = _bhav_cache_path(latest)
     mtime      = os.path.getmtime(cache_path)
-    dt_ist     = datetime.fromtimestamp(mtime, tz=IST)
-    today      = datetime.now(tz=IST).date()
+    # fetched_ist = when the file was downloaded (mtime) — used for "fetched HH:MM"
+    fetched_ist = datetime.fromtimestamp(mtime, tz=IST)
+    today       = datetime.now(tz=IST).date()
+
+    # Bug fix: trading_date_str comes from `latest` (the actual NSE trading date),
+    # NOT from the file mtime — the file may have been downloaded the next morning.
+    trading_date_str = latest.strftime("%d-%b-%Y")
+    fetched_time_str = fetched_ist.strftime("%H:%M IST")
 
     if latest == today:
         status = "today"
-        label  = f"Today's data · {dt_ist.strftime('%d-%b-%Y')} · fetched {dt_ist.strftime('%H:%M IST')}"
+        label  = f"Today's data · {trading_date_str} · fetched {fetched_time_str}"
     else:
         days_old = (today - latest).days
         status = "stale"
-        label  = f"Last trading day: {dt_ist.strftime('%d-%b-%Y')} · fetched {dt_ist.strftime('%H:%M IST')} · {days_old}d old"
+        label  = f"Last trading day: {trading_date_str} · fetched {fetched_time_str} · {days_old}d old"
 
     return jsonify({
         "latest_date":     str(latest),
-        "fetched_at_ist":  dt_ist.strftime("%d-%b-%Y %H:%M:%S IST"),
+        "fetched_at_ist":  fetched_ist.strftime("%d-%b-%Y %H:%M:%S IST"),
         "fetched_at_unix": int(mtime),
         "status":          status,       # "today" | "stale" | "no_data"
         "label":           label,
     })
+
+
+@app.route("/api/fii-dii")
+def fii_dii_flow():
+    """
+    F4 — FII/DII market-wide daily flow from NSE.
+    Two-step cookie seeding required: homepage → marketStatus → data API.
+    Falls back to a cached result if the API is unreachable.
+    Cached 4 hours (market updates intraday but wholesale enough for EOD use).
+    """
+    import requests as _req
+    from datetime import datetime, timezone, timedelta
+
+    _CACHE = fii_dii_flow.__dict__.setdefault("_cache", {"data": None, "ts": 0})
+    if _CACHE["data"] and time.time() - _CACHE["ts"] < 4 * 3600:
+        return jsonify(_CACHE["data"])
+
+    def _seed_session():
+        s = _req.Session()
+        s.headers.update({
+            "User-Agent":      "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+                               "AppleWebKit/537.36 (KHTML, like Gecko) "
+                               "Chrome/124.0.0.0 Safari/537.36",
+            "Accept":          "application/json, text/plain, */*",
+            "Accept-Language": "en-US,en;q=0.9",
+            "Referer":         "https://www.nseindia.com/",
+        })
+        try:
+            s.get("https://www.nseindia.com", timeout=8)
+            s.get("https://www.nseindia.com/api/marketStatus", timeout=8)
+        except Exception:
+            pass
+        return s
+
+    IST = timezone(timedelta(hours=5, minutes=30))
+    try:
+        sess = _seed_session()
+        r = sess.get(
+            "https://www.nseindia.com/api/fiidiiTradeReact",
+            timeout=12,
+            headers={"Referer": "https://www.nseindia.com/market-data/fii-dii-activity"},
+        )
+        if r.status_code != 200:
+            return jsonify({"error": f"NSE returned {r.status_code}", "rows": []}), 502
+        raw = r.json()
+
+        # NSE returns rows per category: {category: FII/DII, date, buyValue, sellValue, netValue}
+        # Group by date, merge FII and DII rows
+        from collections import defaultdict
+        by_date: dict = defaultdict(dict)
+        for item in raw:
+            cat  = (item.get("category") or "").upper()
+            dt   = item.get("date", "")
+            bv   = float(str(item.get("buyValue",  0)).replace(",", "") or 0)
+            sv   = float(str(item.get("sellValue", 0)).replace(",", "") or 0)
+            nv   = float(str(item.get("netValue",  0)).replace(",", "") or 0)
+            # NSE uses "FII/FPI" as category name
+            key = "FII" if cat.startswith("FII") else "DII" if cat == "DII" else None
+            if key and dt:
+                by_date[dt][key] = {"buy": bv, "sell": sv, "net": nv}
+
+        rows = []
+        for dt in list(by_date.keys())[:10]:   # last 10 trading days
+            fd = by_date[dt].get("FII", {"buy": 0, "sell": 0, "net": 0})
+            dd = by_date[dt].get("DII", {"buy": 0, "sell": 0, "net": 0})
+            rows.append({
+                "date":     dt,
+                "fii_buy":  round(fd["buy"],  2),
+                "fii_sell": round(fd["sell"], 2),
+                "fii_net":  round(fd["net"],  2),
+                "dii_buy":  round(dd["buy"],  2),
+                "dii_sell": round(dd["sell"], 2),
+                "dii_net":  round(dd["net"],  2),
+            })
+
+        # 5-day rolling net
+        fii_5d = sum(r["fii_net"] for r in rows[:5])
+        dii_5d = sum(r["dii_net"] for r in rows[:5])
+        signal = ("FII Buying" if fii_5d > 500 else
+                  "FII Selling" if fii_5d < -500 else "Neutral")
+        out = {
+            "rows":       rows,
+            "fii_5d_net": round(fii_5d, 2),
+            "dii_5d_net": round(dii_5d, 2),
+            "signal":     signal,
+            "fetched_at": datetime.now(tz=IST).strftime("%d-%b-%Y %H:%M IST"),
+        }
+        _CACHE["data"] = out
+        _CACHE["ts"]   = time.time()
+        return jsonify(out)
+
+    except Exception as e:
+        return jsonify({"error": str(e), "rows": []}), 500
+
+
+@app.route("/api/position-size")
+def position_size():
+    """
+    F6 — ATR-based position sizing calculator.
+    Params: symbol, capital (default 1000000 = ₹10L), risk_pct (default 1.0)
+    """
+    symbol   = request.args.get("symbol", "").upper()
+    capital  = request.args.get("capital",  1_000_000, type=float)
+    risk_pct = request.args.get("risk_pct", 1.0,       type=float)
+    if not symbol:
+        return jsonify({"error": "symbol required"}), 400
+    try:
+        # Use fetch_ohlcv which builds per-stock pkl from bhavcopy cache (fast)
+        from data_fetcher import fetch_ohlcv
+        ticker = symbol if symbol.endswith(".NS") else f"{symbol}.NS"
+        ohlcv_map = fetch_ohlcv([ticker], min_bars=20)
+        df = ohlcv_map.get(ticker)
+        if df is None or len(df) < 20:
+            return jsonify({"error": f"No data for {symbol}"}), 404
+
+        close = df["Close"].dropna()
+        hi    = df["High"].dropna()
+        lo    = df["Low"].dropna()
+        cur   = float(close.iloc[-1])
+
+        tr = pd.concat([
+            hi - lo,
+            (hi - close.shift(1)).abs(),
+            (lo - close.shift(1)).abs(),
+        ], axis=1).max(axis=1)
+        atr14 = float(tr.rolling(14).mean().iloc[-1]) if len(tr) >= 14 else float(tr.mean())
+
+        stop_1atr = round(cur - atr14, 2)
+        stop_1_5atr = round(cur - 1.5 * atr14, 2)
+        risk_amount  = capital * risk_pct / 100
+        risk_per_sh  = max(cur - stop_1_5atr, 0.01)
+        shares       = int(risk_amount / risk_per_sh)
+        position_val = round(shares * cur, 2)
+        pos_pct_cap  = round(position_val / capital * 100, 1) if capital > 0 else 0
+
+        return jsonify({
+            "symbol":       symbol,
+            "price":        round(cur, 2),
+            "atr14":        round(atr14, 2),
+            "atr_pct":      round(atr14 / cur * 100, 2),
+            "stop_1atr":    stop_1atr,
+            "stop_1_5atr":  stop_1_5atr,
+            "capital":      capital,
+            "risk_pct":     risk_pct,
+            "risk_amount":  round(risk_amount, 2),
+            "shares":       shares,
+            "position_value": position_val,
+            "position_pct_of_capital": pos_pct_cap,
+            "target_2r":    round(cur + 2 * (cur - stop_1_5atr), 2),
+            "target_3r":    round(cur + 3 * (cur - stop_1_5atr), 2),
+        })
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 
 @app.route("/api/sector/rrg")

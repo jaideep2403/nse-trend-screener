@@ -1735,14 +1735,18 @@
       <table style="width:100%;border-collapse:collapse;font-size:13px">
         <thead>
           <tr style="border-bottom:2px solid var(--border)">
-            <th onclick="sortEdge('symbol')"     style="cursor:pointer;padding:8px 10px;text-align:left;color:var(--text2)">Symbol ↕</th>
-            <th onclick="sortEdge('score')"      style="cursor:pointer;padding:8px 10px;text-align:right;color:var(--text2)">Score ↕</th>
+            <th onclick="sortEdge('symbol')"       style="cursor:pointer;padding:8px 10px;text-align:left;color:var(--text2)">Symbol ↕</th>
+            <th onclick="sortEdge('score')"        style="cursor:pointer;padding:8px 10px;text-align:right;color:var(--text2)">Score ↕</th>
             <th style="padding:8px 10px;text-align:center;color:var(--text2)">Tier</th>
-            <th onclick="sortEdge('technical')"  style="cursor:pointer;padding:8px 10px;text-align:right;color:var(--text2)">Tech</th>
-            <th onclick="sortEdge('fundamental')" style="cursor:pointer;padding:8px 10px;text-align:right;color:var(--text2)">Funda</th>
-            <th onclick="sortEdge('rr_score')"   style="cursor:pointer;padding:8px 10px;text-align:right;color:var(--text2)">R:R</th>
-            <th onclick="sortEdge('r3m')"        style="cursor:pointer;padding:8px 10px;text-align:right;color:var(--text2)">3M %</th>
-            <th onclick="sortEdge('base_weeks')" style="cursor:pointer;padding:8px 10px;text-align:right;color:var(--text2)">Base</th>
+            <th onclick="sortEdge('technical')"    style="cursor:pointer;padding:8px 10px;text-align:right;color:var(--text2)">Tech</th>
+            <th onclick="sortEdge('fundamental')"  style="cursor:pointer;padding:8px 10px;text-align:right;color:var(--text2)">Funda</th>
+            <th onclick="sortEdge('rr_score')"     style="cursor:pointer;padding:8px 10px;text-align:right;color:var(--text2)">R:R</th>
+            <th onclick="sortEdge('r3m')"          style="cursor:pointer;padding:8px 10px;text-align:right;color:var(--text2)">3M %</th>
+            <th onclick="sortEdge('base_weeks')"   style="cursor:pointer;padding:8px 10px;text-align:right;color:var(--text2)">Base</th>
+            <th onclick="sortEdge('deliv_pct')"    style="cursor:pointer;padding:8px 10px;text-align:right;color:var(--text2)" title="Delivery % — institutional vs retail participation">Deliv%</th>
+            <th onclick="sortEdge('rs_slope_3m')"  style="cursor:pointer;padding:8px 10px;text-align:right;color:var(--text2)" title="RS Line: stock vs Nifty momentum">RS 3M</th>
+            <th onclick="sortEdge('atr_stop')"     style="cursor:pointer;padding:8px 10px;text-align:right;color:var(--text2)" title="ATR(14) × 1.5 stop-loss price">ATR SL</th>
+            <th onclick="sortEdge('base_count')"   style="cursor:pointer;padding:8px 10px;text-align:right;color:var(--text2)" title="Number of prior bases (B1=first base, best)">Base#</th>
             <th style="padding:8px 10px;text-align:left;color:var(--text2)">Stage</th>
             <th style="padding:8px 10px;text-align:left;color:var(--text2)">Sector / Quad</th>
           </tr>
@@ -1759,6 +1763,21 @@
     <div style="padding:0 14px 14px;font-size:11px;color:var(--text2)">
       Walk-forward backtest: 250-day lookback, 30-day max hold, -7% stop, +25% target. Up to 200 signals per type.
     </div>
+  </div>
+
+  <!-- F4: FII/DII Flow Panel -->
+  <div id="edgeFiiPanel" class="panel" style="display:none">
+    <div class="panel-header">
+      <h2>🏦 FII / DII Market-wide Daily Flow</h2>
+      <button class="btn btn-blue" onclick="loadFiiDii()" style="font-size:12px;padding:4px 12px">↻ Refresh</button>
+    </div>
+    <div id="edgeFiiBody" style="padding:14px"><em style="color:var(--text2)">Click Refresh to load FII/DII data from NSE</em></div>
+  </div>
+
+  <!-- F9: Sector Concentration Panel -->
+  <div id="edgeConcentrationPanel" class="panel" style="display:none">
+    <div class="panel-header"><h2>🎯 Sector Concentration Risk — Top 50 Ranked Stocks</h2></div>
+    <div id="edgeConcentrationBody" style="padding:14px"></div>
   </div>
 
   <!-- Exit Signal Checker -->
@@ -1818,6 +1837,8 @@ function updateFreshness(scanId, unixSec) {
   const ageHrs = (Date.now() / 1000 - unixSec) / 3600;
   const dot = document.getElementById(dotId);
   if (dot) dot.style.background = ageHrs < 6 ? 'var(--green2)' : 'var(--gold2)';
+  // Refresh bhavcopy bar immediately — scan may have downloaded newer day files
+  pollBhavcopySatus();
 }
 
 // ── Tab switching ──────────────────────────────────────────────────────────
@@ -3870,11 +3891,15 @@ function pollEdge() {
         renderEdgeTiers(d.result.tier_counts || {});
         renderEdgeBacktests(d.result.backtests || {});
         renderEdgeTable();
-        document.getElementById('edgeRegimePanel').style.display    = '';
-        document.getElementById('edgeRankPanel').style.display      = '';
-        document.getElementById('edgeBacktestPanel').style.display  = '';
-        document.getElementById('edgeExitPanel').style.display      = '';
-        document.getElementById('edgeEmpty').style.display          = 'none';
+        renderEdgeConcentration(d.result.sector_concentration || []);
+        document.getElementById('edgeRegimePanel').style.display        = '';
+        document.getElementById('edgeRankPanel').style.display          = '';
+        document.getElementById('edgeBacktestPanel').style.display      = '';
+        document.getElementById('edgeFiiPanel').style.display           = '';
+        document.getElementById('edgeConcentrationPanel').style.display = '';
+        document.getElementById('edgeExitPanel').style.display          = '';
+        document.getElementById('edgeEmpty').style.display              = 'none';
+        loadFiiDii();   // auto-load FII/DII on edge engine completion
         const fcount = d.result.fundamentals_count || 0;
         const fundLabel = d.result.fundamentals_available
           ? `· 📊 Fundamentals: ${fcount} stocks cached`
@@ -3949,17 +3974,22 @@ function renderEdgeBacktests(bts) {
         <th style="padding:8px 10px;text-align:right">Expectancy</th>
         <th style="padding:8px 10px;text-align:right">Profit Factor</th>
         <th style="padding:8px 10px;text-align:right">Avg Hold</th>
-        <th style="padding:8px 10px;text-align:right">Best</th>
-        <th style="padding:8px 10px;text-align:right">Worst</th>
+        <th style="padding:8px 10px;text-align:right">Max DD</th>
+        <th style="padding:8px 10px;text-align:right">Final Equity</th>
+        <th style="padding:8px 10px;text-align:right" title="Win rate when only trading in Confirmed Uptrend regime">Regime WR</th>
       </tr></thead>
       <tbody>
         ${Object.entries(bts).map(([name, s]) => {
           if (s.error) {
-            return `<tr><td colspan="10" style="padding:8px 10px;color:#ef4444">${name}: ${s.error}</td></tr>`;
+            return `<tr><td colspan="11" style="padding:8px 10px;color:#ef4444">${name}: ${s.error}</td></tr>`;
           }
-          const wrColor = s.win_rate >= 50 ? '#22c55e' : s.win_rate >= 40 ? '#eab308' : '#ef4444';
+          const wrColor  = s.win_rate >= 50 ? '#22c55e' : s.win_rate >= 40 ? '#eab308' : '#ef4444';
           const expColor = s.expectancy > 0 ? '#22c55e' : '#ef4444';
           const pfColor  = s.profit_factor >= 1.5 ? '#22c55e' : s.profit_factor >= 1.0 ? '#eab308' : '#ef4444';
+          const ddColor  = (s.max_drawdown || 0) <= -20 ? '#ef4444' : (s.max_drawdown || 0) <= -10 ? '#eab308' : '#22c55e';
+          const eqColor  = (s.final_equity || 100) >= 120 ? '#22c55e' : (s.final_equity || 100) >= 100 ? '#eab308' : '#ef4444';
+          const regWR    = s.regime_filtered ? s.regime_filtered.win_rate : null;
+          const regColor = regWR >= 55 ? '#22c55e' : regWR >= 45 ? '#eab308' : '#ef4444';
           return `<tr style="border-bottom:1px solid var(--border)">
             <td style="padding:8px 10px"><strong>${name}</strong></td>
             <td style="padding:8px 10px;text-align:right">${s.trades}</td>
@@ -3969,8 +3999,9 @@ function renderEdgeBacktests(bts) {
             <td style="padding:8px 10px;text-align:right;color:${expColor};font-weight:600">${s.expectancy > 0 ? '+' : ''}${s.expectancy}%</td>
             <td style="padding:8px 10px;text-align:right;color:${pfColor};font-weight:600">${s.profit_factor}</td>
             <td style="padding:8px 10px;text-align:right">${s.avg_hold}d</td>
-            <td style="padding:8px 10px;text-align:right;color:#22c55e">+${s.best.toFixed(1)}%</td>
-            <td style="padding:8px 10px;text-align:right;color:#ef4444">${s.worst.toFixed(1)}%</td>
+            <td style="padding:8px 10px;text-align:right;color:${ddColor};font-weight:600">${(s.max_drawdown || 0).toFixed(1)}%</td>
+            <td style="padding:8px 10px;text-align:right;color:${eqColor};font-weight:600">${(s.final_equity || 100).toFixed(1)}</td>
+            <td style="padding:8px 10px;text-align:right;color:${regColor}">${regWR != null ? regWR + '%' : '—'}</td>
           </tr>`;
         }).join('')}
       </tbody>
@@ -4005,7 +4036,7 @@ function renderEdgeTable() {
   document.getElementById('edgeCount').textContent = `${rows.length} of ${_edgeData.length}`;
   const tbody = document.getElementById('edgeTbody');
   if (!rows.length) {
-    tbody.innerHTML = `<tr><td colspan="10" style="text-align:center;padding:30px;color:var(--text2)">No matches.</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="14" style="text-align:center;padding:30px;color:var(--text2)">No matches.</td></tr>`;
     return;
   }
   const QUAD_COLOR = { Leading: '#22c55e', Improving: '#3b82f6', Weakening: '#eab308', Lagging: '#ef4444' };
@@ -4014,9 +4045,22 @@ function renderEdgeTable() {
   tbody.innerHTML = rows.map(r => {
     const scoreColor = r.score >= 80 ? '#facc15' : r.score >= 70 ? '#22c55e' : r.score >= 60 ? '#3b82f6' : '#94a3b8';
     const fbg = TIER_BG[r.tier] || ''; const ffg = TIER_FG[r.tier] || '';
-    const r3mColor = r.r3m >= 0 ? '#22c55e' : '#ef4444';
-    const qcolor = QUAD_COLOR[r.quadrant] || 'var(--text2)';
-    const fundaTag = r.has_fundamentals ? '' : '<small style="color:var(--text2)">~</small>';
+    const r3mColor  = r.r3m >= 0 ? '#22c55e' : '#ef4444';
+    const qcolor    = QUAD_COLOR[r.quadrant] || 'var(--text2)';
+    const fundaTag  = r.has_fundamentals ? '' : '<small style="color:var(--text2)">~</small>';
+    // F1 Delivery %
+    const delivColor = (r.deliv_pct || 0) >= 60 ? '#22c55e' : (r.deliv_pct || 0) >= 40 ? 'var(--text)' : '#ef4444';
+    const delivTxt   = r.deliv_pct != null ? `<span style="color:${delivColor};font-weight:600">${r.deliv_pct}%</span>` : '—';
+    // F7 RS Line
+    const rsColor  = (r.rs_slope_3m || 0) >= 5 ? '#22c55e' : (r.rs_slope_3m || 0) < -5 ? '#ef4444' : 'var(--text)';
+    const rsTxt    = r.rs_at_52w_high
+      ? `<span style="color:#22c55e;font-weight:700">52W★</span>`
+      : (r.rs_slope_3m != null ? `<span style="color:${rsColor}">${r.rs_slope_3m > 0 ? '+' : ''}${r.rs_slope_3m}%</span>` : '—');
+    // F6 ATR Stop
+    const atrTxt   = r.atr_stop ? `<small>₹${r.atr_stop}</small><br><small style="color:var(--text2)">${r.atr_pct}%</small>` : '—';
+    // F10 Base Count
+    const bcColor  = (r.base_count || 0) === 1 ? '#22c55e' : (r.base_count || 0) === 2 ? '#eab308' : '#ef4444';
+    const bcTxt    = r.base_count != null ? `<span style="color:${bcColor};font-weight:700">B${r.base_count}</span>` : '—';
     return `<tr style="border-bottom:1px solid var(--border)" onmouseenter="this.style.background='var(--surface2)'" onmouseleave="this.style.background=''">
       <td style="padding:9px 10px"><strong>${r.symbol}</strong><br><small style="color:var(--text2)">₹${r.price}</small></td>
       <td style="padding:9px 10px;text-align:right;font-size:18px;font-weight:700;color:${scoreColor}">${r.score}</td>
@@ -4026,6 +4070,10 @@ function renderEdgeTable() {
       <td style="padding:9px 10px;text-align:right">${r.rr_score}</td>
       <td style="padding:9px 10px;text-align:right;color:${r3mColor};font-weight:600">${r.r3m > 0 ? '+' : ''}${r.r3m}%</td>
       <td style="padding:9px 10px;text-align:right">${r.base_valid ? r.base_weeks + 'w' : '—'}<br><small style="color:var(--text2)">${r.base_depth}%</small></td>
+      <td style="padding:9px 10px;text-align:right">${delivTxt}</td>
+      <td style="padding:9px 10px;text-align:right">${rsTxt}</td>
+      <td style="padding:9px 10px;text-align:right">${atrTxt}</td>
+      <td style="padding:9px 10px;text-align:right">${bcTxt}</td>
       <td style="padding:9px 10px;font-size:12px">${r.stage_lbl}</td>
       <td style="padding:9px 10px"><small>${r.group || '—'}</small><br><small style="color:${qcolor};font-weight:600">${r.quadrant || ''}</small></td>
     </tr>`;
@@ -4036,6 +4084,91 @@ function sortEdge(col) {
   if (_edgeSort.col === col) _edgeSort.asc = !_edgeSort.asc;
   else { _edgeSort.col = col; _edgeSort.asc = false; }
   renderEdgeTable();
+}
+
+// ── F4: FII/DII Flow ─────────────────────────────────────────────────────────
+function loadFiiDii() {
+  const body = document.getElementById('edgeFiiBody');
+  body.innerHTML = '<em style="color:var(--text2)">Loading FII/DII data from NSE…</em>';
+  fetch('/api/fii-dii').then(r => r.json()).then(d => {
+    if (d.error) {
+      body.innerHTML = `<span style="color:#ef4444">⚠ ${d.error} — NSE API may require market hours access</span>`;
+      return;
+    }
+    const rows = d.rows || [];
+    if (!rows.length) { body.innerHTML = '<em style="color:var(--text2)">No data returned</em>'; return; }
+    const fii5Color = d.fii_5d_net > 500 ? '#22c55e' : d.fii_5d_net < -500 ? '#ef4444' : '#eab308';
+    const dii5Color = d.dii_5d_net > 0 ? '#22c55e' : '#ef4444';
+    body.innerHTML = `
+      <div style="display:flex;gap:24px;flex-wrap:wrap;align-items:center;margin-bottom:16px">
+        <div>
+          <div style="font-size:11px;color:var(--text2)">FII NET (5 days)</div>
+          <div style="font-size:26px;font-weight:700;color:${fii5Color}">${d.fii_5d_net > 0 ? '+' : ''}₹${d.fii_5d_net} Cr</div>
+          <div style="font-size:13px;color:var(--text2)">${d.signal}</div>
+        </div>
+        <div style="border-left:1px solid var(--border);padding-left:24px">
+          <div style="font-size:11px;color:var(--text2)">DII NET (5 days)</div>
+          <div style="font-size:26px;font-weight:700;color:${dii5Color}">${d.dii_5d_net > 0 ? '+' : ''}₹${d.dii_5d_net} Cr</div>
+        </div>
+        <div style="border-left:1px solid var(--border);padding-left:24px">
+          <div style="font-size:11px;color:var(--text2)">FETCHED</div>
+          <div style="font-size:13px">${d.fetched_at || '—'}</div>
+        </div>
+      </div>
+      <table style="width:100%;border-collapse:collapse;font-size:12px">
+        <thead><tr style="border-bottom:1px solid var(--border)">
+          <th style="padding:6px 8px;text-align:left;color:var(--text2)">Date</th>
+          <th style="padding:6px 8px;text-align:right;color:var(--text2)">FII Buy</th>
+          <th style="padding:6px 8px;text-align:right;color:var(--text2)">FII Sell</th>
+          <th style="padding:6px 8px;text-align:right;color:var(--text2);font-weight:700">FII Net</th>
+          <th style="padding:6px 8px;text-align:right;color:var(--text2)">DII Buy</th>
+          <th style="padding:6px 8px;text-align:right;color:var(--text2)">DII Sell</th>
+          <th style="padding:6px 8px;text-align:right;color:var(--text2);font-weight:700">DII Net</th>
+        </tr></thead>
+        <tbody>
+          ${rows.map(r => {
+            const fc = r.fii_net > 0 ? '#22c55e' : '#ef4444';
+            const dc = r.dii_net > 0 ? '#22c55e' : '#ef4444';
+            return `<tr style="border-bottom:1px solid var(--border)">
+              <td style="padding:6px 8px">${r.date}</td>
+              <td style="padding:6px 8px;text-align:right">₹${r.fii_buy}</td>
+              <td style="padding:6px 8px;text-align:right">₹${r.fii_sell}</td>
+              <td style="padding:6px 8px;text-align:right;color:${fc};font-weight:700">${r.fii_net > 0 ? '+' : ''}₹${r.fii_net}</td>
+              <td style="padding:6px 8px;text-align:right">₹${r.dii_buy}</td>
+              <td style="padding:6px 8px;text-align:right">₹${r.dii_sell}</td>
+              <td style="padding:6px 8px;text-align:right;color:${dc};font-weight:700">${r.dii_net > 0 ? '+' : ''}₹${r.dii_net}</td>
+            </tr>`;
+          }).join('')}
+        </tbody>
+      </table>`;
+  }).catch(e => {
+    body.innerHTML = `<span style="color:#ef4444">Error: ${e.message}</span>`;
+  });
+}
+
+// ── F9: Sector Concentration ──────────────────────────────────────────────────
+function renderEdgeConcentration(data) {
+  const body = document.getElementById('edgeConcentrationBody');
+  if (!data || !data.length) {
+    body.innerHTML = '<em style="color:var(--text2)">No data</em>';
+    return;
+  }
+  const maxPct = Math.max(...data.map(d => d.pct));
+  body.innerHTML = `
+    <div style="font-size:12px;color:var(--text2);margin-bottom:10px">
+      Distribution of top 50 ranked stocks across sectors. High concentration (>30%) = higher risk.
+    </div>
+    ${data.map(d => {
+      const barColor = d.pct >= 30 ? '#ef4444' : d.pct >= 20 ? '#eab308' : '#3b82f6';
+      const barWidth = Math.round(d.pct / maxPct * 100);
+      return `<div style="display:flex;align-items:center;gap:10px;margin-bottom:6px">
+        <div style="width:140px;font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${d.sector}</div>
+        <div style="flex:1;background:var(--surface2);border-radius:4px;height:18px;position:relative">
+          <div style="width:${barWidth}%;background:${barColor};height:100%;border-radius:4px;opacity:0.8"></div>
+        </div>
+        <div style="width:60px;text-align:right;font-size:12px;font-weight:600;color:${barColor}">${d.count} (${d.pct}%)</div>
+      </div>`;
+    }).join('')}`;
 }
 
 // ── Exit Signal Checker ──────────────────────────────────────────────────────

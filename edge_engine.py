@@ -146,7 +146,9 @@ def _load_stocks(progress_callback=None, days: int = 400) -> dict[str, pd.DataFr
     for sym, grp in combined.groupby("Symbol"):
         if universe and sym not in universe:
             continue
-        g = grp.set_index("Date")[["Open", "High", "Low", "Close", "Volume"]]
+        _keep = [c for c in ["Open", "High", "Low", "Close", "Volume", "DelivPer"]
+                 if c in grp.columns]
+        g = grp.set_index("Date")[_keep]
         if not isinstance(g.index, pd.DatetimeIndex):
             g.index = pd.to_datetime(g.index)
         g = g[~g.index.duplicated(keep="last")].sort_index()
@@ -401,11 +403,43 @@ def detect_exit_signals(df: pd.DataFrame, entry_price: float | None = None,
 
 
 # ──────────────────────────────────────────────────────────────────────────────
+# F10 helper — Historical Base Count
+# ──────────────────────────────────────────────────────────────────────────────
+
+def _count_historical_bases(close: pd.Series) -> int:
+    """
+    Count completed bases PRIOR to the current consolidation.
+    A base = any contiguous window ≥ 30 bars where price range < 35%.
+    Walks backward from the current base's starting point.
+    """
+    if len(close) < 100:
+        return 0
+    cur_base = validate_base(close)
+    base_len  = cur_base.get("base_len", 0)
+    if base_len < 30:
+        return 0
+    count = 0
+    pos   = len(close) - base_len   # index of the bar just before current base
+    while pos >= 60:
+        sub = close.iloc[:pos]
+        b   = validate_base(sub)
+        if b.get("valid") and b.get("base_len", 0) >= 30:
+            count += 1
+            pos   -= b["base_len"]
+        elif b.get("base_len", 0) >= 30:          # detected but not "valid" — still a base
+            pos -= b["base_len"]
+        else:
+            break
+    return count
+
+
+# ──────────────────────────────────────────────────────────────────────────────
 # 4. SETUP QUALITY SCORE — Composite 0-100 ranking
 # ──────────────────────────────────────────────────────────────────────────────
 
 def compute_setup_score(symbol: str, df: pd.DataFrame, regime: dict,
-                        sector_quad: dict[str, str], fundamentals: dict | None = None) -> dict | None:
+                        sector_quad: dict[str, str], fundamentals: dict | None = None,
+                        nifty: pd.DataFrame | None = None) -> dict | None:
     """
     Composite Setup Quality Score combining technical, fundamental,
     market, sector, and risk:reward signals into a single 0-100 rank.
@@ -454,18 +488,27 @@ def compute_setup_score(symbol: str, df: pd.DataFrame, regime: dict,
 
     # ── FUNDAMENTAL (0-100) ───────────────────────────────────────────────────
     if fundamentals:
-        eps_g  = fundamentals.get("eps_growth_yoy", 0) or 0
-        sales_g= fundamentals.get("sales_growth_yoy", 0) or 0
-        roe    = fundamentals.get("roe", 0) or 0
-        d_e    = fundamentals.get("debt_to_equity", 999) or 999
-        eps_s  = min(100, max(0, eps_g * 2))      # 25% → 50, 50% → 100
-        sale_s = min(100, max(0, sales_g * 3))   # 20% → 60, 33% → 100
-        roe_s  = min(100, max(0, roe * 4))       # 15% → 60, 25% → 100
-        de_s   = 100 if d_e < 0.5 else 70 if d_e < 1.0 else 40 if d_e < 2.0 else 10
+        eps_g   = fundamentals.get("eps_growth_yoy", 0) or 0
+        sales_g = fundamentals.get("sales_growth_yoy", 0) or 0
+        roe     = fundamentals.get("roe", 0) or 0
+        d_e     = fundamentals.get("debt_to_equity", 999) or 999
+        eps_s   = min(100, max(0, eps_g * 2))      # 25% → 50, 50% → 100
+        sale_s  = min(100, max(0, sales_g * 3))    # 20% → 60, 33% → 100
+        roe_s   = min(100, max(0, roe * 4))        # 15% → 60, 25% → 100
+        de_s    = 100 if d_e < 0.5 else 70 if d_e < 1.0 else 40 if d_e < 2.0 else 10
+        # F2: EPS acceleration bonus (quarterly acceleration adds 10 pts)
+        eps_accel_val = fundamentals.get("eps_accel")
+        accel_bonus   = 10 if eps_accel_val == 1 else 0
         fundamental = round(0.35 * eps_s + 0.30 * sale_s + 0.20 * roe_s + 0.15 * de_s, 1)
+        fundamental = min(100, fundamental + accel_bonus)
+        # F3: promoter delta
+        promo_delta  = fundamentals.get("promoter_delta")
+        promo_hold   = fundamentals.get("promoter_holding", 0) or 0
         has_fundamentals = True
     else:
-        fundamental = 50.0   # neutral when no data
+        fundamental  = 50.0   # neutral when no data
+        promo_delta  = None
+        promo_hold   = None
         has_fundamentals = False
 
     # ── MARKET (0-100) ────────────────────────────────────────────────────────
@@ -482,6 +525,57 @@ def compute_setup_score(symbol: str, df: pd.DataFrame, regime: dict,
         "Leading": 95, "Improving": 75, "Weakening": 40, "Lagging": 15, "": 50,
     }
     sector = sector_score_map.get(quad, 50)
+
+    # ── F1: DELIVERY % (institutional participation signal) ───────────────────
+    deliv_ser  = df["DelivPer"].dropna() if "DelivPer" in df.columns else pd.Series(dtype=float)
+    deliv_pct  = float(deliv_ser.iloc[-1])   if len(deliv_ser) >= 1  else None
+    deliv_avg  = float(deliv_ser.iloc[-20:].mean()) if len(deliv_ser) >= 5 else None
+    # delivery score: 60%+ is institutional accumulation, 40%- is retail
+    if deliv_pct is not None:
+        deliv_score = min(100, max(0, deliv_pct * 1.4))   # 70% → 98, 50% → 70
+    else:
+        deliv_score = 50.0   # neutral when missing
+
+    # ── F6: ATR-BASED STOP + POSITION SIZING ─────────────────────────────────
+    hi_ser  = df["High"].dropna()
+    lo_ser  = df["Low"].dropna()
+    cl_ser  = close   # already computed
+    _tr = pd.concat([
+        hi_ser - lo_ser,
+        (hi_ser - cl_ser.shift(1)).abs(),
+        (lo_ser - cl_ser.shift(1)).abs(),
+    ], axis=1).max(axis=1)
+    atr14_val = float(_tr.rolling(14).mean().iloc[-1]) if len(_tr) >= 14 else float(_tr.mean())
+    atr_pct   = round(atr14_val / cur * 100, 2) if cur > 0 else 0.0
+    atr_stop  = round(cur - 1.5 * atr14_val, 2)
+    # Position sizing: risk ≤1% of ₹10L capital = ₹10,000 per trade
+    risk_per_share = max(cur - atr_stop, 0.01)
+    shares_1pct   = int(10_000 / risk_per_share)   # qty for 1% risk on ₹10L
+
+    # ── F7: RS LINE TRAJECTORY ────────────────────────────────────────────────
+    rs_at_52w_high = False
+    rs_slope_3m    = 0.0
+    rs_current     = None
+    if nifty is not None and len(nifty) >= 130:
+        nifty_aligned = nifty["Close"].reindex(close.index, method="ffill").dropna()
+        aligned = pd.DataFrame({"stock": close, "nifty": nifty_aligned}).dropna()
+        if len(aligned) >= 100:
+            rs_line   = aligned["stock"] / aligned["nifty"]
+            rs_curr_f = float(rs_line.iloc[-1])
+            rs_52wh   = float(rs_line.iloc[-252:].max()) if len(rs_line) >= 252 \
+                        else float(rs_line.max())
+            rs_3m_slc = rs_line.iloc[-66:] if len(rs_line) >= 66 else rs_line
+            rs_slope_3m  = round((float(rs_3m_slc.iloc[-1]) / float(rs_3m_slc.iloc[0]) - 1) * 100, 2) \
+                           if len(rs_3m_slc) > 1 else 0.0
+            rs_at_52w_high = rs_curr_f >= rs_52wh * 0.98
+            rs_current     = round(rs_curr_f, 6)
+
+    # RS adds to technical score
+    rs_bonus = 10 if rs_at_52w_high else (5 if rs_slope_3m > 5 else 0)
+    technical = min(100, round(technical + rs_bonus, 1))
+
+    # ── F10: HISTORICAL BASE COUNT ────────────────────────────────────────────
+    historical_base_count = _count_historical_bases(close)
 
     # ── RISK:REWARD (0-100) ───────────────────────────────────────────────────
     # If near pivot (top of base), R:R is ideal. Far from pivot = poor R:R.
@@ -503,14 +597,16 @@ def compute_setup_score(symbol: str, df: pd.DataFrame, regime: dict,
         rr_score = 50
 
     # ── COMPOSITE ─────────────────────────────────────────────────────────────
+    # Delivery score blended into technical (replaces vol_score weight partially)
     # If no fundamentals, redistribute weight to technical + market
     if has_fundamentals:
-        composite = (0.25 * technical + 0.25 * fundamental +
-                     0.20 * market    + 0.15 * sector +
-                     0.15 * rr_score)
+        composite = (0.22 * technical + 0.03 * deliv_score +
+                     0.25 * fundamental + 0.20 * market +
+                     0.15 * sector      + 0.15 * rr_score)
     else:
-        composite = (0.40 * technical + 0.25 * market +
-                     0.20 * sector    + 0.15 * rr_score)
+        composite = (0.35 * technical + 0.05 * deliv_score +
+                     0.25 * market    + 0.20 * sector +
+                     0.15 * rr_score)
 
     composite = round(composite, 1)
 
@@ -553,6 +649,22 @@ def compute_setup_score(symbol: str, df: pd.DataFrame, regime: dict,
         "stage_lbl":   stage_label(stg),
         "group":       grp,
         "quadrant":    quad,
+        # F2+F3 — Quarterly EPS + Promoter
+        "promoter_holding": promo_hold,
+        "promoter_delta":   promo_delta,
+        # F1 — Delivery %
+        "deliv_pct":   round(deliv_pct, 1)  if deliv_pct  is not None else None,
+        "deliv_avg20": round(deliv_avg, 1)  if deliv_avg  is not None else None,
+        # F6 — ATR-based risk management
+        "atr14":       round(atr14_val, 2),
+        "atr_pct":     atr_pct,
+        "atr_stop":    atr_stop,
+        "shares_1pct": shares_1pct,
+        # F7 — RS Line trajectory
+        "rs_at_52w_high": rs_at_52w_high,
+        "rs_slope_3m":    rs_slope_3m,
+        # F10 — Historical base count
+        "base_count":  historical_base_count,
     }
 
 
@@ -562,7 +674,9 @@ def compute_setup_score(symbol: str, df: pd.DataFrame, regime: dict,
 
 def backtest_signal(stocks: dict, signal_fn, hold_days: int = 30,
                     stop_pct: float = -7.0, target_pct: float = 25.0,
-                    lookback_days: int = 250, max_signals: int = 200) -> dict:
+                    lookback_days: int = 250, max_signals: int = 200,
+                    nifty: pd.DataFrame | None = None,
+                    regime_filter: bool = False) -> dict:
     """
     Walk-forward backtest of a signal function.
 
@@ -610,13 +724,15 @@ def backtest_signal(stocks: dict, signal_fn, hold_days: int = 30,
                         exit_price = float(df["Close"].iloc[min(entry_idx + hold_days, len(df) - 1)])
 
                     ret = (exit_price / entry - 1) * 100
+                    entry_date = df.index[entry_idx] if entry_idx < len(df.index) else None
                     trades.append({
-                        "symbol":  symbol,
-                        "entry":   round(entry, 2),
-                        "exit":    round(exit_price, 2),
-                        "ret_pct": round(ret, 2),
-                        "reason":  exit_reason,
-                        "days":    exit_idx - entry_idx,
+                        "symbol":     symbol,
+                        "entry":      round(entry, 2),
+                        "exit":       round(exit_price, 2),
+                        "ret_pct":    round(ret, 2),
+                        "reason":     exit_reason,
+                        "days":       exit_idx - entry_idx,
+                        "entry_date": entry_date,
                     })
                     signal_count += 1
                     if signal_count >= max_signals:
@@ -627,7 +743,46 @@ def backtest_signal(stocks: dict, signal_fn, hold_days: int = 30,
     if not trades:
         return {"trades": 0, "win_rate": 0, "avg_win": 0, "avg_loss": 0,
                 "expectancy": 0, "profit_factor": 0, "avg_hold": 0,
-                "best": 0, "worst": 0, "by_reason": {}}
+                "best": 0, "worst": 0, "by_reason": {},
+                "max_drawdown": 0, "drawdown_curve": [], "equity_curve": []}
+
+    # ── F5: Regime filter — exclude trades taken during Correction phase ──────
+    if regime_filter and nifty is not None and len(nifty) >= 50:
+        def _nifty_regime_at(dt):
+            """Simple inline regime: D-day count over the 25 bars before dt."""
+            try:
+                sub = nifty[nifty.index <= dt].tail(30).copy()
+                if len(sub) < 10:
+                    return "Unknown"
+                sub["pct"] = sub["Close"].pct_change() * 100
+                sub["dday"] = (sub["pct"] <= -0.2) & (sub["Volume"] > sub["Volume"].shift(1))
+                ddays = int(sub.tail(25)["dday"].sum())
+                return "Correction" if ddays >= 6 else \
+                       "Uptrend Under Pressure" if ddays >= 4 else "Confirmed Uptrend"
+            except Exception:
+                return "Unknown"
+        trades = [t for t in trades
+                  if _nifty_regime_at(t.get("entry_date", nifty.index[-1])) != "Correction"]
+
+    if not trades:
+        return {"trades": 0, "win_rate": 0, "avg_win": 0, "avg_loss": 0,
+                "expectancy": 0, "profit_factor": 0, "avg_hold": 0,
+                "best": 0, "worst": 0, "by_reason": {},
+                "max_drawdown": 0, "drawdown_curve": [], "equity_curve": []}
+
+    # ── Equity curve + max drawdown ───────────────────────────────────────────
+    equity       = 100.0
+    max_equity   = 100.0
+    max_dd       = 0.0
+    equity_curve   = [100.0]
+    drawdown_curve = [0.0]
+    for t in trades:
+        equity *= (1 + t["ret_pct"] / 100)
+        equity_curve.append(round(equity, 2))
+        max_equity = max(max_equity, equity)
+        dd = (equity - max_equity) / max_equity * 100
+        drawdown_curve.append(round(dd, 2))
+        max_dd = min(max_dd, dd)
 
     wins   = [t for t in trades if t["ret_pct"] > 0]
     losses = [t for t in trades if t["ret_pct"] <= 0]
@@ -653,6 +808,11 @@ def backtest_signal(stocks: dict, signal_fn, hold_days: int = 30,
         "best":           max(t["ret_pct"] for t in trades),
         "worst":          min(t["ret_pct"] for t in trades),
         "by_reason":      by_reason,
+        # F5 additions
+        "max_drawdown":   round(max_dd, 2),
+        "final_equity":   round(equity_curve[-1], 2),
+        "equity_curve":   equity_curve[-50:],    # last 50 points for UI chart
+        "drawdown_curve": drawdown_curve[-50:],
     }
 
 
@@ -742,7 +902,7 @@ def run_edge_engine(progress_callback=None) -> dict:
     with ThreadPoolExecutor(max_workers=8) as ex:
         futs = {
             ex.submit(compute_setup_score, sym, df, regime, sector_quad,
-                      fundamentals_map.get(sym)): sym
+                      fundamentals_map.get(sym), nifty): sym
             for sym, df in stocks.items()
         }
         for fut in as_completed(futs):
@@ -756,7 +916,7 @@ def run_edge_engine(progress_callback=None) -> dict:
 
     ranked.sort(key=lambda x: -x["score"])
 
-    # Backtest each signal type
+    # Backtest each signal type (F5: pass nifty for drawdown + regime filter)
     if progress_callback:
         progress_callback(85, 100, "Running backtests on historical signals…")
     backtests = {}
@@ -764,9 +924,16 @@ def run_edge_engine(progress_callback=None) -> dict:
                      ("RS Breakout (52w + r3m)",   _signal_rs_breakout),
                      ("Volume Accumulation",       _signal_volume_accumulation)):
         try:
-            backtests[name] = backtest_signal(stocks, fn, hold_days=20,
-                                              stop_pct=-7, target_pct=20,
-                                              lookback_days=200, max_signals=300)
+            bt_all = backtest_signal(stocks, fn, hold_days=20,
+                                     stop_pct=-7, target_pct=20,
+                                     lookback_days=200, max_signals=300,
+                                     nifty=nifty, regime_filter=False)
+            bt_reg = backtest_signal(stocks, fn, hold_days=20,
+                                     stop_pct=-7, target_pct=20,
+                                     lookback_days=200, max_signals=300,
+                                     nifty=nifty, regime_filter=True)
+            bt_all["regime_filtered"] = bt_reg
+            backtests[name] = bt_all
         except Exception as e:
             backtests[name] = {"error": str(e), "trades": 0}
 
@@ -778,16 +945,27 @@ def run_edge_engine(progress_callback=None) -> dict:
         elif r["score"] >= 60: tiers["B"]  += 1
         elif r["score"] >= 50: tiers["C"]  += 1
 
+    # F9 — Sector concentration risk in top-50 ranked stocks
+    from collections import Counter
+    top50_groups = [r["group"] for r in ranked[:50] if r.get("group")]
+    sector_cnt   = Counter(top50_groups)
+    total_top50  = len(top50_groups) or 1
+    sector_concentration = [
+        {"sector": k, "count": v, "pct": round(v / total_top50 * 100, 1)}
+        for k, v in sector_cnt.most_common(10)
+    ]
+
     out = {
-        "regime":         regime,
-        "ranked":         ranked[:200],   # top 200 only
-        "tier_counts":    tiers,
-        "total_scored":   len(ranked),
-        "backtests":      backtests,
-        "sector_quad":    sector_quad,
-        "computed_at":    int(time.time()),
+        "regime":               regime,
+        "ranked":               ranked[:200],   # top 200 only
+        "tier_counts":          tiers,
+        "total_scored":         len(ranked),
+        "backtests":            backtests,
+        "sector_quad":          sector_quad,
+        "sector_concentration": sector_concentration,   # F9
+        "computed_at":          int(time.time()),
         "fundamentals_available": bool(fundamentals_map),
-        "fundamentals_count": len(fundamentals_map),
+        "fundamentals_count":     len(fundamentals_map),
     }
     _cache["data"] = out
     _cache["ts"]   = time.time()

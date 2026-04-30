@@ -58,17 +58,38 @@ def _init_db():
         conn = sqlite3.connect(DB_PATH)
         conn.execute("""
             CREATE TABLE IF NOT EXISTS fundamentals (
-                symbol           TEXT PRIMARY KEY,
-                eps_growth_yoy   REAL,
-                sales_growth_yoy REAL,
-                roe              REAL,
-                debt_to_equity   REAL,
-                pe_ratio         REAL,
-                market_cap       REAL,
-                promoter_holding REAL,
-                updated_at       INTEGER
+                symbol             TEXT PRIMARY KEY,
+                eps_growth_yoy     REAL,
+                sales_growth_yoy   REAL,
+                roe                REAL,
+                debt_to_equity     REAL,
+                pe_ratio           REAL,
+                market_cap         REAL,
+                promoter_holding   REAL,
+                updated_at         INTEGER,
+                -- F2: quarterly EPS acceleration
+                eps_q1             REAL,
+                eps_q2             REAL,
+                eps_q3             REAL,
+                eps_q4             REAL,
+                eps_accel          INTEGER,
+                result_date        TEXT,
+                -- F3: promoter holding delta
+                promoter_prev      REAL,
+                promoter_delta     REAL
             )
         """)
+        # Add new columns to existing DB (safe on re-run)
+        for col_def in [
+            "eps_q1 REAL", "eps_q2 REAL", "eps_q3 REAL", "eps_q4 REAL",
+            "eps_accel INTEGER", "result_date TEXT",
+            "promoter_prev REAL", "promoter_delta REAL",
+        ]:
+            col_name = col_def.split()[0]
+            try:
+                conn.execute(f"ALTER TABLE fundamentals ADD COLUMN {col_def}")
+            except Exception:
+                pass   # column already exists
         conn.commit()
         conn.close()
 
@@ -79,11 +100,16 @@ def _upsert(data: dict):
         conn.execute("""
             INSERT OR REPLACE INTO fundamentals
             (symbol, eps_growth_yoy, sales_growth_yoy, roe,
-             debt_to_equity, pe_ratio, market_cap, promoter_holding, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+             debt_to_equity, pe_ratio, market_cap, promoter_holding, updated_at,
+             eps_q1, eps_q2, eps_q3, eps_q4, eps_accel, result_date,
+             promoter_prev, promoter_delta)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (data["symbol"], data["eps_growth_yoy"], data["sales_growth_yoy"],
               data["roe"], data["debt_to_equity"], data["pe_ratio"],
-              data["market_cap"], data["promoter_holding"], data["updated_at"]))
+              data["market_cap"], data["promoter_holding"], data["updated_at"],
+              data.get("eps_q1"), data.get("eps_q2"), data.get("eps_q3"), data.get("eps_q4"),
+              data.get("eps_accel"), data.get("result_date"),
+              data.get("promoter_prev"), data.get("promoter_delta")))
         conn.commit()
         conn.close()
 
@@ -287,6 +313,68 @@ def _fetch_one(symbol: str) -> Optional[dict]:
         if roe == 0.0 and roe_from_table is not None:
             roe = roe_from_table
 
+        # ── F2: Quarterly EPS (Net Profit) — parse from #quarters section ─────
+        eps_quarters: list[float] = []
+        result_date_str = None
+        m_qtr = re.search(r'<section[^>]+id=["\']quarters["\'][^>]*>([\s\S]*?)</section>', html)
+        if m_qtr:
+            qtr_html = m_qtr.group(1)
+            # Extract header dates (e.g. "Sep 2024", "Dec 2024")
+            headers = re.findall(r'<th[^>]*>([\w\s]+\d{4})</th>', qtr_html)
+            if headers:
+                result_date_str = headers[0].strip()   # most recent quarter
+            # Find Net Profit row
+            np_match = re.search(
+                r'<tr[^>]*>[\s\S]*?Net Profit[\s\S]*?((?:<td[^>]*>[\s\S]*?</td>\s*)+)</tr>',
+                qtr_html, re.IGNORECASE
+            )
+            if np_match:
+                td_vals = re.findall(r'<td[^>]*>([\d,\.\-]+)</td>', np_match.group(1))
+                for v in td_vals[:4]:
+                    try:
+                        eps_quarters.append(float(v.replace(',', '')))
+                    except ValueError:
+                        pass
+
+        # EPS acceleration: each quarter higher than the previous
+        eps_q1 = eps_quarters[0] if len(eps_quarters) > 0 else None
+        eps_q2 = eps_quarters[1] if len(eps_quarters) > 1 else None
+        eps_q3 = eps_quarters[2] if len(eps_quarters) > 2 else None
+        eps_q4 = eps_quarters[3] if len(eps_quarters) > 3 else None
+        eps_accel = None
+        if eps_q1 is not None and eps_q2 is not None and eps_q3 is not None:
+            # accel = 1 if q1 > q2 > q3 (most recent first), else 0
+            eps_accel = 1 if (eps_q1 > eps_q2 > eps_q3) else 0
+
+        # ── F3: Promoter Holding Delta — parse shareholding section ───────────
+        promoter_holding  = 0.0
+        promoter_prev     = None
+        promoter_delta    = None
+        m_sh = re.search(r'<section[^>]+id=["\']shareholding["\'][^>]*>([\s\S]*?)</section>', html)
+        if m_sh:
+            sh_html = m_sh.group(1)
+            prom_match = re.search(
+                r'<tr[^>]*>[\s\S]*?Promoters[\s\S]*?((?:<td[^>]*>[\s\S]*?</td>\s*)+)</tr>',
+                sh_html, re.IGNORECASE
+            )
+            if prom_match:
+                td_vals = re.findall(r'<td[^>]*>([\d,\.]+)</td>', prom_match.group(1))
+                promo_vals = []
+                for v in td_vals[:4]:
+                    try:
+                        promo_vals.append(float(v.replace(',', '')))
+                    except ValueError:
+                        pass
+                if len(promo_vals) >= 1:
+                    promoter_holding = promo_vals[0]
+                if len(promo_vals) >= 2:
+                    promoter_prev  = promo_vals[1]
+                    promoter_delta = round(promo_vals[0] - promo_vals[1], 2)
+
+        # Fallback: promoter from top_ratios if not found in shareholding table
+        if promoter_holding == 0.0:
+            promoter_holding = top_ratios.get("Promoter holding", 0.0)
+
         # ── Validate: reject if no meaningful data at all ─────────────────────
         if roe == 0 and pe == 0 and sales_growth == 0 and eps_growth == 0:
             return None
@@ -299,8 +387,18 @@ def _fetch_one(symbol: str) -> Optional[dict]:
             "debt_to_equity":   0.0,   # not exposed in screener.in top-level HTML
             "pe_ratio":         round(pe,            2),
             "market_cap":       round(market_cap,    2),
-            "promoter_holding": 0.0,
+            "promoter_holding": round(promoter_holding, 2),
             "updated_at":       int(time.time()),
+            # F2 — quarterly EPS
+            "eps_q1":           eps_q1,
+            "eps_q2":           eps_q2,
+            "eps_q3":           eps_q3,
+            "eps_q4":           eps_q4,
+            "eps_accel":        eps_accel,
+            "result_date":      result_date_str,
+            # F3 — promoter delta
+            "promoter_prev":    promoter_prev,
+            "promoter_delta":   promoter_delta,
         }
 
     except requests.exceptions.Timeout:
