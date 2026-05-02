@@ -566,6 +566,63 @@ def volume_status():
     })
 
 
+# ── Multi-Year Breakout Scanner state ────────────────────────────────────────
+from multiyear_breakout import run_multiyear_scan
+
+mbo_state = {
+    "running": False, "result": None, "error": None,
+    "progress": 0, "total": 0, "message": "", "started_at": None,
+}
+mbo_lock = threading.Lock()
+
+
+def do_mbo_scan(min_base_years: int):
+    def progress_cb(done, total, msg):
+        with mbo_lock:
+            mbo_state["progress"] = done
+            mbo_state["total"]    = total
+            mbo_state["message"]  = msg
+    try:
+        result = run_multiyear_scan(min_base_years=min_base_years,
+                                    progress_callback=progress_cb)
+        with mbo_lock:
+            mbo_state["result"]  = result
+            mbo_state["running"] = False
+    except Exception as e:
+        with mbo_lock:
+            mbo_state["error"]   = str(e)
+            mbo_state["running"] = False
+
+
+@app.route("/api/mbo/scan", methods=["POST"])
+def start_mbo_scan():
+    min_base_years = int(request.json.get("min_base_years", 1)) if request.json else 1
+    with mbo_lock:
+        if mbo_state["running"]:
+            return jsonify({"status": "already_running"}), 409
+        mbo_state.update({
+            "running": True, "result": None, "error": None,
+            "progress": 0, "total": 0, "message": "",
+            "started_at": time.time(),
+        })
+    threading.Thread(target=do_mbo_scan, args=(min_base_years,), daemon=True).start()
+    return jsonify({"status": "started"})
+
+
+@app.route("/api/mbo/status")
+def mbo_status():
+    with mbo_lock:
+        s = dict(mbo_state)
+    pct = round(s["progress"] / s["total"] * 100, 1) if s["total"] > 0 else 0
+    return jsonify({
+        "running": s["running"],
+        "pct":     pct,
+        "message": s["message"],
+        "result":  s["result"],
+        "error":   s["error"],
+    })
+
+
 # ── Edge Engine state ─────────────────────────────────────────────────────────
 edge_state = {
     "running": False, "result": None, "error": None,

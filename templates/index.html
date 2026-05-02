@@ -449,6 +449,7 @@
   <button class="tab-btn" onclick="showTab('breadth', this)">📡 Market Breadth</button>
   <button class="tab-btn" onclick="showTab('industry', this)">🏭 Industry Groups</button>
   <button class="tab-btn" onclick="showTab('volspike', this)">📊 Vol Spike</button>
+  <button class="tab-btn" onclick="showTab('mbo', this)">🏔️ Multi-Yr BO</button>
   <button class="tab-btn" onclick="showTab('edge', this)">🎯 Edge Engine</button>
 </div>
 
@@ -1657,6 +1658,107 @@
     </ul>
   </div>
   <p class="disclaimer">Not financial advice. Volume is EOD only — intraday spikes not captured. Bhavcopy data.</p>
+</div>
+</div>
+
+<!-- ══════════════════════════════════════════════ MULTI-YEAR BREAKOUT TAB -->
+<div id="tab-mbo" class="tab-content">
+<div class="container">
+
+  <div class="logic-box">
+    <strong>Multi-Year Breakout Logic:</strong>
+    Identifies stocks breaking above a multi-year resistance level after a prolonged base.
+    Longer the base, bigger the potential move. &bull;
+    Data: yfinance 10yr monthly OHLCV (cached 7 days) with NSE bhavcopy fallback.
+    <div class="tags">
+      <span class="tag">Multi-Year Base</span>
+      <span class="tag">Resistance Breakout</span>
+      <span class="tag">Volume Surge</span>
+      <span class="tag">ATH Break</span>
+    </div>
+  </div>
+
+  <!-- Controls -->
+  <div class="panel">
+    <div class="panel-header">
+      <h2>Multi-Year Breakout Scanner</h2>
+      <span class="timestamp" id="mboTimestamp"></span>
+    </div>
+    <div class="panel-body">
+      <div style="display:flex;align-items:flex-end;gap:16px;flex-wrap:wrap;margin-bottom:14px">
+        <div>
+          <label style="font-size:11px;color:var(--muted);font-weight:600;text-transform:uppercase;
+                         letter-spacing:.5px;display:block;margin-bottom:6px">Min Base Duration</label>
+          <select id="mboMinBase" style="background:var(--surface2);color:var(--text);
+                   border:1px solid var(--border2);border-radius:7px;padding:8px 12px;
+                   font-size:13px;font-family:inherit;cursor:pointer">
+            <option value="1">1yr+ base</option>
+            <option value="2">2yr+ base</option>
+            <option value="3" selected>3yr+ base</option>
+            <option value="5">5yr+ base</option>
+          </select>
+        </div>
+        <button class="btn btn-green" id="mboBtn" onclick="startMboScan()">🔍 Scan Multi-Year Breakouts</button>
+        <div class="progress-bar-wrap" id="mboProgressWrap" style="display:none;flex:1;min-width:200px">
+          <div class="progress-bar" id="mboProgressBar" style="width:0%"></div>
+        </div>
+        <span class="progress-label" id="mboProgressLabel"></span>
+      </div>
+      <div style="font-size:11px;color:var(--muted)">
+        ⏱ First scan: ~5–15 min (downloads 10yr monthly data from Yahoo Finance for 500 stocks, then cached for 7 days).
+        Subsequent scans use cache — &lt;30 seconds.
+      </div>
+    </div>
+  </div>
+
+  <!-- Results -->
+  <div class="panel" id="mboPanelWrap" style="display:none">
+    <div class="panel-header" style="display:flex;align-items:center;gap:12px">
+      <h2>Breakout Results</h2>
+      <span id="mboSummaryBadge" style="font-size:11px;color:var(--muted)"></span>
+      <input type="text" id="mboFilter" placeholder="Filter symbol / sector…"
+             oninput="filterMboTable()"
+             style="margin-left:auto;background:var(--surface2);color:var(--text);
+                    border:1px solid var(--border2);border-radius:7px;padding:6px 12px;
+                    font-size:12px;font-family:inherit;width:200px">
+    </div>
+    <div style="overflow-x:auto">
+      <table id="mboTable" style="width:100%;font-size:12px;border-collapse:collapse">
+        <thead>
+          <tr style="background:var(--surface2)">
+            <th style="padding:10px 12px;text-align:left;border-bottom:1px solid var(--border);
+                       color:var(--text2);font-size:11px;font-weight:600;text-transform:uppercase">#</th>
+            <th style="padding:10px 12px;text-align:left;border-bottom:1px solid var(--border);
+                       color:var(--text2);font-size:11px;font-weight:600;text-transform:uppercase">Symbol</th>
+            <th style="padding:10px 12px;text-align:left;border-bottom:1px solid var(--border);
+                       color:var(--text2);font-size:11px;font-weight:600;text-transform:uppercase">Sector</th>
+            <th style="padding:10px 12px;text-align:right;border-bottom:1px solid var(--border);
+                       color:var(--text2);font-size:11px;font-weight:600;text-transform:uppercase">CMP</th>
+            <th style="padding:10px 12px;text-align:center;border-bottom:1px solid var(--border);
+                       color:var(--text2);font-size:11px;font-weight:600;text-transform:uppercase">Base</th>
+            <th style="padding:10px 12px;text-align:right;border-bottom:1px solid var(--border);
+                       color:var(--text2);font-size:11px;font-weight:600;text-transform:uppercase">Resistance</th>
+            <th style="padding:10px 12px;text-align:right;border-bottom:1px solid var(--border);
+                       color:var(--text2);font-size:11px;font-weight:600;text-transform:uppercase">% Above</th>
+            <th style="padding:10px 12px;text-align:right;border-bottom:1px solid var(--border);
+                       color:var(--text2);font-size:11px;font-weight:600;text-transform:uppercase">Vol Ratio</th>
+            <th style="padding:10px 12px;text-align:center;border-bottom:1px solid var(--border);
+                       color:var(--text2);font-size:11px;font-weight:600;text-transform:uppercase">ATH?</th>
+          </tr>
+        </thead>
+        <tbody id="mboTableBody"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <div id="mboEmpty" class="empty-state">
+    <div class="icon">🏔️</div>
+    <p>Click <strong>Scan Multi-Year Breakouts</strong> to find stocks breaking out of long bases.</p>
+    <p style="margin-top:6px;font-size:11px;color:var(--muted)">
+      First run downloads 10yr monthly data from Yahoo Finance (~5–15 min). Results cached 7 days per stock.
+    </p>
+  </div>
+
 </div>
 </div>
 
@@ -4121,6 +4223,136 @@ function sortVol(col) {
   if (_volSort.col === col) _volSort.asc = !_volSort.asc;
   else { _volSort.col = col; _volSort.asc = false; }
   renderVolTable();
+}
+
+// ── Multi-Year Breakout Scanner ───────────────────────────────────────────────
+let _mboPoll = null, _mboRows = [], _mboFilter = '';
+
+function startMboScan() {
+  const minBase = parseInt(document.getElementById('mboMinBase').value) || 1;
+  fetch('/api/mbo/scan', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({min_base_years: minBase})
+  })
+  .then(r => r.json())
+  .then(d => {
+    if (d.status === 'started' || d.status === 'already_running') {
+      document.getElementById('mboBtn').disabled = true;
+      document.getElementById('mboBtn').textContent = '⏳ Scanning…';
+      document.getElementById('mboProgressWrap').style.display = '';
+      document.getElementById('mboEmpty').style.display = 'none';
+      _mboPoll = setInterval(pollMboStatus, 3000);
+    }
+  })
+  .catch(e => console.error('MBO scan error:', e));
+}
+
+function pollMboStatus() {
+  fetch('/api/mbo/status')
+    .then(r => r.json())
+    .then(d => {
+      const bar   = document.getElementById('mboProgressBar');
+      const label = document.getElementById('mboProgressLabel');
+      if (bar) bar.style.width = (d.pct || 0) + '%';
+      if (label) label.textContent = d.message || '';
+
+      if (!d.running) {
+        clearInterval(_mboPoll); _mboPoll = null;
+        const btn = document.getElementById('mboBtn');
+        btn.disabled = false;
+        btn.textContent = '🔍 Scan Multi-Year Breakouts';
+        document.getElementById('mboProgressWrap').style.display = 'none';
+        if (d.error) {
+          document.getElementById('mboEmpty').style.display = '';
+          document.getElementById('mboEmpty').innerHTML =
+            `<div class="icon">⚠️</div><p style="color:var(--red)">${d.error}</p>`;
+          return;
+        }
+        if (d.result) renderMboResults(d.result);
+      }
+    })
+    .catch(() => {});
+}
+
+function renderMboResults(data) {
+  const rows   = data.results || [];
+  const ts     = document.getElementById('mboTimestamp');
+  const badge  = document.getElementById('mboSummaryBadge');
+  const wrap   = document.getElementById('mboPanelWrap');
+  const empty  = document.getElementById('mboEmpty');
+
+  if (ts) ts.textContent = 'Scanned ' + (data.scanned||0) + ' stocks · ' +
+    new Date(data.computed_at * 1000).toLocaleTimeString('en-IN');
+  if (badge) badge.textContent = `${rows.length} breakouts found (${data.all_breakouts||0} total before filter)`;
+
+  if (!rows.length) {
+    empty.style.display = '';
+    empty.innerHTML = '<div class="icon">🔍</div><p>No multi-year breakouts found with current filter. Try lowering the min base duration.</p>';
+    wrap.style.display = 'none';
+    return;
+  }
+
+  _mboRows = rows;
+  empty.style.display = 'none';
+  wrap.style.display = '';
+  renderMboTable(_mboRows);
+}
+
+function filterMboTable() {
+  _mboFilter = (document.getElementById('mboFilter').value || '').toLowerCase();
+  const filtered = _mboRows.filter(r =>
+    r.symbol.toLowerCase().includes(_mboFilter) ||
+    (r.sector||'').toLowerCase().includes(_mboFilter)
+  );
+  renderMboTable(filtered);
+}
+
+function renderMboTable(rows) {
+  const BASE_COLORS = {
+    '10yr+': '#a855f7', '5yr+': '#10b981', '3yr+': '#3b82f6',
+    '2yr+':  '#f59e0b', '1yr+': '#94a3b8',
+  };
+  let html = '';
+  for (const r of rows) {
+    const bc  = BASE_COLORS[r.base_label] || '#94a3b8';
+    const ath = r.is_ath
+      ? '<span style="color:#f59e0b;font-weight:700;font-size:11px">★ ATH</span>'
+      : '<span style="color:var(--muted);font-size:11px">—</span>';
+    const volCls = r.vol_ratio >= 2 ? 'var(--green)' : r.vol_ratio >= 1.3 ? 'var(--gold)' : 'var(--muted)';
+    const pctCls = r.pct_above >= 10 ? 'var(--green)' : r.pct_above >= 3 ? 'var(--text)' : 'var(--muted)';
+    html += `<tr style="border-bottom:1px solid var(--border);transition:background .12s"
+               onmouseover="this.style.background='var(--surface2)'" onmouseout="this.style.background=''">
+      <td style="padding:10px 12px;color:var(--muted);font-size:11px">${r.rank}</td>
+      <td style="padding:10px 12px">
+        <span style="font-size:13px;font-weight:700;color:var(--white)">${r.symbol}</span>
+        <div style="font-size:10px;color:var(--muted);margin-top:2px">${r.data_months}mo data</div>
+      </td>
+      <td style="padding:10px 12px;font-size:11px;color:var(--text2)">${r.sector||'—'}</td>
+      <td style="padding:10px 12px;text-align:right;font-family:var(--mono);color:var(--white);font-weight:600">
+        ₹${r.cmp.toLocaleString('en-IN')}
+      </td>
+      <td style="padding:10px 12px;text-align:center">
+        <span style="display:inline-block;background:${bc}22;color:${bc};
+                     border:1px solid ${bc}55;border-radius:20px;
+                     padding:3px 10px;font-size:11px;font-weight:700;white-space:nowrap">
+          ${r.base_label}
+        </span>
+        <div style="font-size:10px;color:var(--muted);margin-top:2px">${r.base_months}mo base</div>
+      </td>
+      <td style="padding:10px 12px;text-align:right;font-family:var(--mono);color:var(--text2)">
+        ₹${r.resistance.toLocaleString('en-IN')}
+      </td>
+      <td style="padding:10px 12px;text-align:right;font-weight:700;color:${pctCls}">
+        +${r.pct_above}%
+      </td>
+      <td style="padding:10px 12px;text-align:right;font-weight:600;color:${volCls}">
+        ${r.vol_ratio}×
+      </td>
+      <td style="padding:10px 12px;text-align:center">${ath}</td>
+    </tr>`;
+  }
+  document.getElementById('mboTableBody').innerHTML = html || '<tr><td colspan="9" style="padding:20px;text-align:center;color:var(--muted)">No results match filter</td></tr>';
 }
 
 // ── Edge Engine ──────────────────────────────────────────────────────────────
