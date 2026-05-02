@@ -1705,15 +1705,15 @@
         <span class="progress-label" id="mboProgressLabel"></span>
       </div>
       <div style="font-size:11px;color:var(--muted)">
-        ⏱ First scan: ~5–15 min (downloads 10yr monthly data from Yahoo Finance for 500 stocks, then cached for 7 days).
-        Subsequent scans use cache — &lt;30 seconds.
+        ⏱ First scan: ~30 sec (downloads ~73 monthly bhavcopy files from NSE archives, cached 7 days).
+        Subsequent scans: instant from cache.
       </div>
     </div>
   </div>
 
   <!-- Results -->
   <div class="panel" id="mboPanelWrap" style="display:none">
-    <div class="panel-header" style="display:flex;align-items:center;gap:12px">
+    <div class="panel-header" style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
       <h2>Breakout Results</h2>
       <span id="mboSummaryBadge" style="font-size:11px;color:var(--muted)"></span>
       <input type="text" id="mboFilter" placeholder="Filter symbol / sector…"
@@ -1722,40 +1722,86 @@
                     border:1px solid var(--border2);border-radius:7px;padding:6px 12px;
                     font-size:12px;font-family:inherit;width:200px">
     </div>
+
+    <!-- Quick filter pills by base duration -->
+    <div style="padding:10px 16px;border-bottom:1px solid var(--border);
+                display:flex;align-items:center;gap:8px;flex-wrap:wrap;background:var(--surface)">
+      <span style="font-size:11px;color:var(--muted);text-transform:uppercase;
+                   letter-spacing:.5px;font-weight:600">Filter by base:</span>
+      <button class="mbo-pill mbo-pill-active" data-base="all" onclick="setMboBaseFilter('all', this)">
+        All <span id="mboCountAll" class="mbo-count">0</span>
+      </button>
+      <button class="mbo-pill" data-base="1yr+" onclick="setMboBaseFilter('1yr+', this)"
+              style="--bcol:#94a3b8">
+        1yr <span id="mboCount1" class="mbo-count">0</span>
+      </button>
+      <button class="mbo-pill" data-base="2yr+" onclick="setMboBaseFilter('2yr+', this)"
+              style="--bcol:#f59e0b">
+        2yr <span id="mboCount2" class="mbo-count">0</span>
+      </button>
+      <button class="mbo-pill" data-base="3yr+" onclick="setMboBaseFilter('3yr+', this)"
+              style="--bcol:#3b82f6">
+        3yr <span id="mboCount3" class="mbo-count">0</span>
+      </button>
+      <button class="mbo-pill" data-base="5yr+" onclick="setMboBaseFilter('5yr+', this)"
+              style="--bcol:#10b981">
+        5yr <span id="mboCount5" class="mbo-count">0</span>
+      </button>
+      <span style="margin-left:auto;font-size:11px;color:var(--muted)">
+        💡 Click any column header below to sort
+      </span>
+    </div>
+
     <div style="overflow-x:auto">
       <table id="mboTable" style="width:100%;font-size:12px;border-collapse:collapse">
-        <thead>
-          <tr style="background:var(--surface2)">
-            <th style="padding:10px 12px;text-align:left;border-bottom:1px solid var(--border);
-                       color:var(--text2);font-size:11px;font-weight:600;text-transform:uppercase">#</th>
-            <th style="padding:10px 12px;text-align:left;border-bottom:1px solid var(--border);
-                       color:var(--text2);font-size:11px;font-weight:600;text-transform:uppercase">Symbol</th>
-            <th style="padding:10px 12px;text-align:left;border-bottom:1px solid var(--border);
-                       color:var(--text2);font-size:11px;font-weight:600;text-transform:uppercase">Sector</th>
-            <th style="padding:10px 12px;text-align:right;border-bottom:1px solid var(--border);
-                       color:var(--text2);font-size:11px;font-weight:600;text-transform:uppercase">CMP</th>
-            <th style="padding:10px 12px;text-align:center;border-bottom:1px solid var(--border);
-                       color:var(--text2);font-size:11px;font-weight:600;text-transform:uppercase">Base</th>
-            <th style="padding:10px 12px;text-align:right;border-bottom:1px solid var(--border);
-                       color:var(--text2);font-size:11px;font-weight:600;text-transform:uppercase">Resistance</th>
-            <th style="padding:10px 12px;text-align:right;border-bottom:1px solid var(--border);
-                       color:var(--text2);font-size:11px;font-weight:600;text-transform:uppercase">% Above</th>
-            <th style="padding:10px 12px;text-align:right;border-bottom:1px solid var(--border);
-                       color:var(--text2);font-size:11px;font-weight:600;text-transform:uppercase">Vol Ratio</th>
-            <th style="padding:10px 12px;text-align:center;border-bottom:1px solid var(--border);
-                       color:var(--text2);font-size:11px;font-weight:600;text-transform:uppercase">ATH?</th>
-          </tr>
+        <thead id="mboTableHead">
+          <!-- rendered by renderMboTableHead() -->
         </thead>
         <tbody id="mboTableBody"></tbody>
       </table>
     </div>
   </div>
 
+  <style>
+    .mbo-pill {
+      background: var(--surface2);
+      color: var(--text2);
+      border: 1px solid var(--border2);
+      border-radius: 18px;
+      padding: 5px 12px;
+      font-size: 12px;
+      font-family: inherit;
+      cursor: pointer;
+      transition: all .15s;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-weight: 600;
+    }
+    .mbo-pill:hover { border-color: var(--bcol, var(--accent)); color: var(--white); }
+    .mbo-pill-active {
+      background: var(--bcol, var(--accent));
+      color: white;
+      border-color: var(--bcol, var(--accent));
+    }
+    .mbo-count {
+      background: rgba(255,255,255,0.2);
+      padding: 1px 8px;
+      border-radius: 10px;
+      font-size: 10px;
+      font-weight: 700;
+    }
+    .mbo-pill:not(.mbo-pill-active) .mbo-count {
+      background: var(--surface);
+      color: var(--text2);
+    }
+  </style>
+
   <div id="mboEmpty" class="empty-state">
     <div class="icon">🏔️</div>
     <p>Click <strong>Scan Multi-Year Breakouts</strong> to find stocks breaking out of long bases.</p>
     <p style="margin-top:6px;font-size:11px;color:var(--muted)">
-      First run downloads 10yr monthly data from Yahoo Finance (~5–15 min). Results cached 7 days per stock.
+      Uses NSE bhavcopy archive (~73 monthly samples covering 6 years). First scan ~30 sec, subsequent scans instant.
     </p>
   </div>
 
@@ -4226,7 +4272,8 @@ function sortVol(col) {
 }
 
 // ── Multi-Year Breakout Scanner ───────────────────────────────────────────────
-let _mboPoll = null, _mboRows = [], _mboFilter = '';
+let _mboPoll = null, _mboRows = [], _mboFilter = '', _mboBaseFilter = 'all';
+let _mboSortCol = 'base_months', _mboSortAsc = false;
 
 function startMboScan() {
   const minBase = parseInt(document.getElementById('mboMinBase').value) || 1;
@@ -4296,22 +4343,113 @@ function renderMboResults(data) {
   _mboRows = rows;
   empty.style.display = 'none';
   wrap.style.display = '';
-  renderMboTable(_mboRows);
+
+  // Update base counts
+  const counts = {'1yr+':0, '2yr+':0, '3yr+':0, '5yr+':0};
+  rows.forEach(r => { if (counts[r.base_label] !== undefined) counts[r.base_label]++; });
+  document.getElementById('mboCountAll').textContent = rows.length;
+  document.getElementById('mboCount1').textContent = counts['1yr+'];
+  document.getElementById('mboCount2').textContent = counts['2yr+'];
+  document.getElementById('mboCount3').textContent = counts['3yr+'];
+  document.getElementById('mboCount5').textContent = counts['5yr+'];
+
+  applyMboFiltersAndRender();
+}
+
+function setMboBaseFilter(base, btn) {
+  _mboBaseFilter = base;
+  // Update active pill
+  document.querySelectorAll('.mbo-pill').forEach(p => p.classList.remove('mbo-pill-active'));
+  btn.classList.add('mbo-pill-active');
+  applyMboFiltersAndRender();
 }
 
 function filterMboTable() {
   _mboFilter = (document.getElementById('mboFilter').value || '').toLowerCase();
-  const filtered = _mboRows.filter(r =>
-    r.symbol.toLowerCase().includes(_mboFilter) ||
-    (r.sector||'').toLowerCase().includes(_mboFilter)
-  );
-  renderMboTable(filtered);
+  applyMboFiltersAndRender();
+}
+
+function setMboSort(col) {
+  if (_mboSortCol === col) {
+    _mboSortAsc = !_mboSortAsc;
+  } else {
+    _mboSortCol = col;
+    // Default direction: text cols asc, numeric cols desc
+    _mboSortAsc = (col === 'symbol' || col === 'sector');
+  }
+  applyMboFiltersAndRender();
+}
+
+function applyMboFiltersAndRender() {
+  let rows = _mboRows.slice();
+
+  // Apply base filter
+  if (_mboBaseFilter !== 'all') {
+    rows = rows.filter(r => r.base_label === _mboBaseFilter);
+  }
+
+  // Apply text filter
+  if (_mboFilter) {
+    rows = rows.filter(r =>
+      r.symbol.toLowerCase().includes(_mboFilter) ||
+      (r.sector||'').toLowerCase().includes(_mboFilter)
+    );
+  }
+
+  // Apply sort
+  const col = _mboSortCol, asc = _mboSortAsc;
+  const dir = asc ? 1 : -1;
+  rows.sort((a, b) => {
+    let va = a[col], vb = b[col];
+    if (col === 'is_ath') { va = va ? 1 : 0; vb = vb ? 1 : 0; }
+    if (typeof va === 'string') va = va.toLowerCase();
+    if (typeof vb === 'string') vb = vb.toLowerCase();
+    if (va == null) return 1;
+    if (vb == null) return -1;
+    return va > vb ? dir : va < vb ? -dir : 0;
+  });
+
+  // Re-rank after sort
+  rows.forEach((r, i) => r._displayRank = i + 1);
+
+  renderMboTableHead();
+  renderMboTable(rows);
+}
+
+function renderMboTableHead() {
+  const cols = [
+    {key:'_displayRank', label:'#',           align:'left',   sortable:false},
+    {key:'symbol',       label:'Symbol',      align:'left',   sortable:true},
+    {key:'sector',       label:'Sector',      align:'left',   sortable:true},
+    {key:'cmp',          label:'CMP',         align:'right',  sortable:true},
+    {key:'base_months',  label:'Base',        align:'center', sortable:true},
+    {key:'resistance',   label:'Resistance',  align:'right',  sortable:true},
+    {key:'pct_above',    label:'% Above',     align:'right',  sortable:true},
+    {key:'vol_ratio',    label:'Vol Ratio',   align:'right',  sortable:true},
+    {key:'is_ath',       label:'ATH?',        align:'center', sortable:true},
+  ];
+  const arrow = k => (_mboSortCol === k) ? (_mboSortAsc ? ' ▲' : ' ▼') : '';
+  let h = '<tr style="background:var(--surface2);position:sticky;top:0;z-index:1">';
+  for (const c of cols) {
+    const isActive = (_mboSortCol === c.key);
+    const cursor = c.sortable ? 'cursor:pointer;' : '';
+    const onclick = c.sortable ? `onclick="setMboSort('${c.key}')"` : '';
+    h += `<th ${onclick} style="padding:11px 12px;text-align:${c.align};
+              border-bottom:1px solid var(--border);
+              color:${isActive ? 'var(--accent)' : 'var(--text2)'};
+              font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.4px;
+              ${cursor}user-select:none;white-space:nowrap">
+      ${c.label}<span style="font-size:9px;opacity:.85">${arrow(c.key)}</span>
+    </th>`;
+  }
+  h += '</tr>';
+  document.getElementById('mboTableHead').innerHTML = h;
 }
 
 function renderMboTable(rows) {
   const BASE_COLORS = {
-    '10yr+': '#a855f7', '5yr+': '#10b981', '3yr+': '#3b82f6',
-    '2yr+':  '#f59e0b', '1yr+': '#94a3b8',
+    '5yr+': '#10b981', '3yr+': '#3b82f6',
+    '2yr+': '#f59e0b', '1yr+': '#94a3b8',
   };
   let html = '';
   for (const r of rows) {
@@ -4323,10 +4461,10 @@ function renderMboTable(rows) {
     const pctCls = r.pct_above >= 10 ? 'var(--green)' : r.pct_above >= 3 ? 'var(--text)' : 'var(--muted)';
     html += `<tr style="border-bottom:1px solid var(--border);transition:background .12s"
                onmouseover="this.style.background='var(--surface2)'" onmouseout="this.style.background=''">
-      <td style="padding:10px 12px;color:var(--muted);font-size:11px">${r.rank}</td>
+      <td style="padding:10px 12px;color:var(--muted);font-size:11px">${r._displayRank || r.rank}</td>
       <td style="padding:10px 12px">
         <span style="font-size:13px;font-weight:700;color:var(--white)">${r.symbol}</span>
-        <div style="font-size:10px;color:var(--muted);margin-top:2px">${r.data_months}mo data</div>
+        <div style="font-size:10px;color:var(--muted);margin-top:2px">${r.data_months}mo data · ${r.breakout_age||0}mo since BO</div>
       </td>
       <td style="padding:10px 12px;font-size:11px;color:var(--text2)">${r.sector||'—'}</td>
       <td style="padding:10px 12px;text-align:right;font-family:var(--mono);color:var(--white);font-weight:600">
@@ -4352,7 +4490,7 @@ function renderMboTable(rows) {
       <td style="padding:10px 12px;text-align:center">${ath}</td>
     </tr>`;
   }
-  document.getElementById('mboTableBody').innerHTML = html || '<tr><td colspan="9" style="padding:20px;text-align:center;color:var(--muted)">No results match filter</td></tr>';
+  document.getElementById('mboTableBody').innerHTML = html || '<tr><td colspan="9" style="padding:20px;text-align:center;color:var(--muted)">No results match the current filters</td></tr>';
 }
 
 // ── Edge Engine ──────────────────────────────────────────────────────────────
