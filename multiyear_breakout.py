@@ -57,7 +57,8 @@ WINDOWS = [
     (12,  "1yr+"),
 ]
 
-_scan_cache = {"data": None, "ts": 0}
+_scan_cache      = {"data": None, "ts": 0}
+_near_scan_cache = {"data": None, "ts": 0}
 
 
 # ── Monthly sample dates ──────────────────────────────────────────────────────
@@ -264,18 +265,30 @@ def detect_multiyear_breakout(symbol: str, monthly: pd.DataFrame) -> dict | None
         # ATH check
         is_ath = bool(current_close >= np.max(closes[:-1]))
 
+        # ── Measured-move target (base-height projection) ──────────────────
+        # Classic TA: after breakout, price tends to travel at least the height of the base.
+        # base_low  = support level during base period
+        # target    = resistance + (resistance - base_low)
+        base_low        = float(np.min(lookback_closes))
+        base_height     = resistance - base_low
+        measured_target = resistance + base_height
+        remaining_upside_pct = (measured_target / current_close - 1) * 100
+
         result = {
-            "symbol":       symbol,
-            "cmp":          round(current_close, 2),
-            "resistance":   round(resistance, 2),
-            "pct_above":    round(pct_above, 1),
-            "base_label":   win_label,
-            "base_months":  int(base_months),
-            "breakout_age": int(months_above),  # months since breakout
-            "vol_ratio":    round(vol_ratio, 2),
-            "is_ath":       is_ath,
-            "data_months":  int(n),
-            "base_pct":     round(base_pct, 2),
+            "symbol":              symbol,
+            "cmp":                 round(current_close, 2),
+            "resistance":          round(resistance, 2),
+            "pct_above":           round(pct_above, 1),
+            "base_label":          win_label,
+            "base_months":         int(base_months),
+            "breakout_age":        int(months_above),  # months since breakout
+            "vol_ratio":           round(vol_ratio, 2),
+            "is_ath":              is_ath,
+            "data_months":         int(n),
+            "base_pct":            round(base_pct, 2),
+            "base_low":            round(base_low, 2),
+            "measured_target":     round(measured_target, 2),
+            "remaining_upside_pct": round(remaining_upside_pct, 1),
         }
 
         # Prefer longest valid base
@@ -294,10 +307,9 @@ def run_multiyear_scan(min_base_years: int = 1,
     Scan Nifty 500 for multi-year breakouts.
     Returns {"results": [...], "scanned": N, "found": M, "computed_at": ts}
     """
-    # Scan-level cache
+    # Scan-level cache (results are not pre-filtered, so reuse for any request)
     cached = _scan_cache["data"]
-    if (cached and time.time() - _scan_cache["ts"] < SCAN_CACHE_TTL
-            and cached.get("min_base_years") == min_base_years):
+    if cached and time.time() - _scan_cache["ts"] < SCAN_CACHE_TTL:
         return cached
 
     # Universe
@@ -351,25 +363,18 @@ def run_multiyear_scan(min_base_years: int = 1,
             progress_callback(i, total,
                               f"Scanning… {i}/{total} ({len(results)} breakouts so far)")
 
-    # Filter by min base years
-    min_months = min_base_years * 12
-    filtered = []
-    for r in results:
-        win_label_months = next((w[0] for w in WINDOWS if w[1] == r["base_label"]), 0)
-        if win_label_months >= min_months:
-            filtered.append(r)
-
-    # Rank: longest base, then most recent breakout, then biggest % above
-    filtered.sort(key=lambda x: (-x["base_months"], x["breakout_age"], -x["pct_above"]))
-    for i, r in enumerate(filtered, 1):
+    # Always return all breakouts — frontend pills handle base filtering.
+    # min_base_years param kept for backward compatibility but no longer filters.
+    results.sort(key=lambda x: (-x["base_months"], x["breakout_age"], -x["pct_above"]))
+    for i, r in enumerate(results, 1):
         r["rank"] = i
 
     out = {
-        "results":        filtered,
+        "results":        results,
         "all_breakouts":  len(results),
         "scanned":        scanned_count,
         "universe_size":  total,
-        "found":          len(filtered),
+        "found":          len(results),
         "min_base_years": min_base_years,
         "computed_at":    time.time(),
     }
@@ -380,8 +385,185 @@ def run_multiyear_scan(min_base_years: int = 1,
 
 def invalidate_cache():
     """Force next scan to rebuild monthly data + re-run detection."""
-    _scan_cache["data"] = None
-    _scan_cache["ts"]   = 0
+    _scan_cache["data"]      = None
+    _scan_cache["ts"]        = 0
+    _near_scan_cache["data"] = None
+    _near_scan_cache["ts"]   = 0
     combined_cache = MULTIYEAR_DIR / "_all_monthly.pkl"
     if combined_cache.exists():
         combined_cache.unlink()
+
+
+# ── Near-Breakout detection ───────────────────────────────────────────────────
+
+NEAR_BREAKOUT_MAX_GAP = 10.0   # % below resistance to qualify as "approaching"
+
+def detect_near_breakout(symbol: str, monthly: pd.DataFrame) -> dict | None:
+    """
+    Return a near-breakout dict if the stock is currently within 10% below
+    a multi-year resistance level (approaching but not yet broken out) — else None.
+    """
+    if monthly is None or len(monthly) < MIN_MONTHS:
+        return None
+
+    closes = monthly["Close"].values.astype(float)
+    highs  = monthly["High"].values.astype(float)
+    vols   = monthly["Volume"].values.astype(float)
+
+    n = len(closes)
+    current_close = closes[-1]
+
+    # Volume ratio: last 1 month vs 12-month avg
+    if n >= 13:
+        vol_avg = np.mean(vols[-13:-1])
+    else:
+        vol_avg = np.mean(vols[:-1]) if n > 1 else vols[-1]
+    vol_ratio = (vols[-1] / vol_avg) if vol_avg > 0 else 1.0
+
+    best        = None
+    best_window = 0
+
+    for win_months, win_label in WINDOWS:
+        required = win_months + BREAKOUT_WINDOW + 1
+        if n < required:
+            continue
+
+        # Resistance = max high in lookback (excluding the recent window)
+        lookback_highs  = highs[-(win_months + BREAKOUT_WINDOW): -BREAKOUT_WINDOW]
+        lookback_closes = closes[-(win_months + BREAKOUT_WINDOW): -BREAKOUT_WINDOW]
+        resistance      = float(np.max(lookback_highs))
+
+        if resistance <= 0:
+            continue
+
+        # Must be BELOW resistance (not broken out yet)
+        if current_close >= resistance:
+            continue
+
+        # Must be within NEAR_BREAKOUT_MAX_GAP % below resistance
+        gap_pct = (resistance - current_close) / resistance * 100
+        if gap_pct > NEAR_BREAKOUT_MAX_GAP:
+            continue
+
+        # Base quality: ≥50% of lookback months closed below resistance
+        below_count = int(np.sum(lookback_closes < resistance))
+        base_pct = below_count / max(len(lookback_closes), 1)
+        if base_pct < BASE_PCT_THRESHOLD:
+            continue
+
+        # Count consecutive months below resistance from most recent bar
+        consecutive_below = 0
+        for i in range(n - 1, -1, -1):
+            if closes[i] < resistance:
+                consecutive_below += 1
+            else:
+                break
+
+        # ── Measured-move target ───────────────────────────────────────────
+        # base_low  = lowest close in lookback (support)
+        # After a breakout, price typically travels base_height above resistance.
+        # We show the projected target + total upside from current price.
+        base_low        = float(np.min(lookback_closes))
+        base_height     = resistance - base_low
+        measured_target = resistance + base_height
+        total_upside_pct = (measured_target / current_close - 1) * 100
+
+        result = {
+            "symbol":            symbol,
+            "cmp":               round(current_close, 2),
+            "resistance":        round(resistance, 2),
+            "gap_pct":           round(gap_pct, 1),
+            "base_label":        win_label,
+            "base_months":       win_months,
+            "consecutive_below": consecutive_below,
+            "vol_ratio":         round(vol_ratio, 2),
+            "data_months":       int(n),
+            "base_pct":          round(base_pct, 2),
+            "base_low":          round(base_low, 2),
+            "measured_target":   round(measured_target, 2),
+            "total_upside_pct":  round(total_upside_pct, 1),
+        }
+
+        # Prefer longest valid base
+        if win_months > best_window:
+            best        = result
+            best_window = win_months
+
+    return best
+
+
+def run_near_breakout_scan(progress_callback=None) -> dict:
+    """
+    Scan Nifty 500 for stocks approaching multi-year resistance (within 10% below).
+    Reuses the same monthly data cache as run_multiyear_scan() — if that ran first,
+    this scan completes instantly from cache.
+    Returns {"results": [...], "scanned": N, "found": M, "computed_at": ts}
+    """
+    cached = _near_scan_cache["data"]
+    if cached and time.time() - _near_scan_cache["ts"] < SCAN_CACHE_TTL:
+        return cached
+
+    # Universe
+    try:
+        from nse_stocks import get_nifty500_symbols
+        symbols = get_nifty500_symbols()
+    except Exception:
+        symbols = []
+
+    if not symbols:
+        return {"results": [], "scanned": 0, "found": 0,
+                "computed_at": time.time(),
+                "error": "Could not load Nifty 500 universe"}
+
+    # Sector lookup
+    from industry_groups import INDUSTRY_GROUPS
+    sym_to_sector: dict[str, str] = {}
+    for grp, syms in INDUSTRY_GROUPS.items():
+        for s in syms:
+            sym_to_sector[s] = grp
+
+    # Reuse already-downloaded monthly data (fast if MBO scan ran first)
+    monthly_data = _get_or_build_monthly_data(progress_callback)
+
+    if not monthly_data:
+        return {"results": [], "scanned": 0, "found": 0,
+                "computed_at": time.time(),
+                "error": "Failed to download bhavcopy archive data from NSE"}
+
+    total = len(symbols)
+    if progress_callback:
+        progress_callback(0, total,
+                          f"Scanning {total} stocks for near-breakout candidates…")
+
+    results      = []
+    scanned_count = 0
+
+    for i, sym in enumerate(symbols):
+        df = monthly_data.get(sym)
+        if df is None or len(df) < MIN_MONTHS:
+            continue
+        scanned_count += 1
+        nb = detect_near_breakout(sym, df)
+        if nb:
+            nb["sector"] = sym_to_sector.get(sym, "Other")
+            results.append(nb)
+
+        if progress_callback and i % 50 == 0:
+            progress_callback(i, total,
+                              f"Scanning… {i}/{total} ({len(results)} near-breakout candidates so far)")
+
+    # Sort: closest to breakout first, then longest base
+    results.sort(key=lambda x: (x["gap_pct"], -x["base_months"]))
+    for i, r in enumerate(results, 1):
+        r["rank"] = i
+
+    out = {
+        "results":       results,
+        "scanned":       scanned_count,
+        "universe_size": total,
+        "found":         len(results),
+        "computed_at":   time.time(),
+    }
+    _near_scan_cache["data"] = out
+    _near_scan_cache["ts"]   = time.time()
+    return out

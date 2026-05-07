@@ -46,12 +46,29 @@
 
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body {
-    background: var(--bg);
     color: var(--text);
     font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
     font-size: 13px;
-    transition: background 0.2s, color 0.2s;
+    transition: color 0.2s;
     -webkit-font-smoothing: antialiased;
+    /* Bull & Bear NSE-themed background — visible behind dashboard */
+    background:
+      linear-gradient(rgba(8,12,20,0.30), rgba(8,12,20,0.30)),
+      url("/static/bull_bear.jpg") center center / cover no-repeat fixed,
+      var(--bg);
+    background-attachment: fixed;
+    min-height: 100vh;
+  }
+  body.light {
+    background:
+      linear-gradient(rgba(240,244,248,0.50), rgba(240,244,248,0.50)),
+      url("/static/bull_bear.jpg") center center / cover no-repeat fixed,
+      var(--bg);
+    background-attachment: fixed;
+  }
+  /* Make panels semi-transparent so background image shows through */
+  .panel, .container > section, .tab-content > div {
+    backdrop-filter: blur(2px);
   }
 
   /* ── Header ── */
@@ -156,6 +173,16 @@
   .tab-content { display: none; }
   .tab-content.active { display: block; }
 
+  /* ── Sortable table headers ── */
+  .th-sort {
+    padding: 9px 12px; text-align: left; font-size: 11px; font-weight: 600;
+    text-transform: uppercase; letter-spacing: .4px; color: var(--text2);
+    border-bottom: 2px solid var(--border); cursor: pointer; white-space: nowrap;
+    user-select: none;
+  }
+  .th-sort:hover { color: var(--accent2); }
+  .th-sort.active { color: var(--accent); border-bottom-color: var(--accent); }
+
   /* ── Layout ── */
   .container { max-width: 1440px; margin: 0 auto; padding: 18px 28px; }
 
@@ -167,7 +194,18 @@
     padding: 14px 18px;
     margin-bottom: 12px;
   }
-  .panel { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; margin-bottom: 12px; overflow: hidden; }
+  .panel {
+    background: rgba(14,21,32,0.72);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    margin-bottom: 12px;
+    overflow: hidden;
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+  }
+  body.light .panel {
+    background: rgba(255,255,255,0.78);
+  }
   .panel-header { display: flex; justify-content: space-between; align-items: center; padding: 12px 16px; border-bottom: 1px solid var(--border); }
   .panel-header h2 { font-size: 13px; font-weight: 700; color: var(--white); }
   .panel-body { padding: 16px; }
@@ -451,6 +489,7 @@
   <button class="tab-btn" onclick="showTab('volspike', this)">📊 Vol Spike</button>
   <button class="tab-btn" onclick="showTab('mbo', this)">🏔️ Multi-Yr BO</button>
   <button class="tab-btn" onclick="showTab('edge', this)">🎯 Edge Engine</button>
+  <button class="tab-btn" onclick="showTab('trending', this)">🔥 Trending</button>
 </div>
 
 <!-- ══════════════════════════════════════════════════════════ SCREENER TAB -->
@@ -1685,19 +1724,7 @@
       <span class="timestamp" id="mboTimestamp"></span>
     </div>
     <div class="panel-body">
-      <div style="display:flex;align-items:flex-end;gap:16px;flex-wrap:wrap;margin-bottom:14px">
-        <div>
-          <label style="font-size:11px;color:var(--muted);font-weight:600;text-transform:uppercase;
-                         letter-spacing:.5px;display:block;margin-bottom:6px">Min Base Duration</label>
-          <select id="mboMinBase" style="background:var(--surface2);color:var(--text);
-                   border:1px solid var(--border2);border-radius:7px;padding:8px 12px;
-                   font-size:13px;font-family:inherit;cursor:pointer">
-            <option value="1">1yr+ base</option>
-            <option value="2">2yr+ base</option>
-            <option value="3" selected>3yr+ base</option>
-            <option value="5">5yr+ base</option>
-          </select>
-        </div>
+      <div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap;margin-bottom:10px">
         <button class="btn btn-green" id="mboBtn" onclick="startMboScan()">🔍 Scan Multi-Year Breakouts</button>
         <div class="progress-bar-wrap" id="mboProgressWrap" style="display:none;flex:1;min-width:200px">
           <div class="progress-bar" id="mboProgressBar" style="width:0%"></div>
@@ -1706,7 +1733,7 @@
       </div>
       <div style="font-size:11px;color:var(--muted)">
         ⏱ First scan: ~30 sec (downloads ~73 monthly bhavcopy files from NSE archives, cached 7 days).
-        Subsequent scans: instant from cache.
+        Subsequent scans: instant from cache. Use the <strong>base-duration pills</strong> below to filter results.
       </div>
     </div>
   </div>
@@ -1803,6 +1830,85 @@
     <p style="margin-top:6px;font-size:11px;color:var(--muted)">
       Uses NSE bhavcopy archive (~73 monthly samples covering 6 years). First scan ~30 sec, subsequent scans instant.
     </p>
+  </div>
+
+  <!-- ─── Near Multi-Year Breakout Scanner ─────────────────────────────── -->
+  <div style="margin-top:28px">
+    <div class="panel">
+      <div class="panel-header">
+        <h2>🎯 Near Multi-Year Breakout</h2>
+        <span class="timestamp" id="nearTimestamp"></span>
+      </div>
+      <div class="panel-body">
+        <div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap;margin-bottom:10px">
+          <button class="btn btn-blue" id="nearBtn" onclick="startNearScan()">🎯 Scan Near-Breakout Candidates</button>
+          <div class="progress-bar-wrap" id="nearProgressWrap" style="display:none;flex:1;min-width:200px">
+            <div class="progress-bar" id="nearProgressBar" style="width:0%"></div>
+          </div>
+          <span class="progress-label" id="nearProgressLabel"></span>
+        </div>
+        <div style="font-size:11px;color:var(--muted)">
+          Finds Nifty 500 stocks within <strong>10% below</strong> a multi-year resistance level — approaching breakout zone.
+          If the breakout scanner has already run, this scan is <strong>instant</strong> (reuses cached monthly data).
+        </div>
+      </div>
+    </div>
+
+    <!-- Near-Breakout Results -->
+    <div class="panel" id="nearPanelWrap" style="display:none;margin-top:0">
+      <div class="panel-header" style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+        <h2>Near-Breakout Candidates</h2>
+        <span id="nearSummaryBadge" style="font-size:11px;color:var(--muted)"></span>
+        <input type="text" id="nearFilter" placeholder="Filter symbol / sector…"
+               oninput="filterNearTable()"
+               style="margin-left:auto;background:var(--surface2);color:var(--text);
+                      border:1px solid var(--border2);border-radius:7px;padding:6px 12px;
+                      font-size:12px;font-family:inherit;width:200px">
+      </div>
+
+      <!-- Base duration pills for near-breakout -->
+      <div style="padding:10px 16px;border-bottom:1px solid var(--border);
+                  display:flex;align-items:center;gap:8px;flex-wrap:wrap;background:var(--surface)">
+        <span style="font-size:11px;color:var(--muted);text-transform:uppercase;
+                     letter-spacing:.5px;font-weight:600">Filter by base:</span>
+        <button class="mbo-pill mbo-pill-active" data-near-base="all" onclick="setNearBaseFilter('all', this)">
+          All <span id="nearCountAll" class="mbo-count">0</span>
+        </button>
+        <button class="mbo-pill" data-near-base="1yr+" onclick="setNearBaseFilter('1yr+', this)"
+                style="--bcol:#94a3b8">
+          1yr <span id="nearCount1" class="mbo-count">0</span>
+        </button>
+        <button class="mbo-pill" data-near-base="2yr+" onclick="setNearBaseFilter('2yr+', this)"
+                style="--bcol:#f59e0b">
+          2yr <span id="nearCount2" class="mbo-count">0</span>
+        </button>
+        <button class="mbo-pill" data-near-base="3yr+" onclick="setNearBaseFilter('3yr+', this)"
+                style="--bcol:#3b82f6">
+          3yr <span id="nearCount3" class="mbo-count">0</span>
+        </button>
+        <button class="mbo-pill" data-near-base="5yr+" onclick="setNearBaseFilter('5yr+', this)"
+                style="--bcol:#10b981">
+          5yr <span id="nearCount5" class="mbo-count">0</span>
+        </button>
+        <span style="margin-left:auto;font-size:11px;color:var(--muted)">
+          💡 Sorted by closest to breakout (smallest gap first)
+        </span>
+      </div>
+
+      <div style="overflow-x:auto">
+        <table id="nearTable" style="width:100%;font-size:12px;border-collapse:collapse">
+          <thead id="nearTableHead">
+            <!-- rendered by renderNearTableHead() -->
+          </thead>
+          <tbody id="nearTableBody"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div id="nearEmpty" class="empty-state" style="display:none">
+      <div class="icon">🎯</div>
+      <p>No stocks found within 10% of a multi-year resistance level.</p>
+    </div>
   </div>
 
 </div>
@@ -1969,6 +2075,109 @@
   </div>
 
   <p class="disclaimer">Not financial advice. Bhavcopy + cached fundamentals. Backtest is descriptive, not predictive.</p>
+</div>
+</div>
+
+<!-- ══════════════════════════════════════════════════ TRENDING STOCKS TAB ══ -->
+<div id="tab-trending" class="tab-content">
+<div class="container">
+
+  <div class="logic-box">
+    <strong>🔥 Trending Stocks Scanner</strong> — Scores each Nifty 500 stock 0–10 across ten trend criteria.
+    All computed from bhavcopy OHLCV data. Splits auto-detected and stripped.
+    <div class="tags">
+      <span class="tag">MA Alignment</span><span class="tag">ADX Strength</span>
+      <span class="tag">Volume Expanding</span><span class="tag">Higher Highs/Lows</span>
+      <span class="tag">RS vs Nifty</span><span class="tag">52W High Proximity</span>
+      <span class="tag">MA200</span><span class="tag">Trend Age</span>
+      <span class="tag">Delivery %</span><span class="tag">Sector Heatmap</span>
+    </div>
+  </div>
+
+  <!-- Control bar -->
+  <div class="panel">
+    <div class="panel-header">
+      <h2>🔥 Trending Stocks — Nifty 500 Universe</h2>
+      <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+        <span id="trendTimestamp" class="timestamp"></span>
+        <button class="btn btn-green" id="trendScanBtn" onclick="startTrendScan()">▶ Run Scan</button>
+      </div>
+    </div>
+    <div id="trendProgress" style="display:none;padding:12px 0">
+      <div style="background:var(--surface2);border-radius:6px;height:8px;overflow:hidden;margin-bottom:6px">
+        <div id="trendProgressBar" style="height:8px;background:var(--green);border-radius:6px;width:0%;transition:width .4s"></div>
+      </div>
+      <span id="trendProgressMsg" style="font-size:12px;color:var(--text2)">Initialising…</span>
+    </div>
+    <div id="trendEmpty" style="padding:30px;text-align:center;color:var(--text2)">
+      Click <strong>Run Scan</strong> to find all trending stocks in the Nifty 500 universe.<br>
+      <small style="font-size:11px;color:var(--muted)">Bhavcopy data · no external calls · ~15–25s</small>
+    </div>
+  </div>
+
+  <!-- Results section -->
+  <div id="trendResults" style="display:none">
+
+    <!-- ── Sector RS Heatmap ─────────────────────────────────────── -->
+    <div class="panel">
+      <div class="panel-header"><h2>📊 Sector RS Heatmap — Leading vs Lagging</h2></div>
+      <div id="trendHeatmap" style="padding:10px 14px 14px;display:flex;flex-wrap:wrap;gap:8px"></div>
+    </div>
+
+    <!-- ── Stock table ───────────────────────────────────────────── -->
+    <div class="panel">
+      <!-- Filters row -->
+      <div style="padding:10px 0 10px;display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+        <!-- Score pills -->
+        <button onclick="trendSetFilter('score','all')" id="trendF-all" class="tag" style="cursor:pointer">All</button>
+        <button onclick="trendSetFilter('score','10')"  id="trendF-10"  class="tag" style="cursor:pointer">🔥 10/10</button>
+        <button onclick="trendSetFilter('score','9')"   id="trendF-9"   class="tag" style="cursor:pointer">⚡ 9+</button>
+        <button onclick="trendSetFilter('score','8')"   id="trendF-8"   class="tag" style="cursor:pointer">✅ 8+</button>
+        <button onclick="trendSetFilter('score','7')"   id="trendF-7"   class="tag" style="cursor:pointer">📈 7+</button>
+        <!-- Special filters -->
+        <button onclick="trendToggleSpecial('new_high')" id="trendF-newhigh" class="tag" style="cursor:pointer">🆕 New 52W High</button>
+        <button onclick="trendToggleSpecial('pullback')" id="trendF-pullback" class="tag" style="cursor:pointer">🎯 At MA20 Support</button>
+        <!-- Sector -->
+        <select id="trendSectorFilter" onchange="trendRender()"
+          style="padding:5px 8px;border-radius:6px;border:1px solid var(--border);background:var(--surface2);color:var(--text);font-size:12px">
+          <option value="">All Sectors</option>
+        </select>
+        <!-- Search -->
+        <input type="text" id="trendSearch" placeholder="🔍 Symbol…"
+          style="padding:5px 10px;border-radius:6px;border:1px solid var(--border);background:var(--surface2);color:var(--text);font-size:12px;width:120px"
+          oninput="trendRender()">
+        <span id="trendCount" style="font-size:11px;color:var(--text2)"></span>
+      </div>
+
+      <div style="overflow-x:auto">
+        <table style="width:100%;border-collapse:collapse;font-size:12px">
+          <thead>
+            <tr style="background:var(--surface2)">
+              <th onclick="trendSort('rank')"          class="th-sort" id="trendTh-rank">#</th>
+              <th onclick="trendSort('symbol')"        class="th-sort" id="trendTh-symbol">Symbol</th>
+              <th onclick="trendSort('sector')"        class="th-sort" id="trendTh-sector">Sector</th>
+              <th onclick="trendSort('score')"         class="th-sort" id="trendTh-score">Score</th>
+              <th style="padding:8px 10px;font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.4px;color:var(--text2);border-bottom:2px solid var(--border)" title="10 criteria dots">Criteria</th>
+              <th onclick="trendSort('price')"         class="th-sort" id="trendTh-price">Price</th>
+              <th onclick="trendSort('pct_from_high')" class="th-sort" id="trendTh-pct_from_high">52W High</th>
+              <th onclick="trendSort('adx')"           class="th-sort" id="trendTh-adx" title="ADX trend strength. ≥25 = trending, ≥40 = very strong">ADX</th>
+              <th onclick="trendSort('vol_ratio')"     class="th-sort" id="trendTh-vol_ratio" title="5-day avg vol vs 20-day avg vol">Vol Ratio</th>
+              <th onclick="trendSort('r1m')"           class="th-sort" id="trendTh-r1m">1M Ret</th>
+              <th onclick="trendSort('r3m')"           class="th-sort" id="trendTh-r3m">3M Ret</th>
+              <th onclick="trendSort('rs_composite')"  class="th-sort" id="trendTh-rs_composite">RS Score</th>
+              <th onclick="trendSort('trend_age')"     class="th-sort" id="trendTh-trend_age" title="Days continuously above MA50">Trend Age</th>
+              <th onclick="trendSort('avg_deliv')"     class="th-sort" id="trendTh-avg_deliv" title="Avg Delivery % (institutional buying signal)">Deliv%</th>
+              <th onclick="trendSort('r_squared')"     class="th-sort" id="trendTh-r_squared" title="R² trend consistency: 1.0 = perfectly linear uptrend">R²</th>
+              <th style="padding:8px 10px;font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.4px;color:var(--text2);border-bottom:2px solid var(--border)">Flags</th>
+            </tr>
+          </thead>
+          <tbody id="trendTbody"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <p class="disclaimer">Not financial advice. Bhavcopy OHLCV data only. Splits auto-detected and stripped from history.</p>
 </div>
 </div>
 
@@ -2619,7 +2828,7 @@ function _rrgSortTable() {
     { key: 'distance',      label: 'Strength',         tip: 'Distance from centre (higher = more extreme)' },
     { key: 'tail_direction',label: 'Momentum',         tip: 'Direction of recent price rotation' },
     { key: 'pattern',       label: 'Signal',           tip: 'Pattern signal from trail analysis' },
-    { key: 'top_stocks',    label: 'Top 3 Stocks',     tip: '3-month return for top stocks in sector' },
+    { key: 'top_stocks',    label: 'Sector Stocks (1M%)',  tip: 'All stocks in sector sorted by 1-month return. Click ▾ to expand.' },
   ];
 
   const sortArrow = k => k !== col ? '' : asc
@@ -2650,18 +2859,42 @@ function _rrgSortTable() {
     const patClean = (s.pattern || '').replace(/[✓⚠❌]/g,'').trim();
     const patIcon  = /Holding|acceler/.test(s.pattern||'') ? '✓' : /Building/.test(s.pattern||'') ? '↗' : /Topping|Losing|Weak/.test(s.pattern||'') ? '⚠' : '';
 
-    const topSt = Array.isArray(s.top_stocks)
-      ? s.top_stocks.slice(0,3).map(t => {
-          const r = typeof t === 'object' ? (t.r3m || 0) : 0;
-          const sym = typeof t === 'object' ? t.symbol : t;
-          const rc = r >= 0 ? '#10b981' : '#ef4444';
-          return `<span style="display:inline-flex;align-items:center;gap:3px;background:var(--surface2);
-                               border-radius:5px;padding:2px 6px;font-size:10px;border:1px solid var(--border)">
-                    <span style="color:var(--white);font-weight:600">${sym}</span>
-                    <span style="color:${rc};font-weight:700">${r>=0?'+':''}${r.toFixed(1)}%</span>
-                  </span>`;
-        }).join(' ')
-      : '<span style="color:var(--muted)">—</span>';
+    // ── All stocks with 1M return, collapsible ────────────────────────────
+    const allSt = Array.isArray(s.top_stocks) ? s.top_stocks : [];
+    const PREVIEW = 5;   // rows visible before expand
+    const uid = 'rrg_stocks_' + s.group.replace(/\W+/g,'_');
+    const makeStockRow = t => {
+      if (!t || typeof t !== 'object') return '';
+      const sym = t.symbol || '';
+      const r   = t.r1m != null ? t.r1m : null;
+      const rc  = r == null ? 'var(--muted)' : r >= 0 ? '#10b981' : '#ef4444';
+      const rTxt = r == null ? '—' : (r >= 0 ? '+' : '') + r.toFixed(1) + '%';
+      return `<div style="display:flex;justify-content:space-between;align-items:center;
+                          padding:3px 0;border-bottom:1px solid var(--border)">
+                <span style="font-size:11px;font-weight:600;color:var(--white)">${sym}</span>
+                <span style="font-size:11px;font-weight:700;color:${rc};font-family:var(--mono)">${rTxt}</span>
+              </div>`;
+    };
+    const previewRows = allSt.slice(0, PREVIEW).map(makeStockRow).join('');
+    const extraRows   = allSt.slice(PREVIEW).map(makeStockRow).join('');
+    const hasExtra    = extraRows.length > 0;
+    const topSt = allSt.length === 0
+      ? '<span style="color:var(--muted);font-size:11px">No data</span>'
+      : `<div style="min-width:160px;max-width:220px">
+           <div id="${uid}_pre">${previewRows}</div>
+           ${hasExtra ? `
+             <div id="${uid}_ext" style="display:none">${extraRows}</div>
+             <button onclick="(function(el){
+                       const ext=document.getElementById('${uid}_ext');
+                       const open=ext.style.display!=='none';
+                       ext.style.display=open?'none':'block';
+                       el.textContent=open?'▾ Show all ${allSt.length}':'▴ Collapse';
+                     })(this)"
+               style="margin-top:4px;font-size:10px;background:none;border:none;
+                      color:var(--accent);cursor:pointer;padding:0;font-weight:600">
+               ▾ Show all ${allSt.length}
+             </button>` : ''}
+         </div>`;
 
     html += `<tr style="border-bottom:1px solid var(--border);transition:background .12s"
                onmouseover="this.style.background='var(--surface2)'" onmouseout="this.style.background=''">
@@ -2709,10 +2942,8 @@ function _rrgSortTable() {
         </span>
       </td>
 
-      <!-- Top stocks -->
-      <td style="padding:12px 14px">
-        <div style="display:flex;flex-wrap:wrap;gap:4px">${topSt}</div>
-      </td>
+      <!-- All sector stocks (1M return, collapsible) -->
+      <td style="padding:10px 14px;vertical-align:top">${topSt}</td>
     </tr>`;
   }
   html += '</tbody></table>';
@@ -4276,11 +4507,10 @@ let _mboPoll = null, _mboRows = [], _mboFilter = '', _mboBaseFilter = 'all';
 let _mboSortCol = 'base_months', _mboSortAsc = false;
 
 function startMboScan() {
-  const minBase = parseInt(document.getElementById('mboMinBase').value) || 1;
   fetch('/api/mbo/scan', {
     method: 'POST',
     headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({min_base_years: minBase})
+    body: JSON.stringify({min_base_years: 1})  // legacy field — backend ignores it now
   })
   .then(r => r.json())
   .then(d => {
@@ -4418,15 +4648,17 @@ function applyMboFiltersAndRender() {
 
 function renderMboTableHead() {
   const cols = [
-    {key:'_displayRank', label:'#',           align:'left',   sortable:false},
-    {key:'symbol',       label:'Symbol',      align:'left',   sortable:true},
-    {key:'sector',       label:'Sector',      align:'left',   sortable:true},
-    {key:'cmp',          label:'CMP',         align:'right',  sortable:true},
-    {key:'base_months',  label:'Base',        align:'center', sortable:true},
-    {key:'resistance',   label:'Resistance',  align:'right',  sortable:true},
-    {key:'pct_above',    label:'% Above',     align:'right',  sortable:true},
-    {key:'vol_ratio',    label:'Vol Ratio',   align:'right',  sortable:true},
-    {key:'is_ath',       label:'ATH?',        align:'center', sortable:true},
+    {key:'_displayRank',          label:'#',              align:'left',   sortable:false},
+    {key:'symbol',                label:'Symbol',         align:'left',   sortable:true},
+    {key:'sector',                label:'Sector',         align:'left',   sortable:true},
+    {key:'cmp',                   label:'CMP',            align:'right',  sortable:true},
+    {key:'base_months',           label:'Base',           align:'center', sortable:true},
+    {key:'resistance',            label:'Resistance',     align:'right',  sortable:true},
+    {key:'pct_above',             label:'% Above',        align:'right',  sortable:true},
+    {key:'measured_target',       label:'Target (MM)',    align:'right',  sortable:true},
+    {key:'remaining_upside_pct',  label:'Upside%',        align:'right',  sortable:true},
+    {key:'vol_ratio',             label:'Vol Ratio',      align:'right',  sortable:true},
+    {key:'is_ath',                label:'ATH?',           align:'center', sortable:true},
   ];
   const arrow = k => (_mboSortCol === k) ? (_mboSortAsc ? ' ▲' : ' ▼') : '';
   let h = '<tr style="background:var(--surface2);position:sticky;top:0;z-index:1">';
@@ -4484,13 +4716,245 @@ function renderMboTable(rows) {
       <td style="padding:10px 12px;text-align:right;font-weight:700;color:${pctCls}">
         +${r.pct_above}%
       </td>
+      <td style="padding:10px 12px;text-align:right">
+        <span style="font-family:var(--mono);color:var(--accent);font-weight:700">
+          ₹${(r.measured_target||0).toLocaleString('en-IN')}
+        </span>
+        <div style="font-size:9px;color:var(--muted);margin-top:1px">measured move</div>
+      </td>
+      <td style="padding:10px 12px;text-align:right;font-weight:700;color:${(r.remaining_upside_pct||0)>=20?'var(--green)':(r.remaining_upside_pct||0)>=10?'var(--gold)':'var(--muted)'}">
+        +${(r.remaining_upside_pct||0).toFixed(1)}%
+      </td>
       <td style="padding:10px 12px;text-align:right;font-weight:600;color:${volCls}">
         ${r.vol_ratio}×
       </td>
       <td style="padding:10px 12px;text-align:center">${ath}</td>
     </tr>`;
   }
-  document.getElementById('mboTableBody').innerHTML = html || '<tr><td colspan="9" style="padding:20px;text-align:center;color:var(--muted)">No results match the current filters</td></tr>';
+  document.getElementById('mboTableBody').innerHTML = html || '<tr><td colspan="11" style="padding:20px;text-align:center;color:var(--muted)">No results match the current filters</td></tr>';
+}
+
+// ── Near Multi-Year Breakout Scanner ─────────────────────────────────────────
+let _nearRows = [], _nearBaseFilter = 'all', _nearFilter = '', _nearSortCol = 'gap_pct', _nearSortAsc = true, _nearPoll = null;
+
+function startNearScan() {
+  fetch('/api/mbo/near-scan', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({})
+  })
+  .then(r => r.json())
+  .then(d => {
+    if (d.status === 'started' || d.status === 'already_running') {
+      document.getElementById('nearBtn').disabled = true;
+      document.getElementById('nearBtn').textContent = '⏳ Scanning…';
+      document.getElementById('nearProgressWrap').style.display = '';
+      _nearPoll = setInterval(pollNearStatus, 3000);
+    }
+  })
+  .catch(e => console.error('Near scan error:', e));
+}
+
+function pollNearStatus() {
+  fetch('/api/mbo/near-status')
+    .then(r => r.json())
+    .then(d => {
+      const bar   = document.getElementById('nearProgressBar');
+      const label = document.getElementById('nearProgressLabel');
+      if (bar) bar.style.width = (d.pct || 0) + '%';
+      if (label) label.textContent = d.message || '';
+
+      if (!d.running) {
+        clearInterval(_nearPoll); _nearPoll = null;
+        const btn = document.getElementById('nearBtn');
+        btn.disabled = false;
+        btn.textContent = '🎯 Scan Near-Breakout Candidates';
+        document.getElementById('nearProgressWrap').style.display = 'none';
+        if (d.error) {
+          document.getElementById('nearEmpty').style.display = '';
+          document.getElementById('nearEmpty').innerHTML =
+            `<div class="icon">⚠️</div><p style="color:var(--red)">${d.error}</p>`;
+          return;
+        }
+        if (d.result) renderNearResults(d.result);
+      }
+    })
+    .catch(() => {});
+}
+
+function renderNearResults(data) {
+  const rows  = data.results || [];
+  const ts    = document.getElementById('nearTimestamp');
+  const badge = document.getElementById('nearSummaryBadge');
+  const wrap  = document.getElementById('nearPanelWrap');
+  const empty = document.getElementById('nearEmpty');
+
+  if (ts) ts.textContent = 'Scanned ' + (data.scanned||0) + ' stocks · ' +
+    new Date(data.computed_at * 1000).toLocaleTimeString('en-IN');
+  if (badge) badge.textContent = `${rows.length} candidates found`;
+
+  if (!rows.length) {
+    empty.style.display = '';
+    wrap.style.display = 'none';
+    return;
+  }
+
+  _nearRows = rows;
+  empty.style.display = 'none';
+  wrap.style.display = '';
+
+  // Update counts per base label
+  const counts = {'1yr+':0,'2yr+':0,'3yr+':0,'5yr+':0};
+  rows.forEach(r => { if (counts[r.base_label] !== undefined) counts[r.base_label]++; });
+  document.getElementById('nearCountAll').textContent = rows.length;
+  document.getElementById('nearCount1').textContent   = counts['1yr+'];
+  document.getElementById('nearCount2').textContent   = counts['2yr+'];
+  document.getElementById('nearCount3').textContent   = counts['3yr+'];
+  document.getElementById('nearCount5').textContent   = counts['5yr+'];
+
+  applyNearFiltersAndRender();
+}
+
+function setNearBaseFilter(base, btn) {
+  _nearBaseFilter = base;
+  document.querySelectorAll('[data-near-base]').forEach(p => p.classList.remove('mbo-pill-active'));
+  btn.classList.add('mbo-pill-active');
+  applyNearFiltersAndRender();
+}
+
+function filterNearTable() {
+  _nearFilter = (document.getElementById('nearFilter').value || '').toLowerCase();
+  applyNearFiltersAndRender();
+}
+
+function setNearSort(col) {
+  if (_nearSortCol === col) {
+    _nearSortAsc = !_nearSortAsc;
+  } else {
+    _nearSortCol = col;
+    _nearSortAsc = (col === 'symbol' || col === 'sector' || col === 'gap_pct');
+  }
+  applyNearFiltersAndRender();
+}
+
+function applyNearFiltersAndRender() {
+  let rows = _nearRows.slice();
+
+  if (_nearBaseFilter !== 'all') {
+    rows = rows.filter(r => r.base_label === _nearBaseFilter);
+  }
+  if (_nearFilter) {
+    rows = rows.filter(r =>
+      r.symbol.toLowerCase().includes(_nearFilter) ||
+      (r.sector||'').toLowerCase().includes(_nearFilter)
+    );
+  }
+
+  const col = _nearSortCol, asc = _nearSortAsc, dir = asc ? 1 : -1;
+  rows.sort((a, b) => {
+    let va = a[col], vb = b[col];
+    if (typeof va === 'string') va = va.toLowerCase();
+    if (typeof vb === 'string') vb = vb.toLowerCase();
+    if (va == null) return 1;
+    if (vb == null) return -1;
+    return va > vb ? dir : va < vb ? -dir : 0;
+  });
+
+  rows.forEach((r, i) => r._displayRank = i + 1);
+  renderNearTableHead();
+  renderNearTable(rows);
+}
+
+function renderNearTableHead() {
+  const cols = [
+    {key:'_displayRank',      label:'#',              align:'left',   sortable:false},
+    {key:'symbol',            label:'Symbol',         align:'left',   sortable:true},
+    {key:'sector',            label:'Sector',         align:'left',   sortable:true},
+    {key:'cmp',               label:'CMP',            align:'right',  sortable:true},
+    {key:'resistance',        label:'Breakout Level', align:'right',  sortable:true},
+    {key:'gap_pct',           label:'Gap to BO%',     align:'right',  sortable:true},
+    {key:'measured_target',   label:'Target (MM)',    align:'right',  sortable:true},
+    {key:'total_upside_pct',  label:'Total Upside%',  align:'right',  sortable:true},
+    {key:'base_label',        label:'Base',           align:'center', sortable:true},
+    {key:'base_months',       label:'Base Dur.',      align:'center', sortable:true},
+    {key:'vol_ratio',         label:'Vol Ratio',      align:'right',  sortable:true},
+    {key:'consecutive_below', label:'Months Below',   align:'center', sortable:true},
+  ];
+  const arrow = k => (_nearSortCol === k) ? (_nearSortAsc ? ' ▲' : ' ▼') : '';
+  let h = '<tr style="background:var(--surface2);position:sticky;top:0;z-index:1">';
+  for (const c of cols) {
+    const isActive = (_nearSortCol === c.key);
+    const cursor  = c.sortable ? 'cursor:pointer;' : '';
+    const onclick = c.sortable ? `onclick="setNearSort('${c.key}')"` : '';
+    h += `<th ${onclick} style="padding:11px 12px;text-align:${c.align};
+              border-bottom:1px solid var(--border);
+              color:${isActive ? 'var(--accent)' : 'var(--text2)'};
+              font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.4px;
+              ${cursor}user-select:none;white-space:nowrap">
+      ${c.label}<span style="font-size:9px;opacity:.85">${arrow(c.key)}</span>
+    </th>`;
+  }
+  h += '</tr>';
+  document.getElementById('nearTableHead').innerHTML = h;
+}
+
+function renderNearTable(rows) {
+  const BASE_COLORS = {
+    '5yr+': '#10b981', '3yr+': '#3b82f6',
+    '2yr+': '#f59e0b', '1yr+': '#94a3b8',
+  };
+  let html = '';
+  for (const r of rows) {
+    const bc  = BASE_COLORS[r.base_label] || '#94a3b8';
+    // Gap color: green = very close (<3%), yellow = close (3-6%), muted = far (6-10%)
+    const gapCol = r.gap_pct <= 3 ? 'var(--green)' : r.gap_pct <= 6 ? 'var(--gold)' : 'var(--muted)';
+    const volCol = r.vol_ratio >= 2 ? 'var(--green)' : r.vol_ratio >= 1.3 ? 'var(--gold)' : 'var(--muted)';
+    html += `<tr style="border-bottom:1px solid var(--border);transition:background .12s"
+               onmouseover="this.style.background='var(--surface2)'" onmouseout="this.style.background=''">
+      <td style="padding:10px 12px;color:var(--muted);font-size:11px">${r._displayRank || r.rank}</td>
+      <td style="padding:10px 12px">
+        <span style="font-size:13px;font-weight:700;color:var(--white)">${r.symbol}</span>
+        <div style="font-size:10px;color:var(--muted);margin-top:2px">${r.data_months}mo data</div>
+      </td>
+      <td style="padding:10px 12px;font-size:11px;color:var(--text2)">${r.sector||'—'}</td>
+      <td style="padding:10px 12px;text-align:right;font-family:var(--mono);color:var(--white);font-weight:600">
+        ₹${r.cmp.toLocaleString('en-IN')}
+      </td>
+      <td style="padding:10px 12px;text-align:right;font-family:var(--mono);color:var(--text2)">
+        ₹${r.resistance.toLocaleString('en-IN')}
+      </td>
+      <td style="padding:10px 12px;text-align:right;font-weight:700;color:${gapCol}">
+        -${r.gap_pct}%
+      </td>
+      <td style="padding:10px 12px;text-align:right">
+        <span style="font-family:var(--mono);color:var(--accent);font-weight:700">
+          ₹${(r.measured_target||0).toLocaleString('en-IN')}
+        </span>
+        <div style="font-size:9px;color:var(--muted);margin-top:1px">if breakout succeeds</div>
+      </td>
+      <td style="padding:10px 12px;text-align:right;font-weight:700;color:${(r.total_upside_pct||0)>=30?'var(--green)':(r.total_upside_pct||0)>=15?'var(--gold)':'var(--muted)'}">
+        +${(r.total_upside_pct||0).toFixed(1)}%
+      </td>
+      <td style="padding:10px 12px;text-align:center">
+        <span style="display:inline-block;background:${bc}22;color:${bc};
+                     border:1px solid ${bc}55;border-radius:20px;
+                     padding:3px 10px;font-size:11px;font-weight:700;white-space:nowrap">
+          ${r.base_label}
+        </span>
+      </td>
+      <td style="padding:10px 12px;text-align:center;font-size:11px;color:var(--text2)">
+        ${r.base_months}mo
+      </td>
+      <td style="padding:10px 12px;text-align:right;font-weight:600;color:${volCol}">
+        ${r.vol_ratio}×
+      </td>
+      <td style="padding:10px 12px;text-align:center;font-size:11px;color:var(--muted)">
+        ${r.consecutive_below}mo
+      </td>
+    </tr>`;
+  }
+  document.getElementById('nearTableBody').innerHTML = html ||
+    '<tr><td colspan="12" style="padding:20px;text-align:center;color:var(--muted)">No results match the current filters</td></tr>';
 }
 
 // ── Edge Engine ──────────────────────────────────────────────────────────────
@@ -4905,6 +5369,217 @@ function pollFundamentals() {
     }
   });
 }
+
+
+// ═══════════════════════════════════════════════════════════════
+//  TRENDING STOCKS SCANNER  (10 features)
+// ═══════════════════════════════════════════════════════════════
+
+let _trendData       = null;
+let _trendPollTimer  = null;
+let _trendScoreMin   = 5;
+let _trendSortCol    = 'score';
+let _trendSortAsc    = false;
+let _trendSpecial    = null;   // 'new_high' | 'pullback' | null
+
+// ── Scan lifecycle ──────────────────────────────────────────────
+function startTrendScan() {
+  const btn = document.getElementById('trendScanBtn');
+  btn.disabled = true; btn.textContent = 'Scanning…';
+  document.getElementById('trendProgress').style.display = '';
+  document.getElementById('trendResults').style.display  = 'none';
+  document.getElementById('trendEmpty').style.display    = 'none';
+  fetch('/api/trending/scan', { method: 'POST' })
+    .then(r => r.json())
+    .then(() => { _trendPollTimer = setInterval(_trendPoll, 1800); })
+    .catch(e => { btn.disabled = false; btn.textContent = '▶ Run Scan'; alert('Scan failed: ' + e); });
+}
+
+function _trendPoll() {
+  fetch('/api/trending/status').then(r => r.json()).then(d => {
+    if (d.running) {
+      document.getElementById('trendProgressBar').style.width = (d.pct || 0) + '%';
+      document.getElementById('trendProgressMsg').textContent = d.message || '';
+      return;
+    }
+    clearInterval(_trendPollTimer);
+    const btn = document.getElementById('trendScanBtn');
+    btn.disabled = false; btn.textContent = '▶ Run Scan';
+    document.getElementById('trendProgress').style.display = 'none';
+    if (d.error) { alert('Scan error: ' + d.error); return; }
+    if (!d.result) return;
+    _trendData = d.result;
+
+    // Populate sector dropdown
+    const sectors = [...new Set((_trendData.stocks || []).map(r => r.sector))].sort();
+    const sel = document.getElementById('trendSectorFilter');
+    sel.innerHTML = '<option value="">All Sectors</option>' +
+      sectors.map(s => `<option value="${s}">${s}</option>`).join('');
+
+    const nifty = _trendData.nifty_3m != null
+      ? ((_trendData.nifty_3m >= 0 ? '+' : '') + _trendData.nifty_3m + '%') : '—';
+    document.getElementById('trendTimestamp').textContent =
+      `${_trendData.trending_count} trending · ${_trendData.universe_count} scanned · Nifty 3M: ${nifty} · ` +
+      new Date(_trendData.computed_at * 1000).toLocaleTimeString();
+
+    document.getElementById('trendResults').style.display = '';
+    _renderHeatmap();
+    trendSetFilter('score', 'all');
+  });
+}
+
+// ── Sector Heatmap ──────────────────────────────────────────────
+function _renderHeatmap() {
+  const srs = (_trendData.sector_rs || []).slice(0, 30);
+  if (!srs.length) return;
+  const n   = srs.length;
+  // Tier by rank: top third = leading (light green), bottom third = lagging (yellow), middle = neutral (white)
+  const leadCut = Math.ceil(n / 3);
+  const lagCut  = n - Math.ceil(n / 3);
+  const el = document.getElementById('trendHeatmap');
+  el.innerHTML = srs.map((s, i) => {
+    const v = s.rs_vs_nifty;
+    let bg, border;
+    if (i < leadCut) {            // leading
+      bg     = '#d1fae5';         // light green
+      border = '#10b981';
+    } else if (i >= lagCut) {     // lagging
+      bg     = '#fef3c7';         // yellow
+      border = '#f59e0b';
+    } else {                      // neutral
+      bg     = '#ffffff';
+      border = '#cbd5e1';
+    }
+    return `<div style="background:${bg};border:1px solid ${border};border-radius:8px;padding:9px 13px;min-width:148px;cursor:default"
+                 title="1M: ${v>=0?'+':''}${s.r1m}% · 3M: ${s.r3m>=0?'+':''}${s.r3m}% · ${s.member_count} stocks">
+      <div style="font-size:11px;font-weight:800;color:#000000;margin-bottom:3px;letter-spacing:0.2px">${s.group}</div>
+      <div style="font-size:14px;font-weight:900;color:#000000">${v>=0?'+':''}${v}% vs Nifty</div>
+      <div style="font-size:10px;color:rgba(0,0,0,0.75);margin-top:2px;font-weight:600">${s.member_count} stocks · 3M: ${s.r3m>=0?'+':''}${s.r3m}%</div>
+    </div>`;
+  }).join('');
+}
+
+// ── Filters ─────────────────────────────────────────────────────
+function trendSetFilter(type, val) {
+  if (type === 'score') {
+    _trendScoreMin = val === 'all' ? 0 : parseInt(val);
+    ['all','10','9','8','7'].forEach(k => {
+      const b = document.getElementById('trendF-' + k);
+      if (!b) return;
+      const on = k === val;
+      b.style.cssText += `;background:${on?'var(--accent)':'var(--surface2)'};color:${on?'#fff':'var(--text2)'};border-color:${on?'var(--accent)':'var(--border)'}`;
+    });
+  }
+  trendRender();
+}
+
+function trendToggleSpecial(key) {
+  _trendSpecial = (_trendSpecial === key) ? null : key;
+  ['new_high','pullback'].forEach(k => {
+    const b = document.getElementById('trendF-' + k.replace('_',''));
+    if (!b) return;
+    const on = _trendSpecial === k;
+    b.style.cssText += `;background:${on?'var(--gold)':'var(--surface2)'};color:${on?'#000':'var(--text2)'};border-color:${on?'var(--gold)':'var(--border)'}`;
+  });
+  trendRender();
+}
+
+function trendSort(col) {
+  if (_trendSortCol === col) _trendSortAsc = !_trendSortAsc;
+  else { _trendSortCol = col; _trendSortAsc = false; }
+  document.querySelectorAll('.th-sort').forEach(th => th.classList.remove('active'));
+  const th = document.getElementById('trendTh-' + col);
+  if (th) th.classList.add('active');
+  trendRender();
+}
+
+// ── Main render ─────────────────────────────────────────────────
+function trendRender() {
+  if (!_trendData) return;
+  const search = (document.getElementById('trendSearch').value || '').toUpperCase().trim();
+  const sector = document.getElementById('trendSectorFilter').value;
+  const labels = _trendData.criteria_labels || [];
+
+  let rows = (_trendData.stocks || []).filter(r => {
+    if (r.score < _trendScoreMin) return false;
+    if (sector && r.sector !== sector) return false;
+    if (search && !r.symbol.includes(search)) return false;
+    if (_trendSpecial === 'new_high'  && !r.new_high_flag) return false;
+    if (_trendSpecial === 'pullback'  && !r.at_support)    return false;
+    return true;
+  });
+
+  rows = [...rows].sort((a, b) => {
+    let va = a[_trendSortCol], vb = b[_trendSortCol];
+    if (typeof va === 'string') return _trendSortAsc ? va.localeCompare(vb) : vb.localeCompare(va);
+    va = va ?? (_trendSortAsc ? Infinity : -Infinity);
+    vb = vb ?? (_trendSortAsc ? Infinity : -Infinity);
+    return _trendSortAsc ? va - vb : vb - va;
+  });
+
+  document.getElementById('trendCount').textContent = rows.length + ' stocks';
+
+  const pc  = v  => v  == null ? 'var(--muted)' : v  >= 0 ? 'var(--green)' : 'var(--red)';
+  const pf  = (v, d=1) => v == null ? '—' : (v >= 0 ? '+' : '') + v.toFixed(d) + '%';
+  const num = v  => v  == null ? '—' : v;
+
+  const scoreColor = s =>
+    s === 10 ? '#f59e0b' : s >= 8 ? '#10b981' : s >= 6 ? '#60a5fa' : '#94a3b8';
+
+  const LABELS = labels.length ? labels : Array.from({length:10},(_,i)=>'C'+(i+1));
+
+  const dots = criteria => criteria.map((v, i) =>
+    `<span title="${LABELS[i]}"
+      style="display:inline-block;width:8px;height:8px;border-radius:50%;
+             background:${v?'#10b981':'#ef4444'};margin:0 1px 0 0"></span>`
+  ).join('');
+
+  const adxColor = v => v == null ? 'var(--muted)' : v >= 40 ? '#10b981' : v >= 25 ? '#f59e0b' : '#ef4444';
+  const r2Color  = v => v == null ? 'var(--muted)' : v >= 0.8 ? '#10b981' : v >= 0.5 ? '#f59e0b' : 'var(--muted)';
+
+  const tbody = document.getElementById('trendTbody');
+  if (!rows.length) {
+    tbody.innerHTML = '<tr><td colspan="17" style="padding:30px;text-align:center;color:var(--muted)">No stocks match the current filters.</td></tr>';
+    return;
+  }
+
+  tbody.innerHTML = rows.map(r => {
+    const flags = [
+      r.new_high_flag ? `<span style="font-size:10px;padding:2px 6px;border-radius:8px;background:#10b98122;color:#10b981;border:1px solid #10b98155" title="New 52W high in last ${r.new_high_days} session(s)">🆕 New High</span>` : '',
+      r.at_support    ? `<span style="font-size:10px;padding:2px 6px;border-radius:8px;background:#f59e0b22;color:#f59e0b;border:1px solid #f59e0b55" title="Price at MA20 support — potential entry">🎯 Support</span>` : '',
+      r.hh_hl         ? `<span style="font-size:10px;padding:2px 6px;border-radius:8px;background:#60a5fa22;color:#60a5fa;border:1px solid #60a5fa55">HH/HL</span>` : '',
+    ].filter(Boolean).join(' ');
+
+    const trendAgeLabel = r.trend_age >= 60 ? `<span style="color:#10b981">${r.trend_age}d</span>`
+                        : r.trend_age >= 20 ? `<span style="color:#f59e0b">${r.trend_age}d</span>`
+                        : `<span style="color:var(--muted)">${r.trend_age}d</span>`;
+
+    return `<tr style="border-bottom:1px solid var(--border)"
+        onmouseover="this.style.background='var(--surface2)'"
+        onmouseout="this.style.background=''">
+      <td style="padding:7px 10px;color:var(--muted);font-family:var(--mono);font-size:11px">#${r.rank}</td>
+      <td style="padding:7px 10px;font-weight:700;color:var(--white);white-space:nowrap">${r.symbol}</td>
+      <td style="padding:7px 10px;font-size:11px;color:var(--text2);max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${r.sector}</td>
+      <td style="padding:7px 10px;text-align:center">
+        <span style="font-size:13px;font-weight:800;color:${scoreColor(r.score)}">${r.score}/10</span>
+      </td>
+      <td style="padding:7px 10px">${dots(r.criteria || [])}</td>
+      <td style="padding:7px 10px;font-family:var(--mono)">₹${r.price}</td>
+      <td style="padding:7px 10px;font-family:var(--mono);color:${pc(r.pct_from_high)}">${pf(r.pct_from_high)}</td>
+      <td style="padding:7px 10px;font-family:var(--mono);font-weight:700;color:${adxColor(r.adx)}">${num(r.adx)}</td>
+      <td style="padding:7px 10px;font-family:var(--mono);color:${r.vol_ratio!=null&&r.vol_ratio>1?'var(--green)':'var(--muted)'}">${r.vol_ratio != null ? r.vol_ratio + 'x' : '—'}</td>
+      <td style="padding:7px 10px;font-family:var(--mono);color:${pc(r.r1m)}">${pf(r.r1m)}</td>
+      <td style="padding:7px 10px;font-family:var(--mono);color:${pc(r.r3m)}">${pf(r.r3m)}</td>
+      <td style="padding:7px 10px;font-family:var(--mono);font-weight:700;color:${pc(r.rs_composite)}">${pf(r.rs_composite)}</td>
+      <td style="padding:7px 10px;font-family:var(--mono)">${trendAgeLabel}</td>
+      <td style="padding:7px 10px;font-family:var(--mono);color:${r.avg_deliv!=null&&r.avg_deliv>50?'var(--green)':'var(--text2)'}">${r.avg_deliv != null ? r.avg_deliv + '%' : '—'}</td>
+      <td style="padding:7px 10px;font-family:var(--mono);color:${r2Color(r.r_squared)}">${r.r_squared != null ? r.r_squared.toFixed(2) : '—'}</td>
+      <td style="padding:7px 10px">${flags}</td>
+    </tr>`;
+  }).join('');
+}
+
+
 
 </script>
 </body>

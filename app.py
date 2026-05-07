@@ -13,6 +13,7 @@ from momentum_scanner import run_momentum_scan
 from early_mover_scanner import run_early_mover_scan
 from volume_scanner import run_volume_scan
 from edge_engine import run_edge_engine, detect_exit_signals, _load_stocks, invalidate_cache as invalidate_edge_cache
+from trending import run_trending_scan
 from fundamentals import (cache_status as fund_cache_status,
                           scheduler_status as fund_scheduler_status,
                           start_background_scheduler)
@@ -567,7 +568,7 @@ def volume_status():
 
 
 # ── Multi-Year Breakout Scanner state ────────────────────────────────────────
-from multiyear_breakout import run_multiyear_scan
+from multiyear_breakout import run_multiyear_scan, run_near_breakout_scan
 
 mbo_state = {
     "running": False, "result": None, "error": None,
@@ -613,6 +614,59 @@ def start_mbo_scan():
 def mbo_status():
     with mbo_lock:
         s = dict(mbo_state)
+    pct = round(s["progress"] / s["total"] * 100, 1) if s["total"] > 0 else 0
+    return jsonify({
+        "running": s["running"],
+        "pct":     pct,
+        "message": s["message"],
+        "result":  s["result"],
+        "error":   s["error"],
+    })
+
+
+# ── Near-Breakout Scanner state ──────────────────────────────────────────────
+near_state = {
+    "running": False, "result": None, "error": None,
+    "progress": 0, "total": 0, "message": "", "started_at": None,
+}
+near_lock = threading.Lock()
+
+
+def do_near_scan():
+    def progress_cb(done, total, msg):
+        with near_lock:
+            near_state["progress"] = done
+            near_state["total"]    = total
+            near_state["message"]  = msg
+    try:
+        result = run_near_breakout_scan(progress_callback=progress_cb)
+        with near_lock:
+            near_state["result"]  = result
+            near_state["running"] = False
+    except Exception as e:
+        with near_lock:
+            near_state["error"]   = str(e)
+            near_state["running"] = False
+
+
+@app.route("/api/mbo/near-scan", methods=["POST"])
+def start_near_scan():
+    with near_lock:
+        if near_state["running"]:
+            return jsonify({"status": "already_running"}), 409
+        near_state.update({
+            "running": True, "result": None, "error": None,
+            "progress": 0, "total": 0, "message": "",
+            "started_at": time.time(),
+        })
+    threading.Thread(target=do_near_scan, daemon=True).start()
+    return jsonify({"status": "started"})
+
+
+@app.route("/api/mbo/near-status")
+def near_scan_status():
+    with near_lock:
+        s = dict(near_state)
     pct = round(s["progress"] / s["total"] * 100, 1) if s["total"] > 0 else 0
     return jsonify({
         "running": s["running"],
@@ -693,6 +747,59 @@ def edge_exit_check():
         return jsonify({"symbol": symbol, **result})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+
+
+# ── Trending Stocks Scanner state ────────────────────────────────────────────
+trend_state = {
+    "running": False, "result": None, "error": None,
+    "progress": 0, "total": 0, "message": "", "started_at": None,
+}
+trend_lock = threading.Lock()
+
+
+def do_trend_scan():
+    def progress_cb(done, total, msg):
+        with trend_lock:
+            trend_state["progress"] = done
+            trend_state["total"]    = total
+            trend_state["message"]  = msg
+    try:
+        result = run_trending_scan(progress_callback=progress_cb)
+        with trend_lock:
+            trend_state["result"]  = result
+            trend_state["running"] = False
+    except Exception as e:
+        with trend_lock:
+            trend_state["error"]   = str(e)
+            trend_state["running"] = False
+
+
+@app.route("/api/trending/scan", methods=["POST"])
+def start_trend_scan():
+    with trend_lock:
+        if trend_state["running"]:
+            return jsonify({"status": "already_running"}), 409
+        trend_state.update({
+            "running": True, "result": None, "error": None,
+            "progress": 0, "total": 0, "message": "",
+            "started_at": time.time(),
+        })
+    threading.Thread(target=do_trend_scan, daemon=True).start()
+    return jsonify({"status": "started"})
+
+
+@app.route("/api/trending/status")
+def trend_scan_status():
+    with trend_lock:
+        s = dict(trend_state)
+    pct = round(s["progress"] / s["total"] * 100, 1) if s["total"] > 0 else 0
+    return jsonify({
+        "running": s["running"],
+        "pct":     pct,
+        "message": s["message"],
+        "result":  s["result"],
+        "error":   s["error"],
+    })
 
 
 # ── Fundamentals — background scheduler (auto-started at launch) ──────────────

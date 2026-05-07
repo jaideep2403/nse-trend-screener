@@ -42,10 +42,10 @@ _FALLBACK = [
     "BRITANNIA","CIPLA","COALINDIA","DIVISLAB","DLF",
     "DRREDDY","EICHERMOT","GRASIM","HCLTECH","HDFCBANK",
     "HDFCLIFE","HEROMOTOCO","HINDALCO","HINDUNILVR","ICICIBANK",
-    "ICICIGI","INDUSINDBK","INFOSYS","ITC","JSWSTEEL",
+    "ICICIGI","INDUSINDBK","INFY","ITC","JSWSTEEL",
     "KOTAKBANK","LT","M&M","MARUTI","NESTLEIND",
     "NTPC","ONGC","POWERGRID","RELIANCE","SBILIFE",
-    "SBIN","SHRIRAMFIN","SUNPHARMA","TATAMOTORS","TATASTEEL",
+    "SBIN","SHRIRAMFIN","SUNPHARMA","TATASTEEL",
     "TCS","TECHM","TITAN","TVSMOTOR","ULTRACEMCO","WIPRO",
     "ABB","AMBUJACEM","AUBANK","BAJAJHFL","BANKBARODA",
     "BEL","BERGEPAINT","BOSCHLTD","BSE","CANBK",
@@ -59,6 +59,10 @@ _FALLBACK = [
     "TATACHEM","TATACONSUM","TIINDIA","TORNTPHARM","TRENT",
     "VEDL","ZOMATO",
 ]
+
+# Symbol prefixes to exclude — NSE occasionally adds placeholder/dummy tickers
+# for corporate restructurings (e.g. DUMMYVEDL* for Vedanta demerger)
+_EXCLUDED_PREFIXES = ("DUMMY",)
 
 
 # ── Cache helpers ──────────────────────────────────────────────────────────────
@@ -99,9 +103,14 @@ def _fetch_index(name: str, url: str) -> list[str]:
         return []
 
 
+def _is_valid_symbol(sym: str) -> bool:
+    """Return False for NSE placeholder / dummy tickers that should never be scanned."""
+    return not any(sym.upper().startswith(p) for p in _EXCLUDED_PREFIXES)
+
+
 def _build_universe() -> list[str]:
     """
-    Download all 4 index lists, deduplicate, return sorted symbol list.
+    Download all 4 index lists, deduplicate, filter dummy tickers, return symbol list.
     Uses whatever indices are available — at least one must succeed.
     """
     seen: dict[str, None] = {}   # ordered-set via dict
@@ -112,7 +121,8 @@ def _build_universe() -> list[str]:
         if syms:
             fetched_any = True
             for s in syms:
-                seen[s] = None   # dedup, preserve first-seen order
+                if _is_valid_symbol(s):
+                    seen[s] = None   # dedup, preserve first-seen order
 
     if not fetched_any:
         return list(_FALLBACK)

@@ -1,7 +1,7 @@
 """
 Industry Group Relative Strength
-Groups NSE stocks into 25 sectors and ranks each by 3-month RS vs Nifty.
-Zero extra NSE API calls — uses bhavcopy cache only.
+Groups NSE stocks into 55 sectors covering the full Nifty 500 universe.
+Ranks each sector by 3-month RS vs Nifty. Zero extra NSE API calls.
 """
 import math
 import time
@@ -21,49 +21,219 @@ _NIFTY_SYMS = [
 ]
 
 INDUSTRY_GROUPS: dict[str, list[str]] = {
-    "Banks - Private":        ["HDFCBANK", "ICICIBANK", "KOTAKBANK", "AXISBANK",
-                               "INDUSINDBK", "BANDHANBNK", "FEDERALBNK", "IDFCFIRSTB"],
-    "Banks - PSU":            ["SBIN", "BANKBARODA", "PNB", "CANBK",
-                               "UNIONBANK", "INDIANB", "BANKINDIA"],
-    "IT - Large Cap":         ["TCS", "INFOSYS", "WIPRO", "HCLTECH",
-                               "TECHM", "LTIM", "MPHASIS"],
-    "IT - Midcap":            ["PERSISTENT", "COFORGE", "LTTS", "KPITTECH",
-                               "TATAELXSI", "MASTEK"],
-    "Auto & OEM":             ["MARUTI", "TATAMOTORS", "EICHERMOT", "BAJAJ-AUTO",
-                               "HEROMOTOCO", "M&M", "ASHOKLEY"],
-    "Auto Ancillary":         ["MOTHERSON", "BOSCHLTD", "EXIDEIND",
-                               "BALKRISIND", "APOLLOTYRE"],
-    "Pharma - Large":         ["SUNPHARMA", "DRREDDY", "CIPLA",
-                               "DIVISLAB", "AUROPHARMA", "LUPIN"],
-    "Pharma - Midcap":        ["ALKEM", "TORNTPHARM", "IPCALAB",
-                               "AJANTPHARM", "GLENMARK"],
-    "FMCG":                   ["HINDUNILVR", "ITC", "NESTLEIND", "DABUR",
-                               "MARICO", "BRITANNIA", "COLPAL", "GODREJCP"],
-    "Oil & Gas":              ["RELIANCE", "ONGC", "IOC", "BPCL",
-                               "HINDPETRO", "GAIL", "OIL"],
-    "Metals & Mining":        ["TATASTEEL", "JSWSTEEL", "HINDALCO",
-                               "VEDL", "SAIL", "NMDC", "NATIONALUM"],
-    "Power & Utilities":      ["NTPC", "POWERGRID", "ADANIPOWER",
-                               "TATAPOWER", "CESC", "TORNTPOWER"],
-    "Cement":                 ["ULTRACEMCO", "GRASIM", "AMBUJACEM",
-                               "ACC", "SHREECEM", "RAMCOCEM"],
-    "Capital Goods":          ["SIEMENS", "ABB", "BHEL", "THERMAX",
-                               "CUMMINSIND", "GMRINFRA"],
-    "Real Estate":            ["DLF", "GODREJPROP", "PRESTIGE",
-                               "OBEROIRLTY", "BRIGADE", "SOBHA"],
-    "Consumer Discretionary": ["TITAN", "TRENT", "ABFRL",
-                               "PAGEIND", "BATAINDIA"],
-    "NBFCs":                  ["BAJFINANCE", "BAJAJFINSV", "CHOLAFIN",
-                               "MUTHOOTFIN", "M&MFIN", "SHRIRAMFIN"],
-    "Insurance":              ["HDFCLIFE", "SBILIFE", "ICICIGI", "LICI"],
-    "Specialty Chemicals":    ["PIDILITIND", "DEEPAKNITR", "ATUL",
-                               "NAVINFLUOR", "GALAXYSURF"],
-    "Defence & Aerospace":    ["HAL", "BEL", "MIDHANI", "BEML", "COCHINSHIP"],
-    "Railways & Infra":       ["RVNL", "IRCTC", "IRFC", "RAILTEL", "TITAGARH"],
-    "Healthcare Services":    ["APOLLOHOSP", "FORTIS", "MAXHEALTH", "NARAYANA"],
-    "Retail & E-Commerce":    ["DMART", "TRENT", "NYKAA", "ZOMATO"],
-    "Telecom":                ["BHARTIARTL", "INDUSTOWER", "VODAFONEIDEA"],
-    "Paints & Adhesives":     ["ASIANPAINT", "BERGERPAINTS", "KANSAINER", "PIDILITIND"],
+
+    # ── BANKING ───────────────────────────────────────────────────────────────
+    "Banks - Private":         ["HDFCBANK", "ICICIBANK", "KOTAKBANK", "AXISBANK",
+                                "INDUSINDBK", "BANDHANBNK", "FEDERALBNK", "IDFCFIRSTB",
+                                "AUBANK", "RBLBANK", "CUB", "KARURVYSYA", "J&KBANK",
+                                "YESBANK"],
+    "Banks - PSU":             ["SBIN", "BANKBARODA", "PNB", "CANBK",
+                                "UNIONBANK", "INDIANB", "BANKINDIA",
+                                "CENTRALBK", "MAHABANK", "UCOBANK", "IOB", "IDBI"],
+    "Small Finance Banks":     ["EQUITASBNK", "UJJIVANSFB", "SURYODAY",
+                                "ESAFSFB", "JANASFB"],
+
+    # ── INFORMATION TECHNOLOGY ────────────────────────────────────────────────
+    "IT - Large Cap":          ["TCS", "INFY", "WIPRO", "HCLTECH",
+                                "TECHM", "LTIM", "MPHASIS", "OFSS"],
+    "IT - Midcap":             ["PERSISTENT", "COFORGE", "LTTS", "KPITTECH",
+                                "TATAELXSI", "CYIENT", "BSOFT",
+                                "ZENSARTECH", "SONATSOFTW", "ECLERX", "TATATECH",
+                                "FSL", "INTELLECT", "NEWGEN", "HEXT", "LTM"],
+    "IT Products & Platforms": ["NAUKRI", "INDIAMART", "POLICYBZR", "PAYTM",
+                                "MAPMYINDIA", "AFFLE", "LATENTVIEW",
+                                "TBOTEK", "PINELABS"],
+    "EMS & Electronics Mfg":  ["DIXON", "AMBER", "KAYNES", "SYRMA",
+                                "NETWEB", "REDINGTON", "PGEL", "CPPLUS"],
+
+    # ── AUTOMOBILES ───────────────────────────────────────────────────────────
+    "Auto & OEM":              ["MARUTI", "EICHERMOT", "BAJAJ-AUTO",
+                                "HEROMOTOCO", "M&M", "ASHOKLEY", "TVSMOTOR",
+                                "HYUNDAI", "OLECTRA", "ESCORTS",
+                                "FORCEMOT", "TMCV", "TMPV", "ATHERENERG"],
+    "Auto Ancillary":          ["MOTHERSON", "BOSCHLTD", "EXIDEIND",
+                                "BALKRISIND", "APOLLOTYRE", "CRAFTSMAN",
+                                "ENDURANCE", "GABRIEL", "MINDACORP", "UNOMINDA",
+                                "JKTYRE", "MRF", "RKFORGE", "SCHAEFFLER", "TIMKEN",
+                                "SONACOMS", "ZFCVINDIA", "JBMA", "MSUMI",
+                                "CEATLTD", "BELRISE", "ARE&M", "ASAHIINDIA",
+                                "CASTROLIND", "TENNIND"],
+
+    # ── PHARMA & HEALTHCARE ───────────────────────────────────────────────────
+    "Pharma - Large":          ["SUNPHARMA", "DRREDDY", "CIPLA",
+                                "DIVISLAB", "AUROPHARMA", "LUPIN",
+                                "ZYDUSLIFE", "ABBOTINDIA", "PFIZER", "GLAXO",
+                                "MANKIND"],
+    "Pharma - Midcap":         ["ALKEM", "TORNTPHARM", "IPCALAB",
+                                "AJANTPHARM", "GLENMARK", "BIOCON",
+                                "GRANULES", "LAURUSLABS", "EMCURE", "JUBLPHARMA",
+                                "WOCKPHARMA", "NATCOPHARM", "ERIS", "GLAND",
+                                "JBCHEPHARM", "PPLPHARMA", "BLUEJET", "ANTHEM",
+                                "CONCORDBIO", "NEULANDLAB", "CAPLIPOINT",
+                                "ZYDUSWELL"],
+    "CDMO & Pharma Services":  ["SYNGENE", "SAILIFE", "COHANCE",
+                                "ONESOURCE", "ACUTAAS"],
+    "Healthcare Services":     ["APOLLOHOSP", "FORTIS", "MAXHEALTH", "NH",
+                                "KIMS", "RAINBOW", "MEDANTA", "ASTERDM", "INDGN"],
+    "Healthcare Diagnostics":  ["LALPATHLAB", "POLYMED", "IKS", "SAGILITY",
+                                "VIJAYA"],
+
+    # ── FMCG & CONSUMER STAPLES ───────────────────────────────────────────────
+    "FMCG":                    ["HINDUNILVR", "ITC", "NESTLEIND", "DABUR",
+                                "MARICO", "BRITANNIA", "COLPAL", "GODREJCP",
+                                "EMAMILTD", "GODFRYPHLP", "GILLETTE", "HONASA",
+                                "TATACONSUM", "AWL", "PATANJALI"],
+    "Beverages & Liquor":      ["VBL", "UBL", "RADICO", "UNITDSPR", "CCL", "ABDL"],
+    "Food & QSR":              ["JUBLFOOD", "DEVYANI", "SAPPHIRE", "BIKAJI",
+                                "LTFOODS", "DOMS"],
+
+    # ── OIL, GAS & ENERGY ────────────────────────────────────────────────────
+    "Oil & Gas":               ["RELIANCE", "ONGC", "IOC", "BPCL",
+                                "HINDPETRO", "GAIL", "OIL", "MRPL",
+                                "PETRONET", "CHENNPETRO", "SPLPETRO"],
+    "Gas Distribution":        ["IGL", "MGL", "GSPL", "ATGL"],
+
+    # ── METALS & MINING ───────────────────────────────────────────────────────
+    "Metals & Mining":         ["TATASTEEL", "JSWSTEEL", "HINDALCO",
+                                "VEDL", "SAIL", "NMDC", "NATIONALUM",
+                                "HINDCOPPER", "HINDZINC", "GPIL", "JSL",
+                                "JINDALSAW", "JINDALSTEL", "WELCORP",
+                                "SARDAEN", "HEG", "GRAPHITE", "SHYAMMETL",
+                                "GALLANTT", "USHAMART", "NAVA", "NSLNISP",
+                                "JWL", "GMDCLTD", "MMTC", "HSCL",
+                                "LINDEINDIA", "APLAPOLLO"],
+
+    # ── POWER & ENERGY ────────────────────────────────────────────────────────
+    "Power & Utilities":       ["NTPC", "POWERGRID", "ADANIPOWER",
+                                "TATAPOWER", "CESC", "TORNTPOWER",
+                                "JSWENERGY", "NHPC", "SJVN", "NLCINDIA",
+                                "COALINDIA", "JPPOWER", "RPOWER",
+                                "TRITURBINE", "PTCIL"],
+    "Renewable Energy":        ["ADANIGREEN", "ACMESOLAR", "SUZLON", "INOXWIND",
+                                "NTPCGREEN", "IREDA", "WAAREEENER",
+                                "ADANIENSOL", "OLAELEC", "EMMVEE", "PREMIERENE"],
+
+    # ── CEMENT & BUILDING MATERIALS ───────────────────────────────────────────
+    "Cement":                  ["ULTRACEMCO", "GRASIM", "AMBUJACEM",
+                                "ACC", "SHREECEM", "RAMCOCEM",
+                                "JKCEMENT", "DALBHARAT", "NUVOCO",
+                                "INDIACEM", "JSWCEMENT"],
+    "Building Materials":      ["KAJARIACER", "SUPREMEIND", "ASTRAL",
+                                "RHIM", "CARBORUNIV",
+                                "APARINDS", "JUBLINGREA"],
+
+    # ── CAPITAL GOODS & INDUSTRIALS ───────────────────────────────────────────
+    "Capital Goods":           ["SIEMENS", "ABB", "BHEL", "THERMAX",
+                                "CUMMINSIND", "ACE", "BHARATFORG",
+                                "ELGIEQUIP", "LLOYDSME", "JYOTICNC",
+                                "TIINDIA", "ELECON", "KIRLOSENG", "AIAENG",
+                                "LT", "TEGA"],
+    "Electrical Equipment":    ["HAVELLS", "CGPOWER", "POWERINDIA",
+                                "SCHNEIDER", "KEC", "TECHNOE", "ITI",
+                                "TARIL", "ENRIN", "GVT&D"],
+    "Wires & Cables":          ["POLYCAB", "KEI", "FINCABLES", "HFCL", "RRKABEL"],
+
+    # ── CHEMICALS ─────────────────────────────────────────────────────────────
+    "Specialty Chemicals":     ["DEEPAKNTR", "ATUL", "NAVINFLUOR",
+                                "SRF", "FLUOROCHEM", "AARTIIND", "PCBL",
+                                "SOLARINDS", "CLEAN", "TATACHEM", "GRAVITA",
+                                "SUMICHEM", "PIDILITIND"],
+    "Agrochemicals":           ["PIIND", "COROMANDEL", "BAYERCROP", "UPL",
+                                "DHANUKA", "RALLIS", "ANURAS", "SWANCORP"],
+    "Fertilizers & Agri":      ["CHAMBLFERT", "DEEPAKFERT", "FACT", "PARADEEP",
+                                "DCMSHRIRAM"],
+    "Sugar & Ethanol":         ["TRIVENI", "BALRAMCHIN", "EIDPARRY", "DWARIKESH"],
+
+    # ── REAL ESTATE & INFRASTRUCTURE ──────────────────────────────────────────
+    "Real Estate":             ["DLF", "GODREJPROP", "PRESTIGE",
+                                "OBEROIRLTY", "BRIGADE", "SOBHA",
+                                "LODHA", "ANANTRAJ", "PHOENIXLTD",
+                                "SIGNATURE", "ABREL"],
+    "Infrastructure & EPC":    ["KPIL", "NCC", "NBCC", "ENGINERSIN",
+                                "IRB", "AFCONS", "IRCON", "RITES",
+                                "JSWINFRA", "GMRAIRPORT", "CEMPRO"],
+    "Ports & Logistics":       ["ADANIPORTS", "CONCOR", "DELHIVERY",
+                                "BLUEDART", "AEGISLOG", "AEGISVOPAK",
+                                "GESHIP", "SCI", "TRAVELFOOD", "BLS"],
+
+    # ── FINANCIAL SERVICES ────────────────────────────────────────────────────
+    "NBFCs":                   ["BAJFINANCE", "BAJAJFINSV", "CHOLAFIN",
+                                "MUTHOOTFIN", "M&MFIN", "SHRIRAMFIN",
+                                "IIFL", "MANAPPURAM", "CREDITACC",
+                                "SUNDARMFIN", "FIVESTAR", "SBFC",
+                                "CGCL", "PIRAMALFIN", "JIOFIN",
+                                "HDBFS", "ABCAPITAL", "LTF",
+                                "RECLTD", "PFC", "SBICARD", "IFCI",
+                                "SAMMAANCAP", "AIIL"],
+    "Insurance":               ["HDFCLIFE", "SBILIFE", "ICICIGI", "LICI",
+                                "ICICIPRULI", "STARHEALTH", "GODIGIT",
+                                "GICRE", "NIACL", "CANHLIFE", "NIVABUPA"],
+    "Housing Finance":         ["BAJAJHFL", "AADHARHFC", "CANFINHOME",
+                                "PNBHOUSING", "LICHSGFIN", "HOMEFIRST",
+                                "HUDCO", "AAVAS", "APTUS", "POONAWALLA",
+                                "TATACAP"],
+    "Capital Markets":         ["BSE", "MCX", "IEX", "CDSL", "CAMS",
+                                "KFINTECH", "CRISIL"],
+    "Wealth & AMC":            ["HDFCAMC", "ICICIAMC", "ABSLAMC",
+                                "NAM-INDIA", "UTIAMC", "MFSL",
+                                "360ONE", "NUVAMA", "MOTILALOFS",
+                                "ANANDRATHI", "ANGELONE", "JMFINANCIL",
+                                "CHOICEIN", "GROWW", "CHOLAHLDNG"],
+
+    # ── CONSUMER ──────────────────────────────────────────────────────────────
+    "Gems & Jewellery":        ["TITAN", "KALYANKJIL", "RAJESHEXPO",
+                                "SENCO", "THANGAMAYL", "IGIL"],
+    "Consumer Discretionary":  ["ABFRL", "PAGEIND", "BATAINDIA",
+                                "HONAUT", "3MINDIA", "ABLBL"],
+    "Consumer Durables":       ["VOLTAS", "BLUESTARCO", "CROMPTON",
+                                "WHIRLPOOL", "LGEINDIA"],
+    "Retail & E-Commerce":     ["DMART", "TRENT", "NYKAA", "ETERNAL",
+                                "FIRSTCRY", "MEESHO", "SWIGGY",
+                                "LENSKART", "CARTRADE", "VMM", "URBANCO"],
+
+    # ── TELECOM ───────────────────────────────────────────────────────────────
+    "Telecom":                 ["BHARTIARTL", "INDUSTOWER", "IDEA",
+                                "TTML", "BHARTIHEXA", "TEJASNET", "TATACOMM"],
+
+    # ── DEFENCE & AEROSPACE ───────────────────────────────────────────────────
+    "Defence & Aerospace":     ["HAL", "BEL", "BEML", "COCHINSHIP",
+                                "BDL", "GRSE", "MAZDOCK", "DATAPATTNS",
+                                "HBLENGINE", "ZENTEC"],
+
+    # ── RAILWAYS ──────────────────────────────────────────────────────────────
+    "Railways & Infra":        ["RVNL", "IRCTC", "IRFC", "RAILTEL",
+                                "TITAGARH", "JAINREC"],
+
+    # ── TEXTILES ──────────────────────────────────────────────────────────────
+    "Textiles":                ["KPRMILL", "TRIDENT", "WELSPUNLIV", "VTL",
+                                "VARDHACRLC"],
+
+    # ── HOTELS & HOSPITALITY ──────────────────────────────────────────────────
+    "Hotels & Hospitality":    ["INDHOTEL", "EIHOTEL", "LEMONTREE",
+                                "THELEELA", "CHALET", "ITCHOTELS"],
+
+    # ── MEDIA & ENTERTAINMENT ─────────────────────────────────────────────────
+    "Media & Entertainment":   ["SUNTV", "SAREGAMA", "PVRINOX", "ZEEL"],
+
+    # ── PAINTS & ADHESIVES ────────────────────────────────────────────────────
+    "Paints & Adhesives":      ["ASIANPAINT", "BERGEPAINT", "JSWDULUX",
+                                "KANSAINER", "INDIGOPNTS"],
+
+    # ── AVIATION ──────────────────────────────────────────────────────────────
+    "Aviation":                ["INDIGO"],
+
+    # ── CONGLOMERATES ─────────────────────────────────────────────────────────
+    "Conglomerates":           ["ADANIENT", "BAJAJHLDNG", "GODREJIND",
+                                "TATAINVEST", "BBTC"],
+
+    # ── PAPER & PACKAGING ─────────────────────────────────────────────────────
+    "Paper & Packaging":       ["JKPAPER", "TNPL", "WESTCOAPAP", "UFLEX"],
+
+    # ── EDUCATION ─────────────────────────────────────────────────────────────
+    "Education":               ["PWL", "NIITLTD"],
+
+    # ── TRAVEL & TOURISM ──────────────────────────────────────────────────────
+    "Travel & Tourism":        ["EASEMYTRIP", "THOMASCOOK"],
 }
 
 
@@ -84,7 +254,9 @@ def _load_stocks(progress_callback=None) -> dict[str, pd.DataFrame]:
     combined = pd.concat(frames, ignore_index=True).sort_values("Date")
     stocks: dict[str, pd.DataFrame] = {}
     for sym, grp in combined.groupby("Symbol"):
-        g = grp.set_index("Date")[["Close", "Volume"]]
+        cols = [c for c in ["Open", "High", "Low", "Close", "Volume", "DelivPer"]
+                if c in grp.columns]
+        g = grp.set_index("Date")[cols]
         g = g[~g.index.duplicated(keep="last")].sort_index()
         if len(g) >= 60:
             stocks[sym] = g
@@ -287,17 +459,17 @@ def _compute_rrg(stocks: dict, nifty: pd.Series) -> list[dict]:
         elif quadrant == "Weakening":                              pattern = "⚠ Losing strength"
         else:                                                      pattern = "❌ Weak"
 
-        # Top 3 stocks in this sector by 3-month return
+        # All stocks in this sector — 1M and 3M returns, sorted by 1M return desc
         sector_returns = []
         for sym in symbols:
             df = stocks.get(sym)
             if df is not None:
                 c = df["Close"].dropna()
-                if len(c) >= 66:
-                    r3m_val = (float(c.iloc[-1]) / float(c.iloc[-66]) - 1) * 100
-                    sector_returns.append({"symbol": sym, "r3m": round(r3m_val, 1)})
-        sector_returns.sort(key=lambda x: -x["r3m"])
-        top_stocks = sector_returns[:3]
+                r1m = round((float(c.iloc[-1]) / float(c.iloc[-22]) - 1) * 100, 1) if len(c) >= 22 else None
+                r3m = round((float(c.iloc[-1]) / float(c.iloc[-66]) - 1) * 100, 1) if len(c) >= 66 else None
+                sector_returns.append({"symbol": sym, "r1m": r1m, "r3m": r3m})
+        sector_returns.sort(key=lambda x: -(x["r1m"] or -9999))
+        top_stocks = sector_returns   # full list — frontend handles display
 
         results.append({
             "group":          group_name,
