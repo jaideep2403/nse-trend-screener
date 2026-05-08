@@ -21,6 +21,50 @@ from fundamentals import (cache_status as fund_cache_status,
 
 app = Flask(__name__)
 
+# ── LOCAL-ONLY: Personal Portfolio (gitignored) ───────────────────────────────
+# Gracefully no-op if portfolio.py is missing (e.g. on EC2 deploy from GitHub).
+PORTFOLIO_AVAILABLE = False
+try:
+    import portfolio as _pf
+    PORTFOLIO_AVAILABLE = True
+except Exception as _pf_e:
+    print(f"[portfolio] disabled (file not present): {_pf_e}")
+
+if PORTFOLIO_AVAILABLE:
+    @app.route("/api/portfolio", methods=["GET"])
+    def api_portfolio_list():
+        try:
+            return jsonify(_pf.portfolio_summary())
+        except Exception as e:
+            return jsonify({"error": str(e)}), 500
+
+    @app.route("/api/portfolio/add", methods=["POST"])
+    def api_portfolio_add():
+        try:
+            data = request.get_json(force=True) or {}
+            _pf.add_position(
+                symbol=data.get("symbol"),
+                qty=float(data.get("qty", 0)),
+                entry_price=float(data.get("entry_price", 0)),
+                entry_date=data.get("entry_date"),
+            )
+            return jsonify({"ok": True})
+        except Exception as e:
+            return jsonify({"error": str(e)}), 400
+
+    @app.route("/api/portfolio/<pos_id>", methods=["DELETE"])
+    def api_portfolio_delete(pos_id):
+        try:
+            ok = _pf.delete_position(pos_id)
+            return jsonify({"ok": ok})
+        except Exception as e:
+            return jsonify({"error": str(e)}), 500
+
+# Inject flag into all templates (read by index.html to show/hide the tab)
+@app.context_processor
+def inject_portfolio_flag():
+    return {"portfolio_enabled": PORTFOLIO_AVAILABLE}
+
 # ── Screener state ─────────────────────────────────────────────────────────────
 scan_state = {
     "running": False,

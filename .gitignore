@@ -19,3 +19,9 @@ fundamentals.db
 .nifty50_cache.pkl
 .breadth_cache.pkl
 .breadth_score_history.json
+
+# LOCAL-ONLY: Personal Portfolio feature — never pushed to GitHub
+portfolio.py
+templates/portfolio_tab.html
+static/portfolio.js
+.portfolio.json
