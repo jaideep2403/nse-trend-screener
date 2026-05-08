@@ -14,6 +14,7 @@ from early_mover_scanner import run_early_mover_scan
 from volume_scanner import run_volume_scan
 from edge_engine import run_edge_engine, detect_exit_signals, _load_stocks, invalidate_cache as invalidate_edge_cache
 from trending import run_trending_scan
+from header_data import get_market_header
 from fundamentals import (cache_status as fund_cache_status,
                           scheduler_status as fund_scheduler_status,
                           start_background_scheduler)
@@ -83,6 +84,15 @@ def index():
     resp.headers["Pragma"] = "no-cache"
     resp.headers["Expires"] = "0"
     return resp
+
+
+@app.route("/api/header")
+def api_header():
+    """Lightweight header: Nifty 50 level, day change %, adv/dec, market trend."""
+    try:
+        return jsonify(get_market_header())
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 
 @app.route("/api/scan", methods=["POST"])
@@ -357,6 +367,15 @@ def start_breadth():
 def breadth_status():
     with breadth_lock:
         s = dict(breadth_state)
+    # If no in-memory result yet (e.g. just after restart), fall back to the
+    # persisted breadth cache so the tab and header always show the same value.
+    if s["result"] is None and not s["running"]:
+        try:
+            from market_breadth import _cache as mb_cache
+            if mb_cache.get("data"):
+                s["result"] = mb_cache["data"]
+        except Exception:
+            pass
     return jsonify({"running": s["running"], "message": s["message"],
                     "result": s["result"], "error": s["error"]})
 
@@ -1077,6 +1096,19 @@ def sector_rrg():
 # start_background_scheduler is idempotent (checks _sched["running"]), so calling
 # it at module level is safe with both multi-worker gunicorn and plain python.
 start_background_scheduler()
+
+# Auto-prime Market Breadth on startup so the header trend pill shows the
+# authoritative breadth-based signal (instead of the quick adv/dec estimate)
+# within ~30s of server boot, without the user needing to click the tab.
+def _prime_market_breadth():
+    try:
+        from market_breadth import run_market_breadth
+        time.sleep(2)        # let app finish booting
+        run_market_breadth() # populates module-level _cache
+    except Exception as e:
+        print(f"[startup] Market Breadth prime failed: {e}")
+
+threading.Thread(target=_prime_market_breadth, daemon=True).start()
 
 if __name__ == "__main__":
     print("NSE Trend Screener running at http://0.0.0.0:5050")
