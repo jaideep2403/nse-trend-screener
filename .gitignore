@@ -25,3 +25,11 @@ portfolio.py
 templates/portfolio_tab.html
 static/portfolio.js
 .portfolio.json
+
+# LOCAL-ONLY: Investment Grade scanner — never pushed to GitHub
+investment_grade.py
+templates/investment_grade_tab.html
+static/investment_grade.js
+
+# LOCAL-ONLY: hand-curated extra symbols outside NSE indices (e.g. PRECWIRE)
+.extra_symbols.json

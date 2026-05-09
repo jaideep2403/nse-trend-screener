@@ -1,3 +1,4 @@
+import os
 import threading
 import time
 import pandas as pd
@@ -60,10 +61,70 @@ if PORTFOLIO_AVAILABLE:
         except Exception as e:
             return jsonify({"error": str(e)}), 500
 
+# ── LOCAL-ONLY: Investment Grade Scanner (gitignored) ─────────────────────────
+INVESTGRADE_AVAILABLE = False
+try:
+    import investment_grade as _ig
+    INVESTGRADE_AVAILABLE = True
+except Exception as _ig_e:
+    print(f"[investgrade] disabled (file not present): {_ig_e}")
+
+if INVESTGRADE_AVAILABLE:
+    ig_state = {
+        "running": False, "result": None, "error": None,
+        "progress": 0, "total": 0, "message": "",
+    }
+    ig_lock = threading.Lock()
+
+    def _do_ig_scan():
+        def progress_cb(done, total, msg):
+            with ig_lock:
+                ig_state["progress"] = done
+                ig_state["total"] = total
+                ig_state["message"] = msg
+        try:
+            result = _ig.run_investment_grade_scan(progress_callback=progress_cb)
+            with ig_lock:
+                ig_state["result"] = result
+                ig_state["running"] = False
+        except Exception as e:
+            with ig_lock:
+                ig_state["error"] = str(e)
+                ig_state["running"] = False
+
+    @app.route("/api/investment_grade/scan", methods=["POST"])
+    def api_ig_scan():
+        with ig_lock:
+            if ig_state["running"]:
+                return jsonify({"status": "already_running"})
+            ig_state.update({"running": True, "result": None, "error": None,
+                             "progress": 0, "total": 0, "message": "Starting…"})
+        threading.Thread(target=_do_ig_scan, daemon=True).start()
+        return jsonify({"status": "started"})
+
+    @app.route("/api/investment_grade/status")
+    def api_ig_status():
+        with ig_lock:
+            s = dict(ig_state)
+        # Fall back to module cache if no in-memory result yet
+        if s["result"] is None and not s["running"]:
+            try:
+                if _ig._cache.get("data"):
+                    s["result"] = _ig._cache["data"]
+            except Exception:
+                pass
+        return jsonify(s)
+
 # Inject flag into all templates (read by index.html to show/hide the tab)
 @app.context_processor
 def inject_portfolio_flag():
-    return {"portfolio_enabled": PORTFOLIO_AVAILABLE}
+    expanded = os.environ.get("EXPAND_UNIVERSE") == "1"
+    return {
+        "portfolio_enabled":   PORTFOLIO_AVAILABLE,
+        "investgrade_enabled": INVESTGRADE_AVAILABLE,
+        "universe_label":      "Nifty Total Market" if expanded else "Nifty 500",
+        "universe_label_short": "NSE universe" if expanded else "Nifty 500",
+    }
 
 # ── Screener state ─────────────────────────────────────────────────────────────
 scan_state = {

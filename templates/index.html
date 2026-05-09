@@ -507,6 +507,7 @@
 <div class="tab-bar">
   <button class="tab-btn active" onclick="showTab('screener', this)">📊 Stock Screener</button>
   {% if portfolio_enabled %}<button class="tab-btn" onclick="showTab('portfolio', this)" style="background:rgba(245,158,11,0.10);border-color:rgba(245,158,11,0.4)">📈 My Portfolio</button>{% endif %}
+  {% if investgrade_enabled %}<button class="tab-btn" onclick="showTab('investgrade', this)" style="background:rgba(16,185,129,0.10);border-color:rgba(16,185,129,0.4)">💎 Investment Grade</button>{% endif %}
   <button class="tab-btn" onclick="showTab('trending', this)">🔥 Trending Stocks</button>
   <button class="tab-btn" onclick="showTab('mbo', this)">🏔️ Multi-Yr Breakout</button>
   <button class="tab-btn" onclick="showTab('breakout', this)">⚡ Breakout Stocks</button>
@@ -1930,7 +1931,7 @@
           <span class="progress-label" id="nearProgressLabel"></span>
         </div>
         <div style="font-size:11px;color:var(--muted)">
-          Finds Nifty 500 stocks within <strong>10% below</strong> a multi-year resistance level — approaching breakout zone.
+          Finds {{ universe_label }} stocks within <strong>10% below</strong> a multi-year resistance level — approaching breakout zone.
           If the breakout scanner has already run, this scan is <strong>instant</strong> (reuses cached monthly data).
         </div>
       </div>
@@ -2165,7 +2166,7 @@
 <div class="container">
 
   <div class="logic-box">
-    <strong>🔥 Trending Stocks Scanner</strong> — Scores each Nifty 500 stock 0–10 across ten trend criteria.
+    <strong>🔥 Trending Stocks Scanner</strong> — Scores each {{ universe_label }} stock 0–10 across ten trend criteria.
     All computed from bhavcopy OHLCV data. Splits auto-detected and stripped.
     <div class="tags">
       <span class="tag">MA Alignment</span><span class="tag">ADX Strength</span>
@@ -2179,7 +2180,7 @@
   <!-- Control bar -->
   <div class="panel">
     <div class="panel-header">
-      <h2>🔥 Trending Stocks — Nifty 500 Universe</h2>
+      <h2>🔥 Trending Stocks — {{ universe_label }} Universe</h2>
       <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
         <span id="trendTimestamp" class="timestamp"></span>
         <button class="btn btn-green" id="trendScanBtn" onclick="startTrendScan()">▶ Run Scan</button>
@@ -2192,7 +2193,7 @@
       <span id="trendProgressMsg" style="font-size:12px;color:var(--text2)">Initialising…</span>
     </div>
     <div id="trendEmpty" style="padding:30px;text-align:center;color:var(--text2)">
-      Click <strong>Run Scan</strong> to find all trending stocks in the Nifty 500 universe.<br>
+      Click <strong>Run Scan</strong> to find all trending stocks in the {{ universe_label }} universe.<br>
       <small style="font-size:11px;color:var(--muted)">Bhavcopy data · no external calls · ~15–25s</small>
     </div>
   </div>
@@ -2265,6 +2266,7 @@
 
 <!-- ══ LOCAL-ONLY: Portfolio tab (only rendered when portfolio.py is available) ══ -->
 {% if portfolio_enabled %}{% include 'portfolio_tab.html' ignore missing %}{% endif %}
+{% if investgrade_enabled %}{% include 'investment_grade_tab.html' ignore missing %}{% endif %}
 
 <!-- ══════════════════════════════════════════════════════════ JAVASCRIPT -->
 <script>

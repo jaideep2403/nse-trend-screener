@@ -27,13 +27,18 @@ _HEADERS = {
     "Accept": "text/html,application/xhtml+xml,*/*",
 }
 
-# All 4 index CSV URLs — publicly available on NSE archives, no login needed
+# NSE index CSV URLs — publicly available on NSE archives, no login needed.
+# Set EXPAND_UNIVERSE=1 (env var) to ALSO include NiftyMicrocap250 + Total Market,
+# growing universe ~504 → ~755. Local-only flag, default off (EC2 stays at 504).
 _INDEX_URLS = {
     "Nifty50":          "https://archives.nseindia.com/content/indices/ind_nifty50list.csv",
     "NiftyNext50":      "https://archives.nseindia.com/content/indices/ind_niftynext50list.csv",
     "Nifty500":         "https://archives.nseindia.com/content/indices/ind_nifty500list.csv",
     "NiftySmallcap250": "https://archives.nseindia.com/content/indices/ind_niftysmallcap250list.csv",
 }
+if os.environ.get("EXPAND_UNIVERSE") == "1":
+    _INDEX_URLS["NiftyMicrocap250"] = "https://archives.nseindia.com/content/indices/ind_niftymicrocap250_list.csv"
+    _INDEX_URLS["NiftyTotalMarket"] = "https://archives.nseindia.com/content/indices/ind_niftytotalmarket_list.csv"
 
 # Fallback Nifty 100 hardcoded — used only if ALL 4 NSE downloads fail
 _FALLBACK = [
@@ -108,9 +113,30 @@ def _is_valid_symbol(sym: str) -> bool:
     return not any(sym.upper().startswith(p) for p in _EXCLUDED_PREFIXES)
 
 
+def _load_extra_symbols() -> list[str]:
+    """
+    Load hand-curated extra symbols from $DATA_DIR/.extra_symbols.json.
+    Use this for stocks that aren't in any NSE index (e.g. PRECWIRE).
+    File format: {"symbols": ["PRECWIRE", "OTHER1", ...]}
+    """
+    extras_path = os.path.join(os.environ.get("DATA_DIR", os.path.dirname(__file__)),
+                               ".extra_symbols.json")
+    try:
+        if os.path.exists(extras_path):
+            import json
+            with open(extras_path) as f:
+                data = json.load(f)
+            syms = data.get("symbols", [])
+            return [s.strip().upper() for s in syms if isinstance(s, str) and s.strip()]
+    except Exception:
+        pass
+    return []
+
+
 def _build_universe() -> list[str]:
     """
-    Download all 4 index lists, deduplicate, filter dummy tickers, return symbol list.
+    Download all configured index lists, deduplicate, filter dummy tickers,
+    merge in any hand-curated extras, return symbol list.
     Uses whatever indices are available — at least one must succeed.
     """
     seen: dict[str, None] = {}   # ordered-set via dict
@@ -123,8 +149,15 @@ def _build_universe() -> list[str]:
             for s in syms:
                 if _is_valid_symbol(s):
                     seen[s] = None   # dedup, preserve first-seen order
+        # Polite pacing — NSE archives don't rate-limit but be a good citizen
+        time.sleep(0.4)
 
-    if not fetched_any:
+    # Hand-curated additions (e.g. PRECWIRE which is in NO official NSE index)
+    for s in _load_extra_symbols():
+        if _is_valid_symbol(s):
+            seen[s] = None
+
+    if not fetched_any and not seen:
         return list(_FALLBACK)
 
     return list(seen.keys())
