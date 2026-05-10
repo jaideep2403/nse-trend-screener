@@ -136,17 +136,20 @@ jobs:
           [ "$STATUS" = "Success" ] || exit 1
 
       # ── Healthcheck + Auto-rollback ──────────────────────────────────────────
-      # Polls /api/header for up to 60 s. If 5 consecutive failures are seen
-      # after the container is up, the previous SHA image is re-deployed.
+      # Waits 30s for container boot, then polls /api/header for up to 180s.
+      # If 5 consecutive failures are seen, the previous SHA image is re-deployed.
       - name: Healthcheck
         id: healthcheck
         continue-on-error: true
         run: |
           APP_URL="https://jaiojha.link/api/header"
-          MAX_WAIT=60
+          MAX_WAIT=180
           FAIL_THRESHOLD=5
           consecutive_failures=0
           elapsed=0
+
+          echo "Waiting 30s for container to boot..."
+          sleep 30
 
           echo "Polling $APP_URL for ${MAX_WAIT}s..."
 
