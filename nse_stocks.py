@@ -1,11 +1,12 @@
 """
-NSE stock universe — Nifty 50 + Nifty Next 50 + Nifty 500 + Nifty Smallcap 250.
+NSE stock universe — Nifty 50 + Nifty Next 50 + Nifty 500 + Nifty Smallcap 250
+                   + Nifty Microcap 250 + Nifty Total Market.
 
-Downloads 4 index CSVs from NSE archives (no auth, no rate limits).
+Downloads index CSVs from NSE archives (no auth, no rate limits).
 Cached locally for 7 days so we never hammer NSE on every startup.
 
-Combined unique universe ≈ 500 stocks (Nifty Smallcap 250 is the smallcap
-tier *inside* Nifty 500, so the 4 lists deduplicate to ~500 stocks).
+Combined unique universe ≈ 750 stocks (Nifty Total Market covers all
+exchange-listed large/mid/small/micro caps; deduplication keeps ~750 unique).
 """
 
 import os
@@ -28,17 +29,14 @@ _HEADERS = {
 }
 
 # NSE index CSV URLs — publicly available on NSE archives, no login needed.
-# Set EXPAND_UNIVERSE=1 (env var) to ALSO include NiftyMicrocap250 + Total Market,
-# growing universe ~504 → ~755. Local-only flag, default off (EC2 stays at 504).
 _INDEX_URLS = {
     "Nifty50":          "https://archives.nseindia.com/content/indices/ind_nifty50list.csv",
     "NiftyNext50":      "https://archives.nseindia.com/content/indices/ind_niftynext50list.csv",
     "Nifty500":         "https://archives.nseindia.com/content/indices/ind_nifty500list.csv",
     "NiftySmallcap250": "https://archives.nseindia.com/content/indices/ind_niftysmallcap250list.csv",
+    "NiftyMicrocap250": "https://archives.nseindia.com/content/indices/ind_niftymicrocap250_list.csv",
+    "NiftyTotalMarket": "https://archives.nseindia.com/content/indices/ind_niftytotalmarket_list.csv",
 }
-if os.environ.get("EXPAND_UNIVERSE") == "1":
-    _INDEX_URLS["NiftyMicrocap250"] = "https://archives.nseindia.com/content/indices/ind_niftymicrocap250_list.csv"
-    _INDEX_URLS["NiftyTotalMarket"] = "https://archives.nseindia.com/content/indices/ind_niftytotalmarket_list.csv"
 
 # Fallback Nifty 100 hardcoded — used only if ALL 4 NSE downloads fail
 _FALLBACK = [
@@ -167,7 +165,8 @@ def _build_universe() -> list[str]:
 
 def get_nifty500_symbols() -> list[str]:
     """
-    Return deduplicated universe: Nifty50 ∪ NiftyNext50 ∪ Nifty500 ∪ NiftySmallcap250.
+    Return deduplicated universe: Nifty50 ∪ NiftyNext50 ∪ Nifty500 ∪ NiftySmallcap250
+                                  ∪ NiftyMicrocap250 ∪ NiftyTotalMarket (~750 stocks).
     Uses local 7-day cache. Falls back to hardcoded Nifty100 if NSE unreachable.
     """
     cached = _load_cache()

@@ -118,12 +118,11 @@ if INVESTGRADE_AVAILABLE:
 # Inject flag into all templates (read by index.html to show/hide the tab)
 @app.context_processor
 def inject_portfolio_flag():
-    expanded = os.environ.get("EXPAND_UNIVERSE") == "1"
     return {
         "portfolio_enabled":   PORTFOLIO_AVAILABLE,
         "investgrade_enabled": INVESTGRADE_AVAILABLE,
-        "universe_label":      "Nifty Total Market" if expanded else "Nifty 500",
-        "universe_label_short": "NSE universe" if expanded else "Nifty 500",
+        "universe_label":      "Nifty Total Market",
+        "universe_label_short": "NSE Total Market",
     }
 
 # ── Screener state ─────────────────────────────────────────────────────────────
