@@ -110,7 +110,6 @@ jobs:
             --document-name "AWS-RunShellScript" \
             --comment "Deploy ${{ github.sha }}" \
             --parameters "commands=[
-              'aws ecr get-login-password --region ${{ env.AWS_REGION }} | docker login --username AWS --password-stdin $ECR_REGISTRY',
               'docker pull $IMAGE_URI',
               'docker stop ${{ env.CONTAINER_NAME }} 2>/dev/null || true',
               'docker rm ${{ env.CONTAINER_NAME }} 2>/dev/null || true',
