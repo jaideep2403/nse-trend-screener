@@ -15,7 +15,8 @@ import math
 import pandas as pd
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from data_fetcher import _weekdays_back, _download_one_day
-from analysis_utils import stage_analysis, stage_label
+from analysis_utils import stage_analysis, stage_label, NIFTY_PROXY_SYMS, equal_weight_index
+from risk_config import POSITION_SIZE_FRAC, BT_COOLDOWN_BARS
 from industry_groups import INDUSTRY_GROUPS
 
 # ── Cache ─────────────────────────────────────────────────────────────────────
@@ -33,12 +34,7 @@ for _grp, _syms in INDUSTRY_GROUPS.items():
     for _s in _syms:
         _SYM_TO_GROUP[_s] = _grp
 
-_NIFTY_SYMS = [
-    "RELIANCE", "TCS", "HDFCBANK", "ICICIBANK", "INFOSYS",
-    "HINDUNILVR", "SBIN", "BHARTIARTL", "ITC", "KOTAKBANK",
-    "AXISBANK", "WIPRO", "HCLTECH", "MARUTI", "BAJFINANCE",
-    "TITAN", "NTPC", "POWERGRID", "NESTLEIND", "SUNPHARMA",
-]
+_NIFTY_SYMS = NIFTY_PROXY_SYMS   # TIER-3: canonical 20-stock list from analysis_utils
 
 # ── ETF exclusion ─────────────────────────────────────────────────────────────
 # Symbols that END with these strings are always ETFs/funds
@@ -120,10 +116,10 @@ def _is_etf(sym: str) -> bool:
 # ── Data loader ───────────────────────────────────────────────────────────────
 
 def _load_stocks(progress_callback=None, days: int = 400) -> dict[str, pd.DataFrame]:
-    # Universe: Nifty50 ∪ NiftyNext50 ∪ Nifty500 ∪ NiftySmallcap250
+    # Universe: Nifty Total Market 750 (Nifty50 ∪ Next50 ∪ Nifty500 ∪ Smallcap250 ∪ Microcap250 ∪ TotalMarket)
     try:
-        from nse_stocks import get_nifty500_symbols
-        universe = set(get_nifty500_symbols())
+        from nse_stocks import get_universe_symbols
+        universe = set(get_universe_symbols())
     except Exception:
         universe = set()   # empty → no filter (safe fallback)
 
@@ -167,8 +163,9 @@ def _build_nifty_proxy(stocks: dict) -> pd.DataFrame | None:
             vols.append(df["Volume"].dropna())
     if len(closes) < 5:
         return None
-    px  = pd.concat(closes, axis=1).dropna(how="all").mean(axis=1)
-    vol = pd.concat(vols,   axis=1).dropna(how="all").mean(axis=1)
+    from analysis_utils import equal_weight_index
+    px  = equal_weight_index(pd.concat(closes, axis=1).dropna(how="all"))
+    vol = pd.concat(vols,   axis=1).dropna(how="all").sum(axis=1)
     out = pd.DataFrame({"Close": px, "Volume": vol}).dropna()
     return out if len(out) >= 80 else None
 
@@ -191,6 +188,11 @@ def detect_market_regime(nifty: pd.DataFrame) -> dict:
         return {"regime": "Unknown", "dday_count": 0, "ftd_active": False, "details": []}
 
     n     = nifty.tail(60).copy()
+    # BUG-016 NOTE / TODO: This uses the synthetic Nifty proxy built from a
+    # basket of large-caps — NOT the official Nifty50 index. The volume series
+    # is therefore stock volume, which approximates institutional activity
+    # but is not the index volume an IBD-style D-day count traditionally uses.
+    # Known limitation: prefer official Nifty volume when available.
     n["pct_chg"]   = n["Close"].pct_change() * 100
     n["vol_chg"]   = n["Volume"].pct_change()
     n["dday"]      = (n["pct_chg"] <= -0.2) & (n["Volume"] > n["Volume"].shift(1))
@@ -209,7 +211,8 @@ def detect_market_regime(nifty: pd.DataFrame) -> dict:
             low_pos = n.index.get_loc(recent_low_idx)
             for i in range(low_pos + 4, min(low_pos + 8, len(n))):
                 row = n.iloc[i]
-                if row["pct_chg"] >= 1.4 and row["Volume"] > n.iloc[i-1]["Volume"]:
+                # BUG-019 FIX: FTD threshold changed from 1.4% to 1.7% to match market_breadth.py
+                if row["pct_chg"] >= 1.7 and row["Volume"] > n.iloc[i-1]["Volume"]:
                     ftd_active = True
                     ftd_day    = n.index[i]
                     break
@@ -377,15 +380,18 @@ def detect_exit_signals(df: pd.DataFrame, entry_price: float | None = None,
                         "msg": f"Down {day_chg:.1f}% on volume {vol_now/vol_avg:.1f}× avg. Institutions selling."})
 
     # Climax run (parabolic — consider profit-taking)
-    if len(close) >= 22:
+    if len(close) >= 21:
         r3w = (cur / float(close.iloc[-15]) - 1) * 100
         if r3w >= 30:
             signals.append({"sev": "MEDIUM", "tag": "CLIMAX",
                             "msg": f"Up {r3w:.1f}% in 3 weeks — consider taking partial profits."})
 
     # Failed breakout: stock made recent 20-day high then closed below it within 3 days
-    last20_high = float(close.tail(20).max())
-    if cur < last20_high * 0.97 and float(close.tail(5).max()) >= last20_high * 0.998:
+    # BUG-015 FIX: a "20-day high" should be based on intraday HIGH, not just CLOSE,
+    # because the breakout level traders watch is the prior 20 bars' true high.
+    high = df["High"].dropna() if "High" in df.columns else close
+    last20_high = float(high.tail(20).max())
+    if cur < last20_high * 0.97 and float(high.tail(5).max()) >= last20_high * 0.998:
         signals.append({"sev": "MEDIUM", "tag": "FAILED BO",
                         "msg": "Made new 20-day high then reversed — breakout failed."})
 
@@ -456,7 +462,7 @@ def compute_setup_score(symbol: str, df: pd.DataFrame, regime: dict,
 
     close = df["Close"].dropna()
     vol   = df["Volume"].dropna()
-    if len(close) < 130:
+    if len(close) < 126:
         return None
 
     cur = float(close.iloc[-1])
@@ -468,8 +474,8 @@ def compute_setup_score(symbol: str, df: pd.DataFrame, regime: dict,
 
     # ── TECHNICAL (0-100) ─────────────────────────────────────────────────────
     # Returns, RS, base quality, MA alignment, volume profile
-    r3m  = (cur / float(close.iloc[-66])  - 1) * 100 if len(close) > 66  else 0
-    r6m  = (cur / float(close.iloc[-130]) - 1) * 100 if len(close) > 130 else 0
+    r3m  = (cur / float(close.iloc[-63])  - 1) * 100 if len(close) >= 63  else 0
+    r6m  = (cur / float(close.iloc[-126]) - 1) * 100 if len(close) >= 126 else 0
     ma50 = float(close.rolling(50).mean().iloc[-1])  if len(close) >= 50  else cur
     ma200= float(close.rolling(200).mean().iloc[-1]) if len(close) >= 200 else cur
 
@@ -482,7 +488,18 @@ def compute_setup_score(symbol: str, df: pd.DataFrame, regime: dict,
 
     ma_score    = 100 if (cur > ma50 > ma200) else (60 if cur > ma50 else 30)
     ret_score   = min(100, max(0, (r3m + 20) * 2))   # -20%→0, 30%→100
-    vol_score   = min(100, vol_ratio * 50)
+    # BUG-017 FIX: tiered volume scoring (replaces linear vol_ratio * 50 which caps at 2x)
+    if vol_ratio >= 4:
+        vol_score = 100
+    elif vol_ratio >= 2:
+        vol_score = 70 + (vol_ratio - 2) * 15
+    elif vol_ratio >= 1.5:
+        vol_score = 50 + (vol_ratio - 1.5) * 40
+    elif vol_ratio >= 1:
+        vol_score = 30 + (vol_ratio - 1) * 40
+    else:
+        vol_score = vol_ratio * 30
+    vol_score = min(100, max(0, vol_score))
     technical   = round(0.30 * base_score + 0.25 * ma_score +
                         0.25 * ret_score + 0.20 * vol_score, 1)
 
@@ -497,8 +514,9 @@ def compute_setup_score(symbol: str, df: pd.DataFrame, regime: dict,
         roe_s   = min(100, max(0, roe * 4))        # 15% → 60, 25% → 100
         de_s    = 100 if d_e < 0.5 else 70 if d_e < 1.0 else 40 if d_e < 2.0 else 10
         # F2: EPS acceleration bonus (quarterly acceleration adds 10 pts)
+        # BUG-020 FIX: check for truthy value using int() cast to avoid silent failures
         eps_accel_val = fundamentals.get("eps_accel")
-        accel_bonus   = 10 if eps_accel_val == 1 else 0
+        accel_bonus   = 10 if eps_accel_val and int(eps_accel_val) >= 1 else 0
         fundamental = round(0.35 * eps_s + 0.30 * sale_s + 0.20 * roe_s + 0.15 * de_s, 1)
         fundamental = min(100, fundamental + accel_bonus)
         # F3: promoter delta
@@ -545,9 +563,17 @@ def compute_setup_score(symbol: str, df: pd.DataFrame, regime: dict,
         (hi_ser - cl_ser.shift(1)).abs(),
         (lo_ser - cl_ser.shift(1)).abs(),
     ], axis=1).max(axis=1)
-    atr14_val = float(_tr.rolling(14).mean().iloc[-1]) if len(_tr) >= 14 else float(_tr.mean())
+    # Wilder's ATR (EWM with alpha = 1/period). Matches analysis_utils.atr()
+    # and standard trading-platform behaviour. The old rolling(14).mean()
+    # was a plain SMA which over-states ATR in trending markets by 5–15%,
+    # making stop distances inconsistent with every other module.
+    if len(_tr) >= 14:
+        atr14_val = float(_tr.ewm(alpha=1/14, adjust=False).mean().iloc[-1])
+    else:
+        atr14_val = float(_tr.mean())
     atr_pct   = round(atr14_val / cur * 100, 2) if cur > 0 else 0.0
-    atr_stop  = round(cur - 1.5 * atr14_val, 2)
+    # BUG-018 FIX: use 2.0x ATR multiplier (was 1.5x) to match portfolio.py and professional practice
+    atr_stop  = round(cur - 2.0 * atr14_val, 2)
     # Position sizing: risk ≤1% of ₹10L capital = ₹10,000 per trade
     risk_per_share = max(cur - atr_stop, 0.01)
     shares_1pct   = int(10_000 / risk_per_share)   # qty for 1% risk on ₹10L
@@ -693,10 +719,17 @@ def backtest_signal(stocks: dict, signal_fn, hold_days: int = 30,
             continue
         if signal_count >= max_signals:
             break
-        # Walk through history checking for signals
-        start_idx = len(df) - lookback_days
-        end_idx   = len(df) - hold_days - 1
-        for i in range(start_idx, end_idx, 5):  # check every 5 days
+        # TIER-3 FIX: step every bar (not every 5) with a cooldown after each trade.
+        # Old stride=5 would miss signals on bars 1-4 after a burst of volatility,
+        # and could fire multiple signals on adjacent bars for the same trend.
+        # New: check every bar; after a signal fires, skip BT_COOLDOWN_BARS bars.
+        start_idx  = len(df) - lookback_days
+        end_idx    = len(df) - hold_days - 1
+        cooldown   = 0
+        for i in range(start_idx, end_idx):
+            if cooldown > 0:
+                cooldown -= 1
+                continue
             try:
                 if signal_fn(df, i):
                     entry_idx = i + 1
@@ -735,6 +768,7 @@ def backtest_signal(stocks: dict, signal_fn, hold_days: int = 30,
                         "entry_date": entry_date,
                     })
                     signal_count += 1
+                    cooldown = BT_COOLDOWN_BARS   # skip next N bars for this symbol
                     if signal_count >= max_signals:
                         break
             except Exception:
@@ -749,12 +783,20 @@ def backtest_signal(stocks: dict, signal_fn, hold_days: int = 30,
     # ── F5: Regime filter — exclude trades taken during Correction phase ──────
     if regime_filter and nifty is not None and len(nifty) >= 50:
         def _nifty_regime_at(dt):
-            """Simple inline regime: D-day count over the 25 bars before dt."""
+            """Simple inline regime: D-day count over the 25 bars before dt.
+            BUG-017 FIX: use Index.asof() so trade entry dates that fall on
+            NSE holidays still map to the most recent valid Nifty bar,
+            avoiding KeyError / off-by-one regime mislabels."""
             try:
-                sub = nifty[nifty.index <= dt].tail(30).copy()
+                aligned_dt = nifty.index.asof(dt)
+                if aligned_dt is None or pd.isna(aligned_dt):
+                    return "Unknown"
+                sub = nifty[nifty.index <= aligned_dt].tail(30).copy()
                 if len(sub) < 10:
                     return "Unknown"
                 sub["pct"] = sub["Close"].pct_change() * 100
+                # BUG-016 NOTE / TODO: same Nifty proxy limitation as
+                # detect_market_regime — see comment there.
                 sub["dday"] = (sub["pct"] <= -0.2) & (sub["Volume"] > sub["Volume"].shift(1))
                 ddays = int(sub.tail(25)["dday"].sum())
                 return "Correction" if ddays >= 6 else \
@@ -771,13 +813,20 @@ def backtest_signal(stocks: dict, signal_fn, hold_days: int = 30,
                 "max_drawdown": 0, "drawdown_curve": [], "equity_curve": []}
 
     # ── Equity curve + max drawdown ───────────────────────────────────────────
+    # BUG-FIX: prior code did `equity *= (1 + ret/100)` which assumes each trade
+    # gets 100% of capital sequentially. In reality dozens of trades fire
+    # concurrently — each gets ≤ 5% of capital. The old curve overstated returns
+    # by 10× when there were 200 trades; users sized live positions on the
+    # inflated number and over-leveraged. Now use position sizing of 5% per trade.
+    # POSITION_SIZE_FRAC imported from risk_config at module level
     equity       = 100.0
     max_equity   = 100.0
     max_dd       = 0.0
     equity_curve   = [100.0]
     drawdown_curve = [0.0]
     for t in trades:
-        equity *= (1 + t["ret_pct"] / 100)
+        # Each trade contributes ret_pct × position_size to total equity
+        equity *= (1 + (t["ret_pct"] / 100) * POSITION_SIZE_FRAC)
         equity_curve.append(round(equity, 2))
         max_equity = max(max_equity, equity)
         dd = (equity - max_equity) / max_equity * 100
@@ -833,8 +882,12 @@ def _signal_rs_breakout(df: pd.DataFrame, i: int) -> bool:
     if i < 80:
         return False
     close_i = float(df["Close"].iloc[i])
-    r3m = (close_i / float(df["Close"].iloc[i-66]) - 1) * 100
-    hi = float(df["Close"].iloc[max(0, i-200):i].max())
+    # BUG-FIX: was `iloc[i-66]` (66 bars), now consistent r3m = 63 bars.
+    r3m = (close_i / float(df["Close"].iloc[i-63]) - 1) * 100
+    # BUG-FIX: was using Close for 200-bar high (sister _signal_breakout_20d uses High).
+    # Intraday highs > closes → using Close gave a structurally easier filter
+    # → false RS-breakout signals.
+    hi = float(df["High"].iloc[max(0, i-200):i].max())
     return r3m > 15 and close_i >= hi * 0.97
 
 def _signal_volume_accumulation(df: pd.DataFrame, i: int) -> bool:
@@ -996,15 +1049,16 @@ def _compute_sector_quadrants(stocks: dict, nifty_df: pd.DataFrame | None) -> di
         if len(closes) < 2:
             continue
         try:
-            grp_idx = pd.concat(closes, axis=1).dropna(how="all").mean(axis=1)
+            grp_idx = equal_weight_index(pd.concat(closes, axis=1).dropna(how="all"))
             common  = grp_idx.index.intersection(nifty_px.index)
             if len(common) < 80:
                 continue
             rs_d = grp_idx[common] / nifty_px[common]
-            rs_w = rs_d.resample("W").last().dropna()
+            # BUG-013 consistency: use W-FRI (NSE week ends Friday), min_periods=20
+            rs_w = rs_d.resample("W-FRI").last().dropna()
             if len(rs_w) < 12:
                 continue
-            rm     = rs_w.rolling(26, min_periods=10).mean()
+            rm     = rs_w.rolling(26, min_periods=20).mean()
             rratio = (rs_w / rm * 100).dropna()
             if len(rratio) < 6:
                 continue

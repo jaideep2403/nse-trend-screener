@@ -44,9 +44,12 @@ def _safe(v, default=0.0):
 
 
 def _ret(series, bars):
+    # BUG-026 FIX: an N-bar return compares today's close to the close N bars
+    # ago, i.e. iloc[-bars], not iloc[-bars-1].  Previously this returned an
+    # (N+1)-bar return which subtly inflated/deflated the result.
     if len(series) < bars + 1:
         return 0.0
-    return round((_safe(series.iloc[-1]) / _safe(series.iloc[-bars - 1]) - 1) * 100, 2)
+    return round((_safe(series.iloc[-1]) / _safe(series.iloc[-bars]) - 1) * 100, 2)
 
 
 def _mfi(df, period=14):
@@ -64,7 +67,12 @@ def _mfi(df, period=14):
         neg  = rmf.where(tp < tp.shift(1), 0.0).abs()
         ps   = pos.rolling(period).sum().iloc[-1]
         ns   = neg.rolling(period).sum().iloc[-1]
-        return round(100 - 100 / (1 + (ps / ns if ns else 1e9)), 1)
+        # BUG-034 FIX: when there are zero down days the original code returned
+        # MFI=100 (extreme overbought), which is misleading for thinly traded
+        # series. Return the neutral midpoint 50 instead.
+        if not ns or ns == 0:
+            return 50.0
+        return round(100 - 100 / (1 + (ps / ns)), 1)
     except Exception:
         return 50.0
 
@@ -98,12 +106,30 @@ def _obv_trend(df, period=20):
         return 0.0
 
 
-def _inflow_score(rs_1m, rs_3m, mfi, rel_v, obv):
+def _inflow_score(rs_1m, rs_3m, mfi, rel_v, obv, all_rs3m=None):
+    """
+    BUG-025 FIX: rs_3m normalization now uses dynamic bounds from the current scan's
+    distribution rather than fixed ±30%. This prevents clipping sector leaders.
+    Pass all_rs3m as a list of all sectors' rs_3m values for dynamic bounds.
+    """
     def norm(v, lo, hi):
         return max(0.0, min(100.0, (v - lo) / (hi - lo) * 100))
+
+    # Dynamic RS-3M bounds based on current scan distribution
+    if all_rs3m and len(all_rs3m) >= 2:
+        rs3m_lo = min(all_rs3m)
+        rs3m_hi = max(all_rs3m)
+        # Ensure minimum range of 10% to avoid division-by-zero
+        if rs3m_hi - rs3m_lo < 10:
+            mid = (rs3m_hi + rs3m_lo) / 2
+            rs3m_lo = mid - 5
+            rs3m_hi = mid + 5
+    else:
+        rs3m_lo, rs3m_hi = -30, 30  # fallback to original fixed bounds
+
     return round(
         norm(rs_1m, -15, 15) * 0.35 +
-        norm(rs_3m, -30, 30) * 0.25 +
+        norm(rs_3m, rs3m_lo, rs3m_hi) * 0.25 +
         norm(mfi,    20, 80) * 0.20 +
         norm(rel_v,  0.5, 2.5) * 0.10 +
         norm(obv * 100, -50, 50) * 0.10,
@@ -113,25 +139,50 @@ def _inflow_score(rs_1m, rs_3m, mfi, rel_v, obv):
 
 # ── Synthetic Nifty50 benchmark from equal-weighted constituent closes ─────────
 
-_NIFTY50_SYMS = [
-    "RELIANCE", "TCS", "HDFCBANK", "ICICIBANK", "INFOSYS",
-    "HINDUNILVR", "SBIN", "BHARTIARTL", "ITC", "KOTAKBANK",
-    "AXISBANK", "WIPRO", "HCLTECH", "MARUTI", "BAJFINANCE",
-    "TITAN", "NTPC", "POWERGRID", "NESTLEIND", "SUNPHARMA",
-]
+# Use the canonical Nifty proxy basket from analysis_utils so every module
+# uses the same benchmark composition. The old local list was a duplicate
+# that would silently drift out of sync if analysis_utils.NIFTY_PROXY_SYMS
+# were ever updated, giving Sector Rotation a different benchmark than RS
+# calculations elsewhere.
+from analysis_utils import NIFTY_PROXY_SYMS as _NIFTY50_SYMS
 
 def fetch_nifty():
-    """Build equal-weighted benchmark from cached Nifty50 closes. No network call."""
+    """Build equal-weighted benchmark from cached Nifty50 closes. No network call.
+    BUG-005 FIX: Falls back to bhavcopy-based data when screener's ohlcv_cache is empty
+    (e.g. when sector tab is opened before screener has run).
+    # TODO BUG-009: Four different Nifty proxy implementations exist across the codebase
+    # (header_data.py, market_breadth.py, industry_groups.py, sector_analysis.py, portfolio.py).
+    # These should be consolidated into a shared nifty_proxy.py module.
+    """
     closes = []
     for sym in _NIFTY50_SYMS:
         df = ohlcv_cache.get(f"{sym}.NS")
         if df is not None and "Close" in df.columns and len(df) >= 63:
             closes.append(df["Close"].dropna())
+
+    # BUG-FIX: fallback used `_NIFTY50_SYMS[:10]` — 10 stocks, 9 of which would
+    # contribute (INFOSYS was missing). Cold-start Nifty proxy was completely
+    # different from warm-cache 20-stock proxy → sector rankings flipped between
+    # first call after restart and subsequent calls. Now use the full _NIFTY50_SYMS
+    # list (20 stocks) so cold and warm runs produce the same benchmark.
+    if not closes:
+        try:
+            from data_fetcher import fetch_ohlcv
+            fallback_tickers = [f"{s}.NS" for s in _NIFTY50_SYMS]   # full list (20)
+            got = fetch_ohlcv(fallback_tickers, min_bars=63)
+            for t, df in got.items():
+                if "Close" in df.columns and len(df) >= 63:
+                    closes.append(df["Close"].dropna())
+        except Exception:
+            pass
+
     if not closes:
         return None
+    # BUG-FIX: rebase-to-100 equal-weight (was raw price avg)
+    from analysis_utils import equal_weight_index
     combined = pd.concat(closes, axis=1)
     combined = combined.dropna(how="all")
-    benchmark = combined.mean(axis=1)
+    benchmark = equal_weight_index(combined)
     return benchmark if len(benchmark) >= 20 else None
 
 
@@ -162,11 +213,20 @@ def _stock_metrics(ticker, df, nifty_close):
         mfi_v  = _mfi(df)
         relv_v = _rel_vol(df)
         obv_v  = _obv_trend(df)
-        inflow = _inflow_score(
-            rel_1m if rel_1m is not None else r1m,
-            rel_3m if rel_3m is not None else r3m,
-            mfi_v, relv_v, obv_v,
-        )
+        # Inflow score is recomputed later with dynamic bounds once we know
+        # the full cross-sectional rel_3m distribution. Initialised to 0 here
+        # to avoid a wasted per-stock calculation that gets immediately
+        # overwritten in the loop at line ~387.
+        inflow = 0
+
+        # Compute ADTV (₹ Cr) — used as liquidity weight in sector aggregation.
+        # ADTV is the most honest proxy for "how much real money trades this stock".
+        vol_series = df["Volume"].dropna() if "Volume" in df.columns else None
+        if vol_series is not None and len(vol_series) >= 20:
+            avg_vol = float(vol_series.iloc[-20:].mean())
+            adtv_cr = round(avg_vol * price / 1e7, 2) if price > 0 else 0.0
+        else:
+            adtv_cr = 0.0
 
         symbol = ticker.replace(".NS", "")
         return {
@@ -187,6 +247,7 @@ def _stock_metrics(ticker, df, nifty_close):
             "rel_volume":  relv_v,
             "obv_trend":   obv_v,
             "inflow_score": inflow,
+            "adtv_cr":      adtv_cr,
         }
     except Exception:
         return None
@@ -200,6 +261,26 @@ def _aggregate_sector(stock_rows, sector_name):
 
     n = len(stock_rows)
 
+    # BUG-FIX: previously used simple average — a 1L Cr name (HDFCBANK) counted
+    # equally with a 1K Cr name (BANDHANBNK). Real sector indices weight by
+    # free-float market cap. We don't have free-float here, so use ADTV
+    # (turnover) as a robust market-cap proxy: it inherently weights by
+    # liquidity, which is what investors actually transact in.
+    def liq_weighted_avg(key, fallback_to_simple=True):
+        rows = [r for r in stock_rows if r.get(key) is not None]
+        if not rows:
+            return 0.0
+        # Use ADTV (in ₹Cr) as weight; fallback to equal if all are 0/None
+        weights = [max(0.0, r.get("adtv_cr", 0.0) or 0.0) for r in rows]
+        total_w = sum(weights)
+        if total_w <= 0:
+            if not fallback_to_simple:
+                return 0.0
+            # Pure equal-weight fallback
+            return round(sum(r[key] for r in rows) / len(rows), 2)
+        return round(sum(r[key] * w for r, w in zip(rows, weights)) / total_w, 2)
+
+    # Keep equal-weight available for breadth-style metrics where each stock counts as 1
     def avg(key):
         vals = [r[key] for r in stock_rows if r.get(key) is not None]
         return round(sum(vals) / len(vals), 2) if vals else 0.0
@@ -221,17 +302,19 @@ def _aggregate_sector(stock_rows, sector_name):
         for r in top5_sorted[:5]
     ]
 
+    # Use liquidity-weighted aggregation for return / inflow metrics
+    # (so a tiny stock's 200% spike doesn't drag the whole sector up)
     return {
         "sector":       sector_name,
-        "r1m":          avg("r1m"),
-        "r3m":          avg("r3m"),
-        "r6m":          avg("r6m"),
-        "r12m":         avg("r12m"),
-        "mfi":          avg("mfi"),
-        "rel_volume":   avg("rel_volume"),
-        "obv_trend":    avg("obv_trend"),
+        "r1m":          liq_weighted_avg("r1m"),
+        "r3m":          liq_weighted_avg("r3m"),
+        "r6m":          liq_weighted_avg("r6m"),
+        "r12m":         liq_weighted_avg("r12m"),
+        "mfi":          liq_weighted_avg("mfi"),
+        "rel_volume":   liq_weighted_avg("rel_volume"),
+        "obv_trend":    liq_weighted_avg("obv_trend"),
         "breadth":      breadth,
-        "inflow_score": avg("inflow_score"),
+        "inflow_score": liq_weighted_avg("inflow_score"),
         "num_stocks":   n,
         "top5":         top5,
     }
@@ -250,7 +333,33 @@ def run_sector_analysis():
     nifty_close = fetch_nifty()
 
     # 2. All sector tickers
-    all_symbols = list({s for syms in SECTOR_STOCKS.values() for s in syms})
+    # BUG-027 FIX: hard-coded 5-stocks-per-sector lists were stale and far too
+    # narrow. Pull the full sector → symbol mapping from sector_mapper which
+    # is auto-derived from current Nifty500 constituents. Falls back to the
+    # hard-coded SECTOR_STOCKS if the mapper is unavailable.
+    sector_map: dict[str, list[str]] = {k: list(v) for k, v in SECTOR_STOCKS.items()}
+    try:
+        from sector_mapper import get_enriched_sector_map
+        enriched = get_enriched_sector_map()   # {symbol: sector}
+        dyn: dict[str, list[str]] = {}
+        for sym, sect in enriched.items():
+            dyn.setdefault(sect, []).append(sym)
+        # Merge dyn into sector_map for matching sectors
+        for sect, syms in dyn.items():
+            if sect in sector_map:
+                # Union dyn + hard-coded (keep order, drop dups)
+                seen = set()
+                merged = []
+                for s in syms + sector_map[sect]:
+                    if s not in seen:
+                        seen.add(s); merged.append(s)
+                sector_map[sect] = merged
+            else:
+                sector_map[sect] = syms
+    except Exception:
+        pass
+
+    all_symbols = list({s for syms in sector_map.values() for s in syms})
     all_tickers = [f"{s}.NS" for s in all_symbols]
 
     # 3. Reuse screener OHLCV cache (zero extra downloads if screener ran first)
@@ -271,10 +380,24 @@ def run_sector_analysis():
         if row:
             stock_data[ticker] = row
 
+    # BUG-025 FIX: collect all rel_3m values across the scan for dynamic normalization
+    all_rs3m = [r["rel_3m"] for r in stock_data.values()
+                if r.get("rel_3m") is not None]
+    # Recompute inflow scores with dynamic bounds now that full distribution is known
+    for ticker, row in stock_data.items():
+        row["inflow_score"] = _inflow_score(
+            row.get("rel_1m") if row.get("rel_1m") is not None else row.get("r1m", 0),
+            row.get("rel_3m") if row.get("rel_3m") is not None else row.get("r3m", 0),
+            row.get("mfi", 50),
+            row.get("rel_volume", 1.0),
+            row.get("obv_trend", 0.0),
+            all_rs3m=all_rs3m,
+        )
+
     # 6. Aggregate per sector, rank by inflow score
     sector_results = []
     top5_map       = {}
-    for sector, symbols in SECTOR_STOCKS.items():
+    for sector, symbols in sector_map.items():
         rows = [stock_data[f"{s}.NS"] for s in symbols if f"{s}.NS" in stock_data]
         agg  = _aggregate_sector(rows, sector)
         if agg:

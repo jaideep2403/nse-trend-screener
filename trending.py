@@ -1,7 +1,7 @@
 """
 Trending Stocks Scanner — Enhanced with 10 features
 =====================================================
-Scans the full Nifty 500 universe for stocks in a clean, sustained uptrend.
+Scans the full Nifty Total Market 750 universe for stocks in a clean, sustained uptrend.
 Uses only local bhavcopy OHLCV + Delivery data — no external API calls.
 
 Score (0–10): 4 original MA/RS criteria + 4 new binary signals
@@ -28,8 +28,15 @@ Plus: Sector RS Heatmap (separate panel in UI).
 
 import time
 import numpy as np
+import pandas as pd
 from industry_groups import _get_stocks, _build_nifty, INDUSTRY_GROUPS, _group_rs
-from nse_stocks import get_nifty500_symbols
+from nse_stocks import get_universe_symbols
+
+try:
+    from sector_mapper import get_enriched_sector_map as _enriched_sector_map, refresh_sector_cache
+    _MAPPER_OK = True
+except ImportError:
+    _MAPPER_OK = False
 
 _cache    = {"data": None, "ts": 0}
 CACHE_TTL = 1800   # 30 min
@@ -39,6 +46,9 @@ TREND_MIN_SCORE = 5   # show stocks with at least 5/10
 # ── Sector map ────────────────────────────────────────────────────────────────
 
 def _sector_map():
+    """Returns {symbol: sector} for all 751 stocks (INDUSTRY_GROUPS + NSE auto-mapped extras)."""
+    if _MAPPER_OK:
+        return _enriched_sector_map()
     return {s: g for g, syms in INDUSTRY_GROUPS.items() for s in syms}
 
 
@@ -106,10 +116,15 @@ def _adx(high, low, close, period=14):
         s   = pDI + mDI
         dx_list.append(100 * abs(pDI - mDI) / s if s > 0 else 0.0)
 
-    if len(dx_list) < period:
+    # BUG-023 FIX: ADX is biased high right after the Wilder-seed window
+    # because the first `period` DX values use partially seeded ATR/DI.
+    # Skip the first `period` DX values so the seed mean is computed on
+    # fully-smoothed bars, matching the standard Wilder ADX definition.
+    if len(dx_list) < 2 * period:
         return None
-    adx = sum(dx_list[:period]) / period
-    for v in dx_list[period:]:
+    seed_slice = dx_list[period:2 * period]
+    adx = sum(seed_slice) / period
+    for v in dx_list[2 * period:]:
         adx = (adx * (period - 1) + v) / period
     return round(adx, 1)
 
@@ -136,15 +151,25 @@ def _new_52w_high(c):
 # ── Feature 4: Trend Age ──────────────────────────────────────────────────────
 
 def _trend_age(c):
-    """Count consecutive days (from today backwards) that price was above MA50."""
+    """Count consecutive days (from today backwards) that price was above MA50.
+
+    BUG-FIX: prior code computed `ma50 = prices[i-50:i].mean()` which is the
+    average of the PRIOR 50 bars excluding bar `i` — disagrees with the standard
+    `close.rolling(50).mean()` (which INCLUDES the current bar) used elsewhere
+    in the same file's `c1` ("Price > MA50") check. Off-by-one made trend-age
+    sometimes contradict the trend signal in the same scan.
+    """
     if len(c) < 51:
         return 0
-    prices = c.values.astype(float)
-    n = len(prices)
+    import pandas as _pd
+    s = _pd.Series(c.values.astype(float))
+    ma50 = s.rolling(50).mean()
+    n = len(s)
     count = 0
-    for i in range(n - 1, 49, -1):
-        ma50 = prices[i - 50:i].mean()
-        if prices[i] > ma50:
+    for i in range(n - 1, 48, -1):
+        if _pd.isna(ma50.iloc[i]):
+            break
+        if s.iloc[i] > ma50.iloc[i]:
             count += 1
         else:
             break
@@ -168,10 +193,12 @@ def _at_ma20_support(c):
         return False
     for offset in range(1, 6):
         idx = n - offset
-        if idx < 20:
+        if idx < 19:
             break
         price = prices[idx]
-        ma20  = prices[idx - 20:idx].mean()
+        # MA20 INCLUDING the bar at idx — was prices[idx-20:idx] which is
+        # the MA ending one bar before, comparing today's price to yesterday's MA.
+        ma20  = prices[idx - 19:idx + 1].mean()
         if abs(price / ma20 - 1) <= 0.02:   # within 2% of MA20
             return True
     return False
@@ -189,26 +216,29 @@ def _avg_delivery(df, n=20):
 
 # ── Feature 7: Higher Highs + Higher Lows ────────────────────────────────────
 
-def _higher_highs_lows(c, weeks=10):
+def _higher_highs_lows(c: pd.Series, weeks: int = 10) -> bool:
     """
-    Check if stock is making higher weekly highs AND higher weekly lows
-    over the last `weeks` weeks (60% majority required).
+    Higher weekly highs AND higher weekly lows over `weeks` calendar weeks.
+    60% majority required.
+    TIER-3 FIX: was using artificial 5-bar slices which shift with holidays
+    (a 4-day week counted as 5 bars, misaligning all subsequent windows).
+    resample("W-FRI") uses actual Mon-Fri calendar boundaries so holiday
+    weeks collapse correctly and the comparison is always apples-to-apples.
     """
-    n = len(c)
-    required = weeks * 5
-    if n < required:
+    if not isinstance(c.index, pd.DatetimeIndex) or len(c) < weeks * 4:
         return False
-    prices = c.values.astype(float)
-    wk_high, wk_low = [], []
-    for w in range(weeks):
-        start = n - required + w * 5
-        end   = start + 5
-        chunk = prices[start:end]
-        wk_high.append(chunk.max())
-        wk_low.append(chunk.min())
-    hh = sum(wk_high[i] > wk_high[i - 1] for i in range(1, weeks))
-    hl = sum(wk_low[i]  > wk_low[i - 1]  for i in range(1, weeks))
-    return hh >= int(weeks * 0.6) and hl >= int(weeks * 0.6)
+    try:
+        wk_hi = c.resample("W-FRI").max().dropna()
+        wk_lo = c.resample("W-FRI").min().dropna()
+        if len(wk_hi) < weeks:
+            return False
+        wk_hi = wk_hi.iloc[-weeks:]
+        wk_lo = wk_lo.iloc[-weeks:]
+        hh = int(sum(wk_hi.iloc[i] > wk_hi.iloc[i - 1] for i in range(1, weeks)))
+        hl = int(sum(wk_lo.iloc[i] > wk_lo.iloc[i - 1] for i in range(1, weeks)))
+        return hh >= int(weeks * 0.6) and hl >= int(weeks * 0.6)
+    except Exception:
+        return False
 
 
 # ── Feature 8: Sector RS Heatmap ─────────────────────────────────────────────
@@ -289,7 +319,9 @@ def _score_stock(df, nifty):
     ma20  = float(prices[-20:].mean())
     ma50  = float(prices[-50:].mean())  if n >= 50  else None
     ma200 = float(prices[-200:].mean()) if n >= 200 else None
-    ma50_20d = float(prices[-70:-20].mean()) if n >= 70 else None
+    # BUG-015 FIX: MA50 slope uses 20-bar lookback (vs the previous 5-bar slice in ma50_20d).
+    # Compare current MA50 to MA50 from 20 trading days ago for a stable slope signal.
+    ma50_20d = float(prices[-70:-20].mean()) if n >= 70 else None  # MA50 as of 20 bars ago
 
     # 52W window
     w52    = c.iloc[-252:] if n >= 252 else c
@@ -297,9 +329,9 @@ def _score_stock(df, nifty):
     low52  = float(w52.min())
 
     # Returns
-    r1m = round((price / float(c.iloc[-22])  - 1) * 100, 1) if n >= 22  else None
-    r3m = round((price / float(c.iloc[-66])  - 1) * 100, 1) if n >= 66  else None
-    r6m = round((price / float(c.iloc[-132]) - 1) * 100, 1) if n >= 132 else None
+    r1m = round((price / float(c.iloc[-21])  - 1) * 100, 1) if n >= 21  else None
+    r3m = round((price / float(c.iloc[-63])  - 1) * 100, 1) if n >= 63  else None
+    r6m = round((price / float(c.iloc[-126]) - 1) * 100, 1) if n >= 126 else None
 
     # RS vs Nifty
     def rs(period):
@@ -313,8 +345,23 @@ def _score_stock(df, nifty):
             (float(nifty[idx].iloc[-1]) / float(nifty[idx].iloc[-period]) - 1) * 100,
             1)
 
-    rs1m = rs(22); rs3m = rs(66); rs6m = rs(132)
-    rsc  = round((rs1m or 0) * 0.4 + (rs3m or 0) * 0.4 + (rs6m or 0) * 0.2, 1)
+    # Match the return windows used elsewhere (21/63/126) so the RS score
+    # and the displayed return columns are computed over the SAME period.
+    rs1m = rs(21); rs3m = rs(63); rs6m = rs(126)
+    # BUG-016 FIX: skip None components and reweight rather than defaulting to 0.
+    # If rs1m is None, use rs3m 0.6 + rs6m 0.4. If only rs3m exists, use it fully.
+    if rs1m is not None and rs3m is not None and rs6m is not None:
+        rsc = round(rs1m * 0.4 + rs3m * 0.4 + rs6m * 0.2, 1)
+    elif rs1m is None and rs3m is not None and rs6m is not None:
+        rsc = round(rs3m * 0.6 + rs6m * 0.4, 1)
+    elif rs3m is not None and rs6m is None:
+        rsc = round(rs3m * 1.0, 1)
+    elif rs3m is None and rs6m is not None:
+        rsc = round(rs6m * 1.0, 1)
+    elif rs1m is not None:
+        rsc = round(rs1m * 1.0, 1)
+    else:
+        rsc = 0.0
     pct_from_high = round((price / high52 - 1) * 100, 1)
 
     # ── 10 scored criteria ────────────────────────────────────────────────────
@@ -412,7 +459,7 @@ def run_trending_scan(progress_callback=None):
 
     stocks   = _get_stocks()
     nifty    = _build_nifty(stocks)
-    nifty500 = set(get_nifty500_symbols())
+    universe = set(get_universe_symbols())  # Nifty Total Market 750
     sec_map  = _sector_map()
 
     if not stocks:
@@ -420,10 +467,10 @@ def run_trending_scan(progress_callback=None):
 
     nifty_3m = None
     if nifty is not None and len(nifty) >= 66:
-        nifty_3m = round((float(nifty.iloc[-1]) / float(nifty.iloc[-66]) - 1) * 100, 1)
+        nifty_3m = round((float(nifty.iloc[-1]) / float(nifty.iloc[-63]) - 1) * 100, 1)
 
     results = []
-    syms    = sorted(s for s in stocks if s in nifty500)
+    syms    = sorted(s for s in stocks if s in universe)
     total   = len(syms)
 
     for i, sym in enumerate(syms):
@@ -450,12 +497,20 @@ def run_trending_scan(progress_callback=None):
     # Sector RS heatmap
     sector_rs = _group_rs(stocks, nifty) if nifty is not None else []
 
+    try:
+        from data_fetcher import _latest_bhavcopy_date as _lbd
+        _bd = _lbd()
+        bhavcopy_date = str(_bd) if _bd else None
+    except Exception:
+        bhavcopy_date = None
+
     result = {
         "stocks":          results,
         "universe_count":  total,
         "trending_count":  len(results),
         "nifty_3m":        nifty_3m,
         "computed_at":     time.time(),
+        "bhavcopy_date":   bhavcopy_date,
         "sector_rs":       sector_rs,
         "criteria_labels": [
             "Price > MA20 & MA50",

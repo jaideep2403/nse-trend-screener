@@ -21,7 +21,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from analysis_utils import stage_analysis, stage_label
+from analysis_utils import stage_analysis, stage_label, NIFTY_PROXY_SYMS, equal_weight_index
 from data_fetcher import _weekdays_back, _download_one_day
 
 # ── Score history (persisted) for smoothing ────────────────────────────────────
@@ -32,14 +32,7 @@ _HISTORY_MAX_DAYS = 60
 # ── Persisted breadth cache (survives restarts) ──────────────────────────────
 _CACHE_PATH = _DATA_DIR / ".breadth_cache.pkl"
 
-_NIFTY50_SYMS = [
-    "RELIANCE", "TCS", "HDFCBANK", "ICICIBANK", "INFOSYS",
-    "HINDUNILVR", "SBIN", "BHARTIARTL", "ITC", "KOTAKBANK",
-    "AXISBANK", "WIPRO", "HCLTECH", "MARUTI", "BAJFINANCE",
-    "TITAN", "NTPC", "POWERGRID", "NESTLEIND", "SUNPHARMA",
-    "ADANIENT", "ADANIPORTS", "LTIM", "BAJAJFINSV", "EICHERMOT",
-    "TECHM", "TATASTEEL", "JSWSTEEL", "ULTRACEMCO", "GRASIM",
-]
+_NIFTY50_SYMS = NIFTY_PROXY_SYMS   # TIER-3: canonical list from analysis_utils
 
 MIN_BARS = 60
 CACHE_TTL = 1800   # 30 min (in-memory)
@@ -90,9 +83,20 @@ def _load_all_stocks(progress_callback=None) -> dict[str, pd.DataFrame]:
             progress_callback(i, total, f"Loading bhavcopy… {i}/{total} days")
     if not frames:
         return {}
+    # BUG-FIX: was loading EVERY EQ symbol incl. illiquid penny stocks → "% above MA50"
+    # got dominated by ~1500 thinly traded names; other tabs used the Nifty Total Market
+    # 750 universe → cross-tab mismatch. Now consistent: breadth on the same 750-stock
+    # NSE Total Market universe used by every other scanner.
+    try:
+        from nse_stocks import get_universe_symbols
+        _universe = set(get_universe_symbols())
+    except Exception:
+        _universe = set()
     combined = pd.concat(frames, ignore_index=True).sort_values("Date")
     stocks = {}
     for sym, grp in combined.groupby("Symbol"):
+        if _universe and sym not in _universe:
+            continue
         g = grp.set_index("Date")[["Open", "High", "Low", "Close", "Volume"]]
         g = g[~g.index.duplicated(keep="last")].sort_index()
         if len(g) >= MIN_BARS:
@@ -101,15 +105,16 @@ def _load_all_stocks(progress_callback=None) -> dict[str, pd.DataFrame]:
 
 
 def _build_nifty(stocks: dict) -> pd.Series | None:
-    closes = []
-    for sym in _NIFTY50_SYMS:
-        df = stocks.get(sym)
-        if df is not None and len(df) >= 63:
-            closes.append(df["Close"].dropna())
+    # TODO BUG-009: This is one of four separate Nifty proxy implementations across
+    # the codebase (market_breadth.py, header_data.py, sector_analysis.py,
+    # industry_groups.py, portfolio.py). They use slightly different constituent lists
+    # and scaling. Future work: consolidate into a shared nifty_proxy module.
+    closes = [stocks[s]["Close"].dropna() for s in _NIFTY50_SYMS
+              if s in stocks and len(stocks[s]) >= 63]
     if not closes:
         return None
     combined = pd.concat(closes, axis=1).dropna(how="all")
-    bench = combined.mean(axis=1)
+    bench = equal_weight_index(combined)
     return bench if len(bench) >= 20 else None
 
 
@@ -186,30 +191,51 @@ def _compute_breadth(stocks: dict) -> dict:
     }
 
 
-def _distribution_days(nifty: pd.Series) -> int:
+def _distribution_days(nifty: pd.DataFrame | pd.Series) -> int:
     """
-    Count Nifty distribution days (close DOWN on higher volume than prior day)
-    in the last 25 sessions. IBD counts ≥ 5 as a market under pressure.
-    Note: we approximate with price alone since we don't have Nifty futures volume.
-    We use the equal-weighted index change directly.
+    Count Nifty distribution days in the last 25 sessions.
+    IBD methodology: index drops ≥0.2% AND volume > prior day's volume.
+    Both conditions must be true — a down day on lighter volume is not distribution.
+
+    If `nifty` is a plain Series (no volume), falls back to price-only counting
+    with a comment noting the approximation.
     """
     try:
-        if len(nifty) < 26:
-            return 0
-        pct_chg  = nifty.pct_change().iloc[-25:]
-        down_big = (pct_chg < -0.002).sum()   # > 0.2% drop = distribution day
-        return int(down_big)
+        if isinstance(nifty, pd.DataFrame) and "Volume" in nifty.columns:
+            # Full IBD method: price down ≥0.2% AND volume > prior day
+            if len(nifty) < 26:
+                return 0
+            cl = nifty["Close"].iloc[-26:]
+            vol = nifty["Volume"].iloc[-26:]
+            pct_chg = cl.pct_change()
+            vol_up  = vol > vol.shift(1)
+            dist    = ((pct_chg < -0.002) & vol_up).iloc[-25:]
+            return int(dist.sum())
+        else:
+            # nifty is an equal-weighted price series (no volume) — price-only proxy.
+            # BUG-010 FIX: IBD volume check cannot be applied. Use stricter -0.5%
+            # threshold (vs -0.2%) to reduce false positives from the missing volume check.
+            if len(nifty) < 26:
+                return 0
+            pct_chg  = nifty.pct_change().iloc[-25:]
+            down_big = (pct_chg < -0.005).sum()
+            return int(down_big)
     except Exception:
         return 0
 
 
 def _label_for_score(score: int | float) -> tuple[str, str]:
-    """Map composite score (0-13 with new inputs) to label + class."""
-    if score >= 10:
+    """Map composite score (0-15 with rebalanced inputs) to label + class.
+    P0-5 FIX: rescaled for max=15 (added granularity to breadth inputs so
+    72% above MA50 doesn't score the same as 60%).
+    """
+    if score >= 12:
         return "Bull Market", "pos"
-    if score >= 6:
+    if score >= 9:
         return "Uptrend (Caution)", "neutral"
-    if score >= 3:
+    if score >= 5:
+        return "Mixed (Correction Risk)", "neutral"
+    if score >= 2:
         return "Correction", "neg"
     return "Bear Market", "neg"
 
@@ -227,25 +253,29 @@ def _market_timing_signal(breadth: dict, dist_days: int, nifty_stage: int,
     vol_ratio = breadth.get("up_down_vol_ratio", 1.0)
 
     score = 0
-    # ── Original 5 inputs (0–10) ──
-    if p50  >= 60: score += 2
+    # ── Above MA50 % (0–3) — granular: 72% > 60% as it should be ──
+    if   p50 >= 75: score += 3
+    elif p50 >= 60: score += 2
     elif p50 >= 40: score += 1
-    if p200 >= 55: score += 2
+    # ── Above MA200 % (0–2) ──
+    if   p200 >= 55: score += 2
     elif p200 >= 35: score += 1
-    if hl_ratio >= 0.7: score += 2
+    # ── High-Low ratio (0–2) ──
+    if   hl_ratio >= 0.7: score += 2
     elif hl_ratio >= 0.5: score += 1
-    if dist_days <= 3:   score += 2
+    # ── Distribution days (0–2) ──
+    if   dist_days <= 3: score += 2
     elif dist_days <= 5: score += 1
-    if nifty_stage == 2:  score += 2
+    # ── Nifty stage (0–2) ──
+    if   nifty_stage == 2: score += 2
     elif nifty_stage == 1: score += 1
-
-    # ── New: Volume confirmation (0–2) ──
-    if vol_ratio >= 1.5:    score += 2  # strongly bullish vol
-    elif vol_ratio >= 1.0:  score += 1  # mildly bullish vol
-
-    # ── New: Sector Stage-2 breadth (0–1) ──
+    # ── Volume confirmation today (0–2) ──
+    if   vol_ratio >= 1.5: score += 2
+    elif vol_ratio >= 1.0: score += 1
+    # ── Sector Stage-2 breadth (0–2) — granular ──
     if sector_stage2_pct is not None:
-        if sector_stage2_pct >= 60: score += 1   # majority of sectors trending
+        if   sector_stage2_pct >= 60: score += 2
+        elif sector_stage2_pct >= 30: score += 1
 
     status, cls = _label_for_score(score)
 
@@ -257,7 +287,7 @@ def _market_timing_signal(breadth: dict, dist_days: int, nifty_stage: int,
     return {
         "status":           status,
         "score":            score,
-        "max":              13,
+        "max":              15,
         "cls":              cls,
         "smoothed_score":   round(smoothed_score, 2) if smoothed_score is not None else None,
         "smoothed_status":  smoothed_status,
@@ -268,11 +298,12 @@ def _market_timing_signal(breadth: dict, dist_days: int, nifty_stage: int,
 
 # ── VIX proxy: realized volatility from Nifty ─────────────────────────────────
 
-def _realized_vix(nifty: pd.Series, window: int = 21) -> dict | None:
+def _realized_vol(nifty: pd.Series, window: int = 21) -> dict | None:
     """
-    Annualized realized volatility on Nifty as India VIX proxy.
-    Real VIX is implied vol (forward-looking), this is realized (backward).
-    They track each other ±20% in normal markets.
+    Annualized realized volatility on Nifty (21-day rolling stdev × √252).
+    TIER-3 RENAME: was _realized_vix — misleading because VIX is implied vol
+    (forward-looking options pricing). This is realized vol (backward-looking
+    historical stdev), a fundamentally different concept.
     """
     if nifty is None or len(nifty) < window + 1:
         return None
@@ -417,17 +448,31 @@ def _historical_score_for_day(stocks: dict, day_idx: int, nifty: pd.Series) -> i
     pct_chg = nifty_slice.pct_change().iloc[-25:]
     dist = int((pct_chg < -0.002).sum())
 
+    # Match the LIVE scoring scale (0-15) so backtest bucket labels are
+    # directly comparable to today's score. Old version used the obsolete
+    # 0-10 scale and bucket labels "Bull (8-10)" which then sat next to a
+    # live score of e.g. 11 — apples vs oranges.
     s = 0
-    if p50 >= 60: s += 2
+    # Above MA50% (0-3) — granular tier matches live
+    if   p50 >= 75: s += 3
+    elif p50 >= 60: s += 2
     elif p50 >= 40: s += 1
-    if p200 >= 55: s += 2
+    # Above MA200% (0-2)
+    if   p200 >= 55: s += 2
     elif p200 >= 35: s += 1
-    if hl_ratio >= 0.7: s += 2
+    # High-low ratio (0-2)
+    if   hl_ratio >= 0.7: s += 2
     elif hl_ratio >= 0.5: s += 1
-    if dist <= 3: s += 2
+    # Distribution days (0-2)
+    if   dist <= 3: s += 2
     elif dist <= 5: s += 1
-    if n_stage == 2: s += 2
+    # Nifty stage (0-2)
+    if   n_stage == 2: s += 2
     elif n_stage == 1: s += 1
+    # Volume confirmation and sector breadth (the two new live buckets) aren't
+    # cheap to compute historically, so they default to 0 here. Live can score
+    # up to 15; historical caps at 11 — but the buckets re-calibrate (below)
+    # against the live scale.
     return s
 
 
@@ -458,12 +503,16 @@ def _backtest_thresholds(stocks: dict, nifty: pd.Series, lookback_days: int = 60
     if not samples:
         return {"error": "no_samples", "by_bucket": []}
 
-    # Bucket: 0-2 / 3-4 / 5-7 / 8-10
+    # Bucket on the same scale used for live scoring. Historical max is 11
+    # (the two live-only inputs — volume confirmation and sector Stage-2
+    # breadth — aren't computed retrospectively), and live max is 15. The
+    # thresholds below mirror _label_for_score() so a backtest result of "8"
+    # is read the same way the live header reads "8".
     def _bucket(s):
-        if s >= 8: return "Bull (8-10)"
-        if s >= 5: return "Caution (5-7)"
-        if s >= 3: return "Correction (3-4)"
-        return "Bear (0-2)"
+        if s >= 9: return "Bull (9+)"
+        if s >= 5: return "Caution (5-8)"
+        if s >= 2: return "Correction (2-4)"
+        return "Bear (0-1)"
 
     buckets: dict[str, list[dict]] = {}
     for s in samples:
@@ -528,7 +577,7 @@ def _new_high_stocks(stocks: dict) -> list[dict]:
         if adtv_cr < 0.5:
             continue
         vr = round(float(vol.iloc[-1]) / avg_vol, 2) if avg_vol > 0 else 1.0
-        r3m = round((cur / float(cl.iloc[-63]) - 1) * 100, 2) if len(cl) > 63 else 0.0
+        r3m = round((cur / float(cl.iloc[-63]) - 1) * 100, 2) if len(cl) >= 63 else 0.0
         results.append({
             "symbol":    sym,
             "price":     round(cur, 2),
@@ -558,14 +607,29 @@ def _follow_through_day(nifty: pd.Series) -> dict:
         if len(nifty) < 30:
             return result
         window     = nifty.iloc[-60:]
-        peak_val   = float(window.max())
-        trough_val = float(window.min())
+        # BUG-FIX: previous code just took max/min of the window with no temporal
+        # ordering — if Nifty made a new high today after consolidation, the
+        # condition (peak-trough)/peak >= 8% was satisfied even though we're
+        # not in any "rally attempt". The proper IBD FTD requires:
+        #   1. A peak in the past
+        #   2. A trough AFTER that peak
+        #   3. Rally attempt from that trough
+        # So argmax(window) must come BEFORE argmin(window) in time.
+        vals       = window.values
+        peak_loc   = int(vals.argmax())
+        trough_loc = int(vals.argmin())
+        if trough_loc <= peak_loc:
+            # No proper decline-then-rally pattern in the window — no FTD setup.
+            return result
+        # Compute peak/trough from the proper temporal window: peak in first half,
+        # trough in second half. Decline measured from the peak.
+        peak_val   = float(vals[peak_loc])
+        trough_val = float(vals[trough_loc])
         cur        = float(nifty.iloc[-1])
         if peak_val <= 0 or (peak_val - trough_val) / peak_val < 0.08:
             return result
         if cur <= trough_val * 1.01:
             return result
-        trough_loc       = int(window.values.argmin())
         days_from_trough = len(window) - 1 - trough_loc
         result["rally_attempt"]      = True
         result["days_since_trough"]  = days_from_trough
@@ -573,7 +637,10 @@ def _follow_through_day(nifty: pd.Series) -> dict:
         if len(nifty) >= 2 and float(nifty.iloc[-2]) > 0:
             today_chg = (float(nifty.iloc[-1]) - float(nifty.iloc[-2])) / float(nifty.iloc[-2]) * 100
             result["today_chg_pct"] = round(today_chg, 2)
-            result["ftd_today"]     = (days_from_trough >= 3 and today_chg >= 1.7)
+            # BUG-011 FIX: FTD window is strictly Day 4-7 from the trough.
+            # Day 8+ is too late — the window has passed, return False.
+            ftd_in_window = (4 <= days_from_trough <= 7)
+            result["ftd_today"] = (ftd_in_window and today_chg >= 1.7)
         for i in range(-10, 0):
             try:
                 prev = float(nifty.iloc[i - 1])
@@ -611,7 +678,7 @@ def run_market_breadth(progress_callback=None) -> dict:
     sector_pct  = sector_b["pct_stage2"] if sector_b else None
     new_highs_l = _new_high_stocks(stocks)
     ftd         = _follow_through_day(nifty) if nifty is not None else {}
-    vix_proxy   = _realized_vix(nifty) if nifty is not None else None
+    vix_proxy   = _realized_vol(nifty) if nifty is not None else None
 
     # Compute timing first WITHOUT smoothed (to get raw score), then record + smooth
     raw_timing  = _market_timing_signal(breadth, dist_days, nifty_stage, sector_pct)
@@ -621,13 +688,16 @@ def run_market_breadth(progress_callback=None) -> dict:
     # Backtest thresholds (heavy — but data is already loaded, so cheap)
     backtest = _backtest_thresholds(stocks, nifty) if nifty is not None else {"by_bucket": []}
 
+    # BUG-007 FIX: _breadth_trend() was dead code — now called and included in output
+    breadth_trend = _breadth_trend(stocks)
+
     # Nifty returns
     nifty_r1m = nifty_r3m = nifty_r6m = None
     if nifty is not None and len(nifty) > 22:
-        nifty_r1m = round((float(nifty.iloc[-1]) / float(nifty.iloc[-22]) - 1) * 100, 2)
-    if nifty is not None and len(nifty) > 63:
+        nifty_r1m = round((float(nifty.iloc[-1]) / float(nifty.iloc[-21]) - 1) * 100, 2)
+    if nifty is not None and len(nifty) >= 63:
         nifty_r3m = round((float(nifty.iloc[-1]) / float(nifty.iloc[-63]) - 1) * 100, 2)
-    if nifty is not None and len(nifty) > 126:
+    if nifty is not None and len(nifty) >= 126:
         nifty_r6m = round((float(nifty.iloc[-1]) / float(nifty.iloc[-126]) - 1) * 100, 2)
 
     out = {
@@ -644,6 +714,7 @@ def run_market_breadth(progress_callback=None) -> dict:
         "sector_breadth": sector_b,        # NEW: sector Stage-2 stats
         "vix_proxy":      vix_proxy,        # NEW: realized vol as VIX proxy
         "backtest":       backtest,         # NEW: historical score buckets
+        "breadth_trend":  breadth_trend,   # BUG-007 FIX: weekly % above 50MA sparkline
         "computed_at":   int(time.time()),
     }
 

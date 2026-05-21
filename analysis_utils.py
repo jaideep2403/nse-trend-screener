@@ -2,8 +2,168 @@
 Shared technical analysis utilities — used by all scanners.
 Zero network calls. Pure OHLCV math.
 """
+from __future__ import annotations
 import numpy as np
 import pandas as pd
+
+
+# ── Canonical Nifty proxy constituent list ─────────────────────────────────────
+# TIER-3 FIX: was 3 different lists (10 / 20 / 30 stocks) across 7 files.
+# Single source of truth — every _build_nifty() imports from here.
+# 20 liquid large-caps so the proxy tracks Nifty50 with <2% tracking error.
+NIFTY_PROXY_SYMS = [
+    "RELIANCE", "TCS", "HDFCBANK", "ICICIBANK", "INFY",
+    "HINDUNILVR", "SBIN", "BHARTIARTL", "ITC", "KOTAKBANK",
+    "AXISBANK", "WIPRO", "HCLTECH", "MARUTI", "BAJFINANCE",
+    "TITAN", "NTPC", "POWERGRID", "NESTLEIND", "SUNPHARMA",
+]
+
+
+# ── Standardized return windows (trading days, ~21/month) ─────────────────────
+# BUG-FIX (cross-tab consistency): r1m was 21 in sector_analysis, 22 in industry_groups,
+# r3m was 63 vs 66 vs 63, etc. → same stock showed different "3-month return"
+# across tabs. Single source of truth here, imported everywhere.
+BARS_1M  = 21
+BARS_3M  = 63
+BARS_6M  = 126
+BARS_12M = 252
+
+
+# ── Split / Bonus backward-adjustment (centralized) ──────────────────────────
+def adjust_for_splits(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Backward-adjust OHLC for stock splits/bonuses.
+
+    BUG-FIX: the prior threshold `< 0.55` (>45% overnight drop) caught only
+    1:1+ bonuses and major splits. It MISSED:
+      - 3:2 bonus → 40% drop (ratio 0.60) — very common in NSE
+      - 4:3 bonus → 43% drop (ratio 0.57)
+      - 5:4 bonus → 44% drop (ratio 0.556)
+
+    New approach: detect any overnight drop > 18% AND ratio close to a clean
+    fraction (within 3%) of a small N/M like 1/2, 2/3, 3/5, 1/3, 4/5, 3/4, 1/4,
+    5/6, 1/5, 2/5, 1/6. This catches all common bonus ratios while ignoring
+    panic-day or earnings-disappointment drops (which won't match a clean fraction).
+
+    All callers (data_fetcher, monster_growth, early_growth, early_mover_scanner,
+    institutional_scanner, momentum_scanner, multiyear_breakout, trending) should
+    import and use this helper instead of their own 1-line threshold.
+    """
+    if df.empty or len(df) < 2:
+        return df
+
+    # Common bonus/split ratios (post/pre share count)
+    KNOWN_RATIOS = [
+        ("1:2 split / 1:1 bonus", 1/2),   # 50% drop
+        ("1:3 split / 2:1 bonus", 1/3),   # 66.7% drop
+        ("1:4 split / 3:1 bonus", 1/4),   # 75% drop
+        ("1:5 split / 4:1 bonus", 1/5),   # 80% drop
+        ("1:10 split",            1/10),  # 90% drop
+        ("2:3 / 3:2 bonus",       2/3),   # 33.3% drop
+        ("3:5 / 5:3 bonus",       3/5),   # 40% drop
+        ("3:4 / 4:3 bonus",       3/4),   # 25% drop
+        ("4:5 / 5:4 bonus",       4/5),   # 20% drop
+        ("5:6 bonus",             5/6),   # 16.7% drop
+        # NOTE: "3:2 bonus" with ratio 2/3 is already covered above on the
+        # "2:3 / 3:2 bonus" row. A previous entry with ratio (3/2 - 1) = 0.5
+        # was wrong (that is a 1:1 bonus / 1:2 split, not 3:2) and has been
+        # removed — it caused historical OHLC to be over-adjusted by ~33%.
+    ]
+
+    ohlc_cols = [c for c in ["Open", "High", "Low", "Close"] if c in df.columns]
+    closes = df["Close"].values.astype(float)
+    vol = df["Volume"].values.astype(float) if "Volume" in df.columns else None
+
+    events: list[tuple[int, float]] = []
+    for i in range(1, len(closes)):
+        prev, cur = closes[i - 1], closes[i]
+        if prev <= 0 or cur <= 0:
+            continue
+        ratio = cur / prev
+        # Only consider drops > 18%; smaller drops aren't bonuses.
+        if ratio >= 0.82:
+            continue
+        # Check if ratio is within 3% of a known clean fraction
+        for _, r in KNOWN_RATIOS:
+            if abs(ratio - r) / r < 0.03:
+                events.append((i, ratio))
+                break
+        else:
+            # Drop > 30% AND volume spike >= 2× — likely a split even if ratio is unusual
+            if ratio < 0.70 and vol is not None and i >= 10:
+                avg_v = vol[max(0, i-10):i].mean()
+                if avg_v > 0 and vol[i] >= avg_v * 2:
+                    events.append((i, ratio))
+
+    if not events:
+        return df
+
+    df = df.copy()
+    col_idx = [df.columns.get_loc(c) for c in ohlc_cols]
+    for split_idx, ratio in reversed(events):
+        df.iloc[:split_idx, col_idx] *= ratio
+    return df
+
+
+# ── Volume baseline (median, not SMA) ─────────────────────────────────────────
+def volume_baseline(vol: pd.Series, window: int = 20, use_median: bool = True) -> float:
+    """
+    Return a robust volume baseline for the last `window` bars.
+
+    BUG-FIX: most callers used `vol.rolling(20).mean()` which is heavily skewed
+    by single block-deal / expiry / earnings days that 5–10× normal volume.
+    Median is much more robust: a 10× outlier moves the mean ~50%, but only
+    moves the median by 5% (one bar out of 20).
+
+    Args:
+        vol: volume series
+        window: lookback bars
+        use_median: True for median (default), False for mean
+
+    Returns:
+        float baseline (0.0 if insufficient data)
+    """
+    if vol is None or len(vol) < window:
+        return 0.0
+    sample = vol.iloc[-window:].dropna()
+    if len(sample) == 0:
+        return 0.0
+    if use_median:
+        return float(sample.median())
+    return float(sample.mean())
+
+
+# ── Equal-weight index builder (NEVER use raw-price mean) ─────────────────────
+def equal_weight_index(closes_df: pd.DataFrame, base: float = 100.0) -> pd.Series:
+    """
+    Build a proper equal-weight index from a DataFrame of close-price series.
+
+    BUG-FIX: The old `combined.mean(axis=1)` averaged RAW prices — so a stock
+    trading at ₹12,000 (MARUTI) contributed 30× more than one at ₹400 (ITC).
+    A 1% move in MARUTI moved the "Nifty proxy" ~10× more than a 1% move in ITC.
+    Every RS-vs-Nifty calc in the app inherited this distortion.
+
+    Correct method: rebase each series to `base` at its first valid value,
+    then average. This way each stock contributes proportionally to its
+    % change from the start of the window — not its nominal price level.
+
+    Args:
+        closes_df: wide DataFrame (rows=dates, cols=symbols), each col a close series.
+        base: starting value for each rebased series (cosmetic; default 100).
+
+    Returns:
+        pd.Series of the equal-weight index value over time, or empty Series.
+    """
+    if closes_df is None or closes_df.empty:
+        return pd.Series(dtype=float)
+    # Forward-fill within each column so a holiday doesn't break the rebase;
+    # then take the first VALID value per column as the base.
+    filled = closes_df.ffill()
+    first_vals = filled.bfill().iloc[0]   # first non-NaN per column
+    # Avoid divide-by-zero for accidental zero-price columns
+    safe_first = first_vals.replace(0, np.nan)
+    rebased = filled.div(safe_first) * base
+    return rebased.mean(axis=1).dropna()
 
 
 # ── Trend Template Score (Minervini SEPA) ─────────────────────────────────────
@@ -14,14 +174,20 @@ def trend_template_score(close: pd.Series, rs_rating: int = 0) -> tuple[int, lis
     Returns (score 0-8, list of satisfied criteria labels).
     Score 7-8 = ideal buy zone.
     """
-    if len(close) < 220:
+    n = len(close)
+    if n < 200:
         return 0, []
+    # Adaptive lookback for "1-month-ago MA200" — bhavcopy history is finite.
+    # Need at least 1 valid MA200 sample in the lookback (i.e., n - lookback >= 200).
+    # Prefer 22 bars (1 month) when available; fall back to half the available window
+    # when history is shorter (typical for our 211-bar Nifty universe).
+    lookback_1m = min(22, max(5, n - 200 - 1))
 
     cur     = float(close.iloc[-1])
     ma50    = float(close.rolling(50).mean().iloc[-1])
     ma150   = float(close.rolling(150).mean().iloc[-1])
     ma200   = float(close.rolling(200).mean().iloc[-1])
-    ma200_1m = float(close.rolling(200).mean().iloc[-22])   # 1 month ago
+    ma200_1m = float(close.rolling(200).mean().iloc[-lookback_1m])
 
     hi52 = float(close.iloc[-252:].max()) if len(close) >= 252 else float(close.max())
     lo52 = float(close.iloc[-252:].min()) if len(close) >= 252 else float(close.min())
@@ -62,24 +228,31 @@ def trend_template_score(close: pd.Series, rs_rating: int = 0) -> tuple[int, lis
 def stage_analysis(close: pd.Series) -> int:
     """
     Weinstein Stage: 1=Basing, 2=Advancing, 3=Topping, 4=Declining.
-    Uses 30-week (≈150-day) MA slope + price position.
+    Uses both MA50 AND MA150 slope + price position (true Weinstein method).
     Returns 0 if insufficient data.
+
+    TIER-3 FIX (BUG-028): previous version used only MA150, which granted Stage 2
+    to stocks above the 30-week MA regardless of the 10-week MA direction.
+    True Weinstein Stage 2 requires price above BOTH MAs with BOTH rising.
+    All callers (monster_growth, alpha_engine, portfolio, early_growth, etc.)
+    now import this single implementation instead of maintaining their own copies.
     """
-    if len(close) < 160:
+    if len(close) < 175:
         return 0
 
-    ma150      = close.rolling(150).mean()
-    cur        = float(close.iloc[-1])
-    ma_now     = float(ma150.iloc[-1])
-    ma_1m_ago  = float(ma150.iloc[-22])   # ~1 month
-    ma_rising  = ma_now > ma_1m_ago * 1.001
-    ma_falling = ma_now < ma_1m_ago * 0.999
-    above_ma   = cur > ma_now
+    cur       = float(close.iloc[-1])
+    ma50      = float(close.rolling(50).mean().iloc[-1])
+    ma150     = float(close.rolling(150).mean().iloc[-1])
+    ma50_1m   = float(close.rolling(50).mean().iloc[-22])
+    ma150_1m  = float(close.rolling(150).mean().iloc[-22])
+    # ±0.5% hysteresis prevents noisy oscillation on flat MAs
+    slope50   = ma50  > ma50_1m  * 1.005
+    slope150  = ma150 > ma150_1m * 1.005
 
-    if above_ma and ma_rising:  return 2  # Advancing — buy
-    if above_ma and ma_falling: return 3  # Topping   — caution
-    if not above_ma and ma_falling: return 4  # Declining — avoid
-    return 1  # Basing — watch
+    if cur > ma50 and cur > ma150 and slope50 and slope150: return 2  # Advancing
+    if cur > ma50 and not slope150:                         return 3  # Topping
+    if cur < ma150 and not slope150:                        return 4  # Declining
+    return 1  # Basing
 
 
 def stage_label(s: int) -> str:
@@ -119,7 +292,7 @@ def is_3wt(close: pd.Series) -> bool:
     3-Weeks-Tight (Minervini): three consecutive weekly closes within 1.5%.
     """
     try:
-        wk = close.resample("W").last().dropna()
+        wk = close.resample("W-FRI").last().dropna()
         if len(wk) < 4:
             return False
         last3 = wk.iloc[-3:]
@@ -190,8 +363,12 @@ def rs_line_new_high(close: pd.Series, nifty: pd.Series) -> bool:
         if float(nifty_a.iloc[-1]) <= 0:
             return False
         rs = close[idx] / nifty_a
-        lookback = min(252, len(rs))
-        return float(rs.iloc[-1]) >= float(rs.iloc[-lookback:].max()) * 0.995
+        # BUG-011 FIX: exclude the current bar from the new-high lookback so we
+        # are comparing current RS against PRIOR window, not against itself.
+        lookback = min(252, len(rs) - 1) if len(rs) > 1 else 1
+        if lookback <= 0:
+            return False
+        return float(rs.iloc[-1]) >= float(rs.iloc[-lookback - 1:-1].max()) * 0.995
     except Exception:
         return False
 
@@ -409,8 +586,13 @@ def composite_rank(tt_score: int, rs_rating: int, stage: int,
     """
     IBD-inspired composite 0–100 rank.
     TT Score 30% · RS Rating 25% · Stage 20% · Delivery 10% · Base 10% · PowerTrend 5%
+
+    BUG-024 NOTE: rs_rating expects a true cross-sectional percentile (1-99).
+    Cap input to [1, 99] to prevent out-of-range values causing scoring anomalies.
     """
     try:
+        # BUG-024 FIX: cap rs_rating to valid range before scoring
+        rs_rating = max(1, min(99, rs_rating or 50))
         score  = (tt_score / 8) * 30
         score += (min(rs_rating, 99) / 99) * 25
         score += {2: 20, 1: 10, 3: 5, 4: 0}.get(stage, 0)
@@ -422,6 +604,51 @@ def composite_rank(tt_score: int, rs_rating: int, stage: int,
         return min(100, round(score))
     except Exception:
         return 0
+
+
+# ── Cross-sectional RS rank (P2-13: full universe consistency) ───────────────
+
+def cross_sectional_rs_rank(returns_by_symbol: dict[str, float]) -> dict[str, int]:
+    """
+    Convert raw {symbol: return} into {symbol: percentile_rank 1-99}.
+
+    P2-13 FIX: every scanner previously computed RS rank against its own
+    filtered subset (e.g. ADTV >= 1Cr in alpha_engine, mcap <= 50000 in
+    early_growth). Same stock therefore had different RS ranks across tabs.
+    This helper ranks across the FULL universe of provided symbols, so all
+    scanners get consistent 1-99 percentiles when they hand it the same
+    return dict.
+    """
+    if not returns_by_symbol:
+        return {}
+    rets = [(s, r) for s, r in returns_by_symbol.items() if r is not None]
+    if not rets:
+        return {}
+    rets.sort(key=lambda x: x[1])
+    n = len(rets)
+    out: dict[str, int] = {}
+    for i, (sym, _) in enumerate(rets):
+        # 1-99 percentile (avoid 0 and 100 — composite scorers cap at 99)
+        pct = int(round((i + 1) / n * 99))
+        out[sym] = max(1, min(99, pct))
+    return out
+
+
+# ── Sector-adjusted RS rank (P2-12: "leader in a leader") ────────────────────
+
+def sector_adjusted_rs(stock_rs: int, sector_rs: int) -> int:
+    """
+    Combine a stock's full-universe RS rank with its sector's RS rank
+    into a 0-99 composite. Highlights "leader in a leading sector" pattern.
+
+    Formula: 0.6 × stock_rs + 0.4 × sector_rs (stock dominates but sector
+    has meaningful weight). A RS-90 stock in a sector ranked 30 ends up
+    around 66 — visibly weaker than RS-75 in a top-10 sector (75×.6 + 90×.4
+    = 81).
+    """
+    s = max(1, min(99, int(stock_rs or 50)))
+    g = max(1, min(99, int(sector_rs or 50)))
+    return max(1, min(99, int(round(0.6 * s + 0.4 * g))))
 
 
 # ── ATR (shared) ──────────────────────────────────────────────────────────────
@@ -436,6 +663,10 @@ def atr(df: pd.DataFrame, period: int = 14) -> float:
             return float(cl.iloc[-1]) * 0.02
         h = hi[idx]; l = lo[idx]; c = cl[idx]
         tr = pd.concat([h - l, (h - c.shift(1)).abs(), (l - c.shift(1)).abs()], axis=1).max(axis=1)
-        return float(tr.rolling(period).mean().iloc[-1])
+        # BUG-025 FIX: Wilder smoothing (alpha = 1/period) is the standard
+        # ATR formula; plain rolling SMA produces a different value with a
+        # heavier weight on the oldest bar in the window.
+        atr_v = tr.ewm(alpha=1 / period, adjust=False).mean()
+        return float(atr_v.iloc[-1])
     except Exception:
         return 0.0

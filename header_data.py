@@ -21,6 +21,10 @@ _NIFTY50_URL = "https://archives.nseindia.com/content/indices/ind_nifty50list.cs
 _NIFTY50_CACHE = DATA_DIR / ".nifty50_cache.pkl"
 _NIFTY50_TTL   = 7 * 86400  # weekly
 
+# NSE Index closing file — actual Nifty 50 level (Open/High/Low/Close/Change%)
+# URL: https://archives.nseindia.com/content/indices/ind_close_all_DDMMYYYY.csv
+_INDEX_LEVEL_CACHE: dict = {}   # {date_str: {"nifty": float, "change_pct": float}}
+
 _HEADERS = {
     "User-Agent": (
         "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
@@ -69,6 +73,33 @@ def _load_nifty50_symbols() -> list[str]:
     except Exception:
         pass
     return list(_NIFTY50_FALLBACK)
+
+
+def _fetch_nifty_level(dt: date) -> tuple[float | None, float | None]:
+    """
+    Fetch actual Nifty 50 index level from NSE's daily index closing file.
+    Returns (closing_level, change_pct) — both from NSE's own published numbers.
+    Falls back to (None, None) if the file isn't available yet (pre-publish).
+    """
+    date_str = dt.strftime("%d%m%Y")
+    if date_str in _INDEX_LEVEL_CACHE:
+        cached = _INDEX_LEVEL_CACHE[date_str]
+        return cached["nifty"], cached["change_pct"]
+    try:
+        url = f"https://archives.nseindia.com/content/indices/ind_close_all_{date_str}.csv"
+        r = requests.get(url, headers=_HEADERS, timeout=10)
+        if r.status_code != 200 or len(r.content) < 100:
+            return None, None
+        df = pd.read_csv(io.BytesIO(r.content))
+        row = df[df["Index Name"].str.strip() == "Nifty 50"]
+        if row.empty:
+            return None, None
+        level = float(row["Closing Index Value"].iloc[0])
+        chg   = float(row["Change(%)"].iloc[0])
+        _INDEX_LEVEL_CACHE[date_str] = {"nifty": level, "change_pct": chg}
+        return level, chg
+    except Exception:
+        return None, None
 
 
 def _list_bhav_pkls() -> list[Path]:
@@ -172,21 +203,39 @@ def get_market_header() -> dict:
     total = len(common)
     adr = round(advances / declines, 2) if declines > 0 else None
 
-    # ── Nifty 50 level (equal-weighted average of 50 constituents) ──
-    n50 = _load_nifty50_symbols()
-    n50_today = today.reindex(n50).dropna()
-    n50_prev  = prev.reindex(n50).dropna()
-    common50  = n50_today.index.intersection(n50_prev.index)
-
+    # ── Nifty 50 level — from NSE's own index closing file (exact value) ──
+    # Walk back up to 5 trading days to find the latest published index file.
     nifty_level = None
     change_pct  = None
-    if len(common50) >= 30:  # need at least 30 of 50 for reliability
-        # Equal-weighted index: scaled to look ~Nifty-like (use ratio change)
-        avg_today = float(n50_today.loc[common50].mean())
-        avg_prev  = float(n50_prev.loc[common50].mean())
-        change_pct = round((avg_today / avg_prev - 1) * 100, 2)
-        # Display value: show today's avg constituent price (a proxy level)
-        nifty_level = round(avg_today, 2)
+    components_used = 0
+    for days_back in range(5):
+        check_date = date.today() - timedelta(days=days_back)
+        if check_date.weekday() >= 5:   # skip weekends
+            continue
+        lvl, chg = _fetch_nifty_level(check_date)
+        if lvl is not None:
+            nifty_level = round(lvl, 2)
+            change_pct  = round(chg, 2)
+            break
+
+    # Fallback: if index file not yet published, compute a proper equal-weight
+    # change% from Nifty 50 constituents. The previous code did a RAW PRICE MEAN
+    # of close levels — MARUTI at ₹13k dominated ITC at ₹400 by 30x, so a 1%
+    # MARUTI move counted ~10x more than a 1% ITC move and the header
+    # "Nifty change %" was wrong in the 4-7pm IST pre-publish window.
+    # Correct method: per-stock pct change, then equal-weight mean.
+    if change_pct is None:
+        n50 = _load_nifty50_symbols()
+        n50_today = today.reindex(n50).dropna()
+        n50_prev  = prev.reindex(n50).dropna()
+        common50  = n50_today.index.intersection(n50_prev.index)
+        if len(common50) >= 30:
+            pct_changes = (n50_today.loc[common50] / n50_prev.loc[common50] - 1) * 100
+            # Drop any inf from accidental zero-prev
+            pct_changes = pct_changes.replace([float("inf"), float("-inf")], pd.NA).dropna()
+            if len(pct_changes) >= 30:
+                change_pct = round(float(pct_changes.mean()), 2)
+                components_used = int(len(pct_changes))
 
     trend, trend_color, trend_source = _resolve_trend(change_pct, adr)
 
@@ -210,7 +259,7 @@ def get_market_header() -> dict:
         "trend_color":   trend_color,
         "trend_source":  trend_source,
         "trading_date":  date_label,
-        "components_used": int(len(common50)),
+        "components_used": components_used,
         "computed_at":   int(time.time()),
     }
 

@@ -1,0 +1,257 @@
+<!-- ═══════════════════════════════════════════════ STAGE TRANSITIONS TAB -->
+<div id="tab-stage-log" class="tab-content">
+<div class="container">
+
+  <style>
+    .sl-hero {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-left: 4px solid #6366f1;
+      border-radius: 10px;
+      padding: 16px 22px;
+      margin-bottom: 18px;
+    }
+    .sl-hero h3 { margin: 0 0 6px; font-size: 16px; color: var(--accent); font-weight: 700; }
+    .sl-hero p  { margin: 0; font-size: 13px; color: var(--text); line-height: 1.6; }
+    .sl-hero strong { color: var(--white); }
+    .sl-hero code { background: var(--surface2); padding: 2px 6px; border-radius: 4px; color: var(--accent2); font-family: var(--mono); font-size: 12px; }
+
+    .sl-pill {
+      padding: 6px 14px; border-radius: 20px; font-size: 12px; font-weight: 600;
+      border: 1px solid var(--border); background: var(--surface); color: var(--text);
+      cursor: pointer; transition: all 0.15s;
+    }
+    .sl-pill:hover  { border-color: #6366f1; color: #a5b4fc; }
+    .sl-pill-on     { background: rgba(99,102,241,0.18); border-color: #6366f1; color: #a5b4fc; }
+
+    .sl-stat-card {
+      background: var(--surface); border: 1px solid var(--border); border-radius: 10px;
+      padding: 10px 14px; min-width: 140px; flex: 1;
+    }
+    .sl-stat-card .sl-stat-label { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; }
+    .sl-stat-card .sl-stat-value { font-size: 24px; font-weight: 800; margin-top: 4px; font-family: var(--mono); }
+
+    .sl-stat-s1 { border-color: rgba(59,130,246,0.35); }
+    .sl-stat-s1 .sl-stat-label, .sl-stat-s1 .sl-stat-value { color: var(--accent2); }
+    .sl-stat-s2 { border-color: rgba(16,185,129,0.35); }
+    .sl-stat-s2 .sl-stat-label, .sl-stat-s2 .sl-stat-value { color: var(--green2); }
+    .sl-stat-s3 { border-color: rgba(245,158,11,0.35); }
+    .sl-stat-s3 .sl-stat-label, .sl-stat-s3 .sl-stat-value { color: var(--gold2); }
+    .sl-stat-s4 { border-color: rgba(239,68,68,0.35); }
+    .sl-stat-s4 .sl-stat-label, .sl-stat-s4 .sl-stat-value { color: var(--red2); }
+
+    #slTable { width: 100%; font-size: 12px; border-collapse: separate; border-spacing: 0; }
+    #slTable th {
+      background: var(--surface2); color: var(--text); font-weight: 700; font-size: 11px;
+      text-transform: uppercase; letter-spacing: 0.4px; text-align: left;
+      padding: 10px 12px; border-bottom: 2px solid var(--border); position: sticky; top: 0;
+    }
+    #slTable td { padding: 9px 12px; border-bottom: 1px solid var(--border); vertical-align: middle; color: var(--text); }
+    #slTable tbody tr:hover { background: rgba(99,102,241,0.05); }
+
+    .sl-stage-pill {
+      display: inline-block; padding: 3px 10px; border-radius: 12px; font-size: 11px; font-weight: 700;
+    }
+    .sl-stage-1 { background: rgba(59,130,246,0.18);  color: var(--accent2); }
+    .sl-stage-2 { background: rgba(16,185,129,0.18);  color: var(--green2);  }
+    .sl-stage-3 { background: rgba(245,158,11,0.18);  color: var(--gold2);   }
+    .sl-stage-4 { background: rgba(239,68,68,0.18);   color: var(--red2);    }
+
+    .sl-fresh-dot {
+      display: inline-block; width: 8px; height: 8px; border-radius: 50%;
+      background: var(--green); margin-right: 5px; vertical-align: middle;
+      box-shadow: 0 0 6px rgba(16,185,129,0.6);
+    }
+
+    .sl-disclaim {
+      background: rgba(245,158,11,0.10); border: 1px solid rgba(245,158,11,0.35);
+      border-radius: 8px; padding: 10px 14px; margin-bottom: 14px;
+    }
+    .sl-disclaim p { margin: 0; color: var(--gold2); font-size: 12px; line-height: 1.5; }
+  </style>
+
+  <!-- Description -->
+  <div class="sl-hero">
+    <h3>📊 Weinstein Stage Transition Log</h3>
+    <p>
+      Tracks <strong>when each stock changes stage</strong> (basing / advancing / topping / declining) over time.
+      Most actionable view: stocks that <strong>just transitioned into Stage 2</strong> in the last few days — fresh institutional buying.
+      Log is persisted to <code>stage_transitions.db</code>; populated automatically by every scanner run.
+    </p>
+  </div>
+
+  <!-- Stage stats summary -->
+  <div id="slStatsRow" style="display:flex; gap:10px; flex-wrap:wrap; margin-bottom:14px;">
+    <!-- populated by JS -->
+  </div>
+
+  <!-- Filters -->
+  <div style="display:flex; align-items:center; gap:8px; margin-bottom:14px; flex-wrap:wrap;">
+    <span style="font-size:11px; color:var(--text2); text-transform:uppercase; font-weight:700; letter-spacing:0.4px; margin-right:4px;">Into Stage:</span>
+    <button id="slStage-2" class="sl-pill sl-pill-on" onclick="stageLogFilter('stage', 2)">🟢 Stage 2 (Advancing)</button>
+    <button id="slStage-1" class="sl-pill"            onclick="stageLogFilter('stage', 1)">🔵 Stage 1 (Basing)</button>
+    <button id="slStage-3" class="sl-pill"            onclick="stageLogFilter('stage', 3)">🟡 Stage 3 (Topping)</button>
+    <button id="slStage-4" class="sl-pill"            onclick="stageLogFilter('stage', 4)">🔴 Stage 4 (Declining)</button>
+
+    <span style="font-size:11px; color:var(--text2); text-transform:uppercase; font-weight:700; letter-spacing:0.4px; margin:0 4px 0 18px;">Window:</span>
+    <button id="slDays-3"  class="sl-pill"            onclick="stageLogFilter('days', 3)">3d</button>
+    <button id="slDays-10" class="sl-pill sl-pill-on" onclick="stageLogFilter('days', 10)">10d</button>
+    <button id="slDays-30" class="sl-pill"            onclick="stageLogFilter('days', 30)">30d</button>
+    <button id="slDays-90" class="sl-pill"            onclick="stageLogFilter('days', 90)">90d</button>
+
+    <span id="slCount" style="margin-left:auto; font-size:12px; color:var(--text2)">— transitions</span>
+    <button onclick="stageLogLoad()" class="btn btn-primary" style="font-size:12px; padding:6px 14px;">🔄 Refresh</button>
+  </div>
+
+  <!-- First-day disclaimer -->
+  <div id="slDisclaimer" class="sl-disclaim" style="display:none;">
+    <p>
+      <strong>⚠ First-day note:</strong> the log is fresh — every stock's "since date" is today.
+      Real transition signals (e.g. "BHEL just crossed into Stage 2 after 4 weeks basing")
+      will appear starting tomorrow's scan, once each stock has a baseline.
+    </p>
+  </div>
+
+  <!-- Table -->
+  <div style="background:var(--card); border:1px solid var(--border); border-radius:10px; overflow:hidden;">
+    <table id="slTable">
+      <thead>
+        <tr>
+          <th style="width:40px">#</th>
+          <th style="width:120px">Symbol</th>
+          <th style="width:160px; text-align:center">Current Stage</th>
+          <th style="width:110px; text-align:center">Previous</th>
+          <th style="width:120px; text-align:center">Since Date</th>
+          <th style="width:90px;  text-align:center">Days Ago</th>
+          <th style="width:80px;  text-align:center">Bars In</th>
+          <th>Action</th>
+        </tr>
+      </thead>
+      <tbody id="slBody"></tbody>
+    </table>
+  </div>
+
+  <div id="slEmpty" style="text-align:center; padding:40px; color:var(--text2); display:none;">
+    <p style="font-size:14px">No transitions in this window.</p>
+    <p style="font-size:12px; margin-top:6px">Try a wider window or different stage. Transitions accumulate as scans run daily.</p>
+  </div>
+
+</div>
+</div>
+
+<script>
+  (function() {
+    var _slData = null;
+    var _slStage = 2;
+    var _slDays  = 10;
+
+    function _stageLabel(n) {
+      return {1:'S1 Basing', 2:'S2 ▲ Advancing', 3:'S3 Top', 4:'S4 ▼ Declining'}[n] || '—';
+    }
+    function _stageClass(n) {
+      return {1:'sl-stage-1', 2:'sl-stage-2', 3:'sl-stage-3', 4:'sl-stage-4'}[n] || '';
+    }
+    function _actionForTransition(prev, cur) {
+      if (cur === 2 && (prev === 1 || prev === 4 || prev === null)) {
+        return '<strong style="color:var(--green2)">🟢 BUY zone</strong> <span style="color:var(--text2)">— fresh Stage 2 entry. Consider initiating position.</span>';
+      }
+      if (cur === 1 && prev === 4) {
+        return '<strong style="color:var(--accent2)">👀 WATCH</strong> <span style="color:var(--text2)">— recovering from decline. Wait for Stage 2 confirmation.</span>';
+      }
+      if (cur === 3 && prev === 2) {
+        return '<strong style="color:var(--gold2)">⚠ TRIM</strong> <span style="color:var(--text2)">— entering topping phase. Tighten stops.</span>';
+      }
+      if (cur === 4 && prev === 3) {
+        return '<strong style="color:var(--red2)">🔴 EXIT</strong> <span style="color:var(--text2)">— confirmed decline. Stop out immediately.</span>';
+      }
+      if (cur === 4 && prev === 2) {
+        return '<strong style="color:var(--red2)">🚨 EMERGENCY EXIT</strong> <span style="color:var(--text2)">— sharp reversal from advancing to declining.</span>';
+      }
+      if (prev === null) return '<span style="color:var(--text2)">First time tracked — baseline.</span>';
+      return '<span style="color:var(--text2)">—</span>';
+    }
+
+    window.stageLogLoad = function() {
+      var url = '/api/stage-transitions?into_stage=' + _slStage + '&within_days=' + _slDays;
+      fetch(url).then(function(r){ return r.json(); }).then(function(d){
+        _slData = d;
+        stageLogRender();
+      }).catch(function(e){
+        var emp = document.getElementById('slEmpty');
+        if (emp) { emp.style.display='block'; emp.querySelector('p').textContent = 'Error: ' + e.message; }
+      });
+    };
+
+    window.stageLogFilter = function(kind, value) {
+      if (kind === 'stage') _slStage = value;
+      else if (kind === 'days') _slDays = value;
+      var prefix = (kind === 'stage') ? 'slStage-' : 'slDays-';
+      document.querySelectorAll('[id^="' + prefix + '"]').forEach(function(p){ p.classList.remove('sl-pill-on'); });
+      var act = document.getElementById(prefix + value);
+      if (act) act.classList.add('sl-pill-on');
+      stageLogLoad();
+    };
+
+    function stageLogRender() {
+      if (!_slData) return;
+      var stats = _slData.stats || {};
+      var stocks = _slData.stocks || [];
+
+      // Render stats row
+      var statsHtml = '';
+      [
+        {n: 1, label: 'Stage 1 — Basing',    cls: 'sl-stat-s1'},
+        {n: 2, label: 'Stage 2 — Advancing', cls: 'sl-stat-s2'},
+        {n: 3, label: 'Stage 3 — Topping',   cls: 'sl-stat-s3'},
+        {n: 4, label: 'Stage 4 — Declining', cls: 'sl-stat-s4'},
+      ].forEach(function(s){
+        var v = stats['stage_' + s.n] || 0;
+        statsHtml += '<div class="sl-stat-card ' + s.cls + '">' +
+                       '<div class="sl-stat-label">' + s.label + '</div>' +
+                       '<div class="sl-stat-value">' + v + '</div>' +
+                     '</div>';
+      });
+      statsHtml += '<div class="sl-stat-card">' +
+                     '<div class="sl-stat-label" style="color:var(--text2)">Total Tracked</div>' +
+                     '<div class="sl-stat-value" style="color:var(--white)">' + (stats.total_tracked || 0) + '</div>' +
+                   '</div>';
+      document.getElementById('slStatsRow').innerHTML = statsHtml;
+
+      var disclaim = document.getElementById('slDisclaimer');
+      var allZero  = stocks.length > 0 && stocks.every(function(s){ return (s.days_ago || 0) === 0; });
+      if (disclaim) disclaim.style.display = allZero ? 'block' : 'none';
+
+      document.getElementById('slCount').textContent =
+        stocks.length + ' stocks · into ' + _stageLabel(_slStage) + ' · last ' + _slDays + 'd';
+
+      var body  = document.getElementById('slBody');
+      var empty = document.getElementById('slEmpty');
+      body.innerHTML = '';
+
+      if (stocks.length === 0) {
+        empty.style.display = 'block';
+        return;
+      }
+      empty.style.display = 'none';
+
+      stocks.forEach(function(s, i) {
+        var freshDot = s.days_ago <= 5 ? '<span class="sl-fresh-dot"></span>' : '';
+        var prev = s.prev_stage
+          ? '<span class="sl-stage-pill ' + _stageClass(s.prev_stage) + '">' + _stageLabel(s.prev_stage).slice(0,2) + '</span>'
+          : '<span style="color:var(--muted); font-size:11px">—</span>';
+
+        var tr = document.createElement('tr');
+        tr.innerHTML =
+          '<td style="color:var(--text2); font-weight:600">' + (i + 1) + '</td>' +
+          '<td><strong style="color:#a5b4fc; font-size:14px">' + s.symbol + '</strong></td>' +
+          '<td style="text-align:center"><span class="sl-stage-pill ' + _stageClass(s.stage) + '">' + _stageLabel(s.stage) + '</span></td>' +
+          '<td style="text-align:center">' + prev + '</td>' +
+          '<td style="text-align:center; font-family:var(--mono); font-size:11px; color:var(--text2)">' + (s.since_date || '—') + '</td>' +
+          '<td style="text-align:center; font-weight:700; color:var(--text)">' + freshDot + s.days_ago + 'd</td>' +
+          '<td style="text-align:center; color:var(--text2)">' + (s.bars_in || 1) + '</td>' +
+          '<td>' + _actionForTransition(s.prev_stage, s.stage) + '</td>';
+        body.appendChild(tr);
+      });
+    }
+  })();
+</script>

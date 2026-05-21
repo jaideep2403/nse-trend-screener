@@ -51,7 +51,25 @@ if PORTFOLIO_AVAILABLE:
             )
             return jsonify({"ok": True})
         except Exception as e:
+            # Surface fuzzy suggestions on validation failure
+            sym = (data.get("symbol") if isinstance(data, dict) else None) or ""
+            try:
+                v = _pf.validate_symbol(sym)
+                if not v["valid"] and v.get("suggestions"):
+                    return jsonify({"error": str(e),
+                                    "suggestions": v["suggestions"]}), 400
+            except Exception:
+                pass
             return jsonify({"error": str(e)}), 400
+
+    @app.route("/api/portfolio/validate", methods=["GET"])
+    def api_portfolio_validate():
+        sym = request.args.get("symbol", "")
+        try:
+            return jsonify(_pf.validate_symbol(sym))
+        except Exception as e:
+            return jsonify({"valid": False, "error": str(e),
+                            "suggestions": []}), 200
 
     @app.route("/api/portfolio/<pos_id>", methods=["DELETE"])
     def api_portfolio_delete(pos_id):
@@ -115,12 +133,86 @@ if INVESTGRADE_AVAILABLE:
                 pass
         return jsonify(s)
 
+# ── LOCAL-ONLY: Alpha Engine — Multi-Factor Composite Scorer (gitignored) ─────
+ALPHA_AVAILABLE = False
+try:
+    import alpha_engine as _ae
+    ALPHA_AVAILABLE = True
+except Exception as _ae_e:
+    print(f"[alpha_engine] disabled (file not present): {_ae_e}")
+
+# ── Sector mapper — background refresh on startup ─────────────────────────────
+try:
+    from sector_mapper import refresh_sector_cache as _refresh_sectors
+    _refresh_sectors(background=True)   # builds .sector_cache.json in ~2s, non-blocking
+    print("[sector_mapper] Auto-sector cache refresh started (background)")
+except Exception as _sm_e:
+    print(f"[sector_mapper] not available: {_sm_e}")
+
+if ALPHA_AVAILABLE:
+    alpha_state = {
+        "running": False, "result": None, "error": None,
+        "progress": 0, "total": 100, "message": "", "started_at": None,
+    }
+    alpha_lock = threading.Lock()
+
+    def _do_alpha_scan():
+        def progress_cb(done, total, msg):
+            with alpha_lock:
+                alpha_state["progress"] = done
+                alpha_state["total"]    = total
+                alpha_state["message"]  = msg
+        try:
+            result = _ae.run_alpha_scan(progress_callback=progress_cb)
+            with alpha_lock:
+                alpha_state["result"]  = result
+                alpha_state["running"] = False
+        except Exception as e:
+            with alpha_lock:
+                alpha_state["error"]   = str(e)
+                alpha_state["running"] = False
+
+    @app.route("/api/alpha/scan", methods=["POST"])
+    def api_alpha_scan():
+        with alpha_lock:
+            if alpha_state["running"]:
+                return jsonify({"status": "already_running"})
+            alpha_state.update({
+                "running": True, "result": None, "error": None,
+                "progress": 0, "total": 100, "message": "Starting…",
+            })
+        threading.Thread(target=_do_alpha_scan, daemon=True).start()
+        return jsonify({"status": "started"})
+
+    @app.route("/api/alpha/status")
+    def api_alpha_status():
+        with alpha_lock:
+            s = dict(alpha_state)
+        if s["result"] is None and not s["running"]:
+            try:
+                if _ae._cache.get("data"):
+                    s["result"] = _ae._cache["data"]
+            except Exception:
+                pass
+        pct = round(s["progress"] / max(s["total"], 1) * 100, 1)
+        return jsonify({
+            "running":  s["running"],
+            "pct":      pct,
+            "message":  s["message"],
+            "result":   s["result"],
+            "error":    s["error"],
+        })
+
 # Inject flag into all templates (read by index.html to show/hide the tab)
 @app.context_processor
 def inject_portfolio_flag():
     return {
         "portfolio_enabled":   PORTFOLIO_AVAILABLE,
         "investgrade_enabled": INVESTGRADE_AVAILABLE,
+        "alpha_enabled":       ALPHA_AVAILABLE,
+        "monster_enabled":        MONSTER_AVAILABLE,
+        "early_growth_enabled":   EARLY_GROWTH_AVAILABLE,
+        "vvv_enabled":         globals().get("VVV_AVAILABLE", False),
         "universe_label":      "Nifty Total Market",
         "universe_label_short": "NSE Total Market",
     }
@@ -963,7 +1055,7 @@ def fundamentals_status():
         "pct_complete":       pct,
         "eta":                eta_str,
         "eta_minutes":        eta_min,
-        "rate":               "~240 stocks / hour  (1 every 15–20 seconds)",
+        "rate":               "~400 stocks / hour  (1 every 8–11 seconds)",
         "sched_error":        sched.get("error", ""),
         # DB cache info
         "cache":              cache,
@@ -1030,7 +1122,92 @@ def bhavcopy_status():
         "fetched_at_unix": int(mtime),
         "status":          status,       # "today" | "stale" | "no_data"
         "label":           label,
+        "auto_refresh":    "every 5 min until today's data arrives, then every 20 min",
     })
+
+
+@app.route("/api/holders")
+def holders():
+    """P0-3: per-symbol FII/DII/MF/Promoter shareholding from NSE corp-info."""
+    sym = (request.args.get("symbol") or "").strip().upper()
+    if not sym:
+        return jsonify({"error": "symbol required", "signal": "unknown"}), 400
+    try:
+        from holders_data import fetch_holders_for_symbol
+        return jsonify(fetch_holders_for_symbol(sym))
+    except Exception as e:
+        return jsonify({"error": str(e), "signal": "unknown", "symbol": sym}), 500
+
+
+@app.route("/api/consensus")
+def consensus_top():
+    """P2-10/11: cross-scan consensus — top stocks by appears-in-N-scans score."""
+    try:
+        from consensus import build_consensus, invalidate_cache as _inv
+        # Allow forced rebuild so a fresh consensus reflects scanners that
+        # just finished after the 10-min cache was last populated.
+        if request.args.get("force") in ("1", "true", "yes"):
+            _inv()
+        d = build_consensus()
+        # Return top 50 only for the leaderboard view
+        return jsonify({
+            "top":         d["top"][:50],
+            "total_symbols": d["total_symbols"],
+            "computed_at": d["computed_at"],
+        })
+    except Exception as e:
+        return jsonify({"error": str(e), "top": [], "total_symbols": 0}), 500
+
+
+@app.route("/api/consensus/<symbol>")
+def consensus_lookup(symbol):
+    """P2-11: per-symbol cross-scan badge — how many scanners flagged this stock."""
+    try:
+        from consensus import appears_in
+        return jsonify(appears_in(symbol))
+    except Exception as e:
+        return jsonify({"error": str(e), "symbol": symbol.upper(), "scan_count": 0}), 500
+
+
+@app.route("/api/stage-transitions")
+def stage_transitions_recent():
+    """P2-14: list stocks that recently transitioned into a target stage.
+
+    Self-populates when the DB is empty so the tab works on first open even
+    if the user hasn't run Monster Growth / Early Growth / Alpha Engine yet
+    (those are the only scanners that explicitly call update_all). When the
+    user clicks Refresh with force=1 we also re-populate, useful after a new
+    bhavcopy lands.
+    """
+    try:
+        from stage_transitions import recent_transitions, stats, populate_from_universe
+        stage = int(request.args.get("into_stage", 2))
+        days  = int(request.args.get("within_days", 10))
+        force = request.args.get("force") in ("1", "true", "yes")
+
+        st = stats()
+        if st.get("total", 0) == 0 or force:
+            populate_from_universe()
+            st = stats()
+
+        return jsonify({
+            "stage":   stage,
+            "within":  days,
+            "stocks":  recent_transitions(stage, within_days=days),
+            "stats":   st,
+        })
+    except Exception as e:
+        return jsonify({"error": str(e), "stocks": []}), 500
+
+
+@app.route("/api/stage/<symbol>")
+def stage_lookup(symbol):
+    """P2-14: per-symbol stage info — current stage, days since transition."""
+    try:
+        from stage_transitions import get_stage_info
+        return jsonify(get_stage_info(symbol))
+    except Exception as e:
+        return jsonify({"error": str(e), "symbol": symbol.upper()}), 500
 
 
 @app.route("/api/fii-dii")
@@ -1092,8 +1269,11 @@ def fii_dii_flow():
             if key and dt:
                 by_date[dt][key] = {"buy": bv, "sell": sv, "net": nv}
 
+        # BUG-026 FIX: Sort dates descending (newest first) before building response.
+        # NSE returns rows in arbitrary order; without sorting, oldest dates appear first.
+        sorted_dates = sorted(by_date.keys(), reverse=True)
         rows = []
-        for dt in list(by_date.keys())[:10]:   # last 10 trading days
+        for dt in sorted_dates[:10]:   # last 10 trading days
             fd = by_date[dt].get("FII", {"buy": 0, "sell": 0, "net": 0})
             dd = by_date[dt].get("DII", {"buy": 0, "sell": 0, "net": 0})
             rows.append({
@@ -1156,7 +1336,11 @@ def position_size():
             (hi - close.shift(1)).abs(),
             (lo - close.shift(1)).abs(),
         ], axis=1).max(axis=1)
-        atr14 = float(tr.rolling(14).mean().iloc[-1]) if len(tr) >= 14 else float(tr.mean())
+        # Wilder's ATR (canonical) — old rolling SMA over-stated ATR by 5-15%
+        # in trending markets, making /api/position-size stops & sizing inconsistent
+        # with every other scanner.
+        atr14 = (float(tr.ewm(alpha=1/14, adjust=False).mean().iloc[-1])
+                 if len(tr) >= 14 else float(tr.mean()))
 
         stop_1atr = round(cur - atr14, 2)
         stop_1_5atr = round(cur - 1.5 * atr14, 2)
@@ -1196,6 +1380,188 @@ def sector_rrg():
         return jsonify({"error": str(e), "sectors": [], "computed_at": int(time.time())}), 500
 
 
+# ── Monster Growth Scanner ────────────────────────────────────────────────────
+
+monster_state = {
+    "running":  False,
+    "progress": 0,
+    "total":    100,
+    "message":  "",
+    "result":   None,
+    "error":    None,
+}
+monster_lock = threading.Lock()
+
+try:
+    from monster_growth import run_monster_growth_scan, invalidate_cache as invalidate_monster_cache
+    MONSTER_AVAILABLE = True
+except ImportError as _mg_e:
+    MONSTER_AVAILABLE = False
+    print(f"[monster_growth] disabled: {_mg_e}")
+
+# ── Early Growth Scanner ──────────────────────────────────────────────────────
+
+early_growth_state = {
+    "running":  False,
+    "progress": 0,
+    "total":    100,
+    "message":  "",
+    "result":   None,
+    "error":    None,
+}
+early_growth_lock = threading.Lock()
+
+try:
+    from early_growth import run_early_growth_scan, invalidate_cache as invalidate_early_growth_cache
+    EARLY_GROWTH_AVAILABLE = True
+except ImportError as _eg_e:
+    EARLY_GROWTH_AVAILABLE = False
+    print(f"[early_growth] disabled: {_eg_e}")
+
+if EARLY_GROWTH_AVAILABLE:
+    def _do_early_growth_scan():
+        def _pcb(done, total, msg):
+            with early_growth_lock:
+                early_growth_state["progress"] = done
+                early_growth_state["total"]    = total
+                early_growth_state["message"]  = msg
+        try:
+            result = run_early_growth_scan(progress_callback=_pcb)
+            with early_growth_lock:
+                early_growth_state["result"]  = result
+                early_growth_state["running"] = False
+        except Exception as e:
+            with early_growth_lock:
+                early_growth_state["error"]   = str(e)
+                early_growth_state["running"] = False
+
+    @app.route("/api/early_growth/scan", methods=["POST"])
+    def api_early_growth_scan():
+        with early_growth_lock:
+            if early_growth_state["running"]:
+                return jsonify({"status": "running"})
+            early_growth_state.update({"running": True, "progress": 0,
+                                       "result": None, "error": None,
+                                       "message": "Starting scan…"})
+        threading.Thread(target=_do_early_growth_scan, daemon=True).start()
+        return jsonify({"status": "started"})
+
+    @app.route("/api/early_growth/status")
+    def api_early_growth_status():
+        with early_growth_lock:
+            s = dict(early_growth_state)
+        pct = int(s["progress"] / max(s["total"], 1) * 100)
+        return jsonify({
+            "running":  s["running"],
+            "pct":      pct,
+            "message":  s["message"],
+            "result":   s["result"],
+            "error":    s["error"],
+        })
+
+if MONSTER_AVAILABLE:
+    def _do_monster_scan():
+        def _pcb(done, total, msg):
+            with monster_lock:
+                monster_state["progress"] = done
+                monster_state["total"]    = total
+                monster_state["message"]  = msg
+        try:
+            result = run_monster_growth_scan(progress_callback=_pcb)
+            with monster_lock:
+                monster_state["result"]  = result
+                monster_state["running"] = False
+        except Exception as e:
+            with monster_lock:
+                monster_state["error"]   = str(e)
+                monster_state["running"] = False
+
+    @app.route("/api/monster/scan", methods=["POST"])
+    def api_monster_scan():
+        with monster_lock:
+            if monster_state["running"]:
+                return jsonify({"status": "running"})
+            monster_state.update({"running": True, "progress": 0,
+                                  "result": None, "error": None,
+                                  "message": "Starting scan…"})
+        threading.Thread(target=_do_monster_scan, daemon=True).start()
+        return jsonify({"status": "started"})
+
+    @app.route("/api/monster/status")
+    def api_monster_status():
+        with monster_lock:
+            s = dict(monster_state)
+        pct = int(s["progress"] / max(s["total"], 1) * 100)
+        return jsonify({
+            "running":  s["running"],
+            "pct":      pct,
+            "message":  s["message"],
+            "result":   s["result"],
+            "error":    s["error"],
+        })
+
+
+# ── Mark Minervini VVV Scanner ────────────────────────────────────────────────
+
+vvv_state = {
+    "running":  False,
+    "progress": 0,
+    "total":    100,
+    "message":  "",
+    "result":   None,
+    "error":    None,
+}
+vvv_lock = threading.Lock()
+
+try:
+    from minervini_vvv import run_vvv_scan, invalidate_cache as invalidate_vvv_cache
+    VVV_AVAILABLE = True
+except ImportError as _vvv_e:
+    VVV_AVAILABLE = False
+    print(f"[minervini_vvv] disabled: {_vvv_e}")
+
+if VVV_AVAILABLE:
+    def _do_vvv_scan():
+        def _pcb(done, total, msg):
+            with vvv_lock:
+                vvv_state["progress"] = done
+                vvv_state["total"]    = total
+                vvv_state["message"]  = msg
+        try:
+            result = run_vvv_scan(progress_callback=_pcb)
+            with vvv_lock:
+                vvv_state["result"]  = result
+                vvv_state["running"] = False
+        except Exception as e:
+            with vvv_lock:
+                vvv_state["error"]   = str(e)
+                vvv_state["running"] = False
+
+    @app.route("/api/vvv/scan", methods=["POST"])
+    def api_vvv_scan():
+        with vvv_lock:
+            if vvv_state["running"]:
+                return jsonify({"status": "running"})
+            vvv_state.update({"running": True, "progress": 0,
+                              "result": None, "error": None,
+                              "message": "Starting VVV scan…"})
+        threading.Thread(target=_do_vvv_scan, daemon=True).start()
+        return jsonify({"status": "started"})
+
+    @app.route("/api/vvv/status")
+    def api_vvv_status():
+        with vvv_lock:
+            s = dict(vvv_state)
+        pct = int(s["progress"] / max(s["total"], 1) * 100)
+        return jsonify({
+            "running":  s["running"],
+            "pct":      pct,
+            "message":  s["message"],
+            "result":   s["result"],
+            "error":    s["error"],
+        })
+
+
 # ── Startup — runs whether launched via `python app.py` or gunicorn ───────────
 # start_background_scheduler is idempotent (checks _sched["running"]), so calling
 # it at module level is safe with both multi-worker gunicorn and plain python.
@@ -1213,6 +1579,114 @@ def _prime_market_breadth():
         print(f"[startup] Market Breadth prime failed: {e}")
 
 threading.Thread(target=_prime_market_breadth, daemon=True).start()
+
+
+# ── Bhavcopy auto-refresh scheduler ──────────────────────────────────────────
+# Polls NSE every 20 minutes for the latest bhavcopy.
+# NSE publishes after market close (~6–7 PM IST). This runs silently in the
+# background so the DATA SOURCE bar always shows today's data automatically —
+# no manual scan required.
+def _bhavcopy_scheduler():
+    from data_fetcher import auto_refresh_bhavcopy, _bhav_cache_path
+    import time as _time
+    from datetime import date as _date
+    _time.sleep(5)   # let app fully boot first
+    while True:
+        try:
+            result = auto_refresh_bhavcopy()
+            if result.get("downloaded"):
+                print(f"[bhavcopy_scheduler] ✅ New data: {result['date']} — "
+                      "caches invalidated, next portfolio refresh uses today's prices.",
+                      flush=True)
+                # Also bust market breadth disk cache so it recomputes with fresh data
+                try:
+                    import market_breadth as _mb
+                    _mb._cache["data"] = None
+                    _mb._cache["ts"]   = 0
+                except Exception:
+                    pass
+                # Bust Monster Growth cache — prices and technical signals stale
+                try:
+                    if MONSTER_AVAILABLE:
+                        invalidate_monster_cache()
+                except Exception:
+                    pass
+                # Bust Early Growth cache — stage/base analysis stale with new prices
+                try:
+                    if EARLY_GROWTH_AVAILABLE:
+                        invalidate_early_growth_cache()
+                except Exception:
+                    pass
+                # Bust Edge Engine cache — breakout levels, ATR stops, and setup
+                # scores all derive from prices and are stale after a new bhavcopy.
+                try:
+                    invalidate_edge_cache()
+                except Exception:
+                    pass
+                # Bust Minervini VVV cache — pipeline scoring depends on prices.
+                try:
+                    from minervini_vvv import invalidate_cache as _invalidate_vvv
+                    _invalidate_vvv()
+                except Exception:
+                    pass
+                # Bust Consensus cache — it aggregates across all scanner caches.
+                try:
+                    from consensus import invalidate_cache as _invalidate_con
+                    _invalidate_con()
+                except Exception:
+                    pass
+                # Re-populate stage_transitions on fresh bhavcopy so the
+                # Stage Transitions tab reflects today's classifications
+                # without waiting for the user to run Monster/Alpha/Early Growth.
+                try:
+                    from stage_transitions import populate_from_universe
+                    res = populate_from_universe()
+                    print(f"[bhavcopy_scheduler] stage_log refreshed: "
+                          f"{res.get('updated', 0)} symbols, "
+                          f"{res.get('transitioned', 0)} transitions",
+                          flush=True)
+                except Exception as _se:
+                    print(f"[bhavcopy_scheduler] stage_log populate failed: {_se}",
+                          flush=True)
+                # Bust ALL remaining scanner caches that have their own _cache dict.
+                # Without this, 8 scanner tabs serve yesterday's prices for up to
+                # their TTL window after a new bhavcopy lands.
+                for _mod_name in [
+                    "alpha_engine",
+                    "breakout_scanner",
+                    "volume_scanner",
+                    "momentum_scanner",
+                    "advanced_scanner",
+                    "institutional_scanner",
+                    "multiyear_breakout",
+                    "early_mover_scanner",
+                    "trending",
+                    "sector_analysis",
+                    "industry_groups",
+                    "investment_grade",
+                ]:
+                    try:
+                        _mod = __import__(_mod_name)
+                        if hasattr(_mod, "invalidate_cache"):
+                            _mod.invalidate_cache()
+                        elif hasattr(_mod, "_cache") and isinstance(_mod._cache, dict):
+                            _mod._cache["data"] = None
+                            _mod._cache["ts"]   = 0
+                    except Exception:
+                        pass
+        except Exception as e:
+            print(f"[bhavcopy_scheduler] error: {e}", flush=True)
+
+        # Sleep adaptively: 5 min when today's bhavcopy is still missing
+        # (aggressive — catches it within minutes of NSE publishing),
+        # 20 min once we already have today's file.
+        today_file = _bhav_cache_path(_date.today())
+        sleep_secs = 300 if not today_file.exists() else 1200
+        _time.sleep(sleep_secs)
+
+threading.Thread(target=_bhavcopy_scheduler, daemon=True, name="bhavcopy-auto").start()
+print("[bhavcopy_scheduler] Started — checks NSE every 20 min automatically.")
+
 
 if __name__ == "__main__":
     print("NSE Trend Screener running at http://0.0.0.0:5050")

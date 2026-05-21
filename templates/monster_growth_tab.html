@@ -1,0 +1,464 @@
+<!-- ══════════════════════════════════════════════════ MONSTER GROWTH TAB -->
+<div id="tab-monster" class="tab-content">
+<div class="container">
+
+  <style>
+    /* ── Monster Growth tab specific styles ── */
+    .mg-hero {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-left: 4px solid var(--red);
+      border-radius: 10px;
+      padding: 16px 22px;
+      margin-bottom: 18px;
+    }
+    .mg-hero h3 { margin: 0 0 6px; font-size: 16px; color: var(--red); font-weight: 700; }
+    .mg-hero p  { margin: 0; font-size: 13px; color: var(--text); line-height: 1.6; }
+    .mg-hero strong { color: var(--white); }
+
+    .mg-tier-pills { display: flex; gap: 10px; margin-bottom: 18px; flex-wrap: wrap; }
+    .mg-pill {
+      padding: 5px 14px; border-radius: 20px; font-size: 12px;
+      font-weight: 600; border: 1px solid transparent;
+    }
+    .mg-pill.monster { background: rgba(239,68,68,0.15); border-color: #ef4444; color: #f87171; }
+    .mg-pill.strong  { background: rgba(59,130,246,0.15); border-color: #3b82f6; color: #60a5fa; }
+    .mg-pill.emerging{ background: rgba(245,158,11,0.15); border-color: #f59e0b; color: #fbbf24; }
+
+    /* Score bar */
+    .mg-score-bar {
+      display: inline-block; width: 60px; height: 6px;
+      border-radius: 3px; background: var(--border); vertical-align: middle;
+      position: relative; overflow: hidden;
+    }
+    .mg-score-fill {
+      position: absolute; top: 0; left: 0; height: 100%;
+      border-radius: 3px;
+    }
+
+    /* Factor chips in expanded row */
+    .mg-factor-grid {
+      display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+      gap: 8px; padding: 12px 0;
+    }
+    .mg-factor-chip {
+      background: var(--surface); border: 1px solid var(--border); border-radius: 8px;
+      padding: 8px 12px; font-size: 12px;
+    }
+    .mg-factor-chip .fc-label { color: var(--muted); font-size: 11px; margin-bottom: 2px; }
+    .mg-factor-chip .fc-val   { font-weight: 600; font-size: 14px; }
+    .mg-factor-chip .fc-pts   { color: var(--muted); font-size: 11px; margin-left: 4px; }
+
+    /* Tier badge */
+    .mg-badge {
+      display: inline-block; padding: 2px 8px; border-radius: 4px;
+      font-size: 11px; font-weight: 700; text-transform: uppercase;
+    }
+    .mg-badge.MONSTER  { background: rgba(239,68,68,0.2);  color: #f87171; }
+    .mg-badge.STRONG   { background: rgba(59,130,246,0.2); color: #60a5fa; }
+    .mg-badge.EMERGING { background: rgba(245,158,11,0.2); color: #fbbf24; }
+
+    /* Accel dots */
+    .accel-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin: 0 1px; }
+    .accel-dot.yes { background: #10b981; }
+    .accel-dot.no  { background: #ef4444; }
+    .accel-dot.unk { background: var(--border); }
+
+    /* Stage badge */
+    .stage-2 { color: #10b981; font-weight: 700; }
+    .stage-1 { color: var(--muted); }
+    .stage-3 { color: #f59e0b; }
+    .stage-4 { color: #ef4444; }
+
+    #mgTable th { cursor: pointer; user-select: none; }
+    #mgTable th:hover { color: var(--accent); }
+    .mg-detail-row { background: rgba(239,68,68,0.04); }
+    .mg-detail-inner { padding: 12px 16px; }
+
+    .mg-no-data { text-align: center; padding: 40px; color: var(--muted); font-size: 14px; }
+
+    /* Coverage warning */
+    .mg-coverage-warn {
+      background: rgba(245,158,11,0.1); border: 1px solid rgba(245,158,11,0.3);
+      border-radius: 8px; padding: 10px 14px; font-size: 12px; color: #fbbf24;
+      margin-bottom: 12px; display: none;
+    }
+  </style>
+
+  <!-- Description -->
+  <div class="mg-hero">
+    <h3>🔥 Monster Growth Scanner</h3>
+    <p>
+      Finds Nifty 500 companies with <strong>accelerating earnings + revenue growth</strong> trading at
+      a <strong>reasonable PEG ratio</strong> in a confirmed <strong>Stage 2 uptrend</strong>.
+      These are the stocks that produce 3–10× moves over 1–3 years.
+      Uses only local cached data (screener.in fundamentals + bhavcopy OHLCV) — no live API calls.
+    </p>
+  </div>
+
+  <!-- Controls -->
+  <div style="display:flex; align-items:center; gap:14px; margin-bottom:14px; flex-wrap:wrap;">
+    <button id="mgScanBtn" class="btn btn-primary" onclick="mgStartScan()">🔥 Run Monster Scan</button>
+    <span id="mgStatus" style="font-size:13px; color:var(--muted)">Click to scan Nifty 500 for growth monsters</span>
+    <div style="margin-left:auto; display:flex; gap:8px; align-items:center;">
+      <label style="font-size:12px; color:var(--muted)">Filter:</label>
+      <select id="mgTierFilter" onchange="mgRender()" style="font-size:12px; padding:4px 8px; border-radius:6px; background:var(--surface); border:1px solid var(--border); color:var(--fg);">
+        <option value="ALL">All Tiers</option>
+        <option value="MONSTER">🔥 Monster Only</option>
+        <option value="STRONG">💎 Strong Only</option>
+        <option value="EMERGING">👀 Emerging Only</option>
+      </select>
+      <input type="text" id="mgSearch" placeholder="Symbol…" oninput="mgRender()"
+             style="font-size:12px; padding:4px 10px; border-radius:6px; background:var(--surface); border:1px solid var(--border); color:var(--fg); width:100px;">
+    </div>
+  </div>
+
+  <!-- Coverage warning -->
+  <div id="mgCoverageWarn" class="mg-coverage-warn">
+    ⚠️ Fundamental data covers only <span id="mgCoverageNum">0</span>/<span id="mgUniverseNum">0</span> stocks.
+    The fundamentals scraper runs in the background — results improve as more stocks are scraped (~240/hour).
+  </div>
+
+  <!-- Tier summary pills -->
+  <div class="mg-tier-pills" id="mgTierPills" style="display:none;">
+    <div class="mg-pill monster">🔥 Monster: <span id="mgMonsterCnt">0</span></div>
+    <div class="mg-pill strong">💎 Strong: <span id="mgStrongCnt">0</span></div>
+    <div class="mg-pill emerging">👀 Emerging: <span id="mgEmergingCnt">0</span></div>
+    <span style="font-size:12px; color:var(--muted); margin-left:auto; align-self:center;" id="mgComputedAt"></span>
+  </div>
+
+  <!-- Progress bar -->
+  <div id="mgProgress" style="display:none; margin-bottom:12px;">
+    <div style="background:var(--border); border-radius:4px; height:4px; overflow:hidden;">
+      <div id="mgProgressFill" style="height:100%; background:#ef4444; border-radius:4px; width:0%; transition:width 0.3s;"></div>
+    </div>
+    <div id="mgProgressMsg" style="font-size:11px; color:var(--muted); margin-top:4px;"></div>
+  </div>
+
+  <!-- Results table -->
+  <div class="table-wrap" id="mgTableWrap" style="display:none;">
+    <table id="mgTable">
+      <thead>
+        <tr>
+          <th onclick="mgSort('symbol')"     style="width:90px">Symbol</th>
+          <th onclick="mgSort('score')"      style="width:60px">Score</th>
+          <th style="width:80px; cursor:default">Tier</th>
+          <th onclick="mgSort('consensus_score')" style="width:80px" title="Cross-scan Final Setup Score — how many other scanners flagged this stock">Consensus</th>
+          <th style="width:90px; cursor:default" title="Weinstein stage + how long the stock has been in this stage">Stage Age</th>
+          <th onclick="mgSort('profit_gr')"  style="width:75px">Profit Gr%</th>
+          <th onclick="mgSort('sales_gr')"   style="width:75px">Rev Gr%</th>
+          <th onclick="mgSort('pe')"         style="width:55px">PE</th>
+          <th onclick="mgSort('peg')"        style="width:55px">PEG</th>
+          <th onclick="mgSort('roe')"        style="width:55px">ROE%</th>
+          <th style="width:60px; cursor:default" title="QoQ | YoY acceleration">EPS Accel</th>
+          <th onclick="mgSort('stage')"      style="width:55px">Stage</th>
+          <th onclick="mgSort('rs_rank')"    style="width:55px">RS Rank</th>
+          <th onclick="mgSort('pct_from_hi')" style="width:70px">% from Hi</th>
+          <th onclick="mgSort('price')"      style="width:75px">Price ₹</th>
+          <th style="width:40px; cursor:default"></th>
+        </tr>
+      </thead>
+      <tbody id="mgBody"></tbody>
+    </table>
+  </div>
+
+  <div class="mg-no-data" id="mgNoData" style="display:none;">
+    No stocks met the Monster Growth criteria. Ensure fundamentals scraping has completed for most of the universe.
+  </div>
+
+</div>
+</div>
+<!-- END MONSTER GROWTH TAB -->
+
+<script>
+(function() {
+  var _mgData    = null;   // full result from API
+  var _mgRows    = [];     // filtered + sorted
+  var _mgSortCol = "score";
+  var _mgSortAsc = false;
+  var _mgExpanded = {};    // {symbol: bool}
+  var _mgPollId  = null;
+
+  window.mgStartScan = function() {
+    var btn = document.getElementById("mgScanBtn");
+    btn.disabled = true;
+    btn.textContent = "⏳ Scanning…";
+    document.getElementById("mgStatus").textContent = "Starting scan…";
+    document.getElementById("mgProgress").style.display = "block";
+    document.getElementById("mgTableWrap").style.display = "none";
+    document.getElementById("mgNoData").style.display = "none";
+    document.getElementById("mgTierPills").style.display = "none";
+
+    fetch("/api/monster/scan", {method:"POST"})
+      .then(function(r) { return r.json(); })
+      .then(function() {
+        _mgPollId = setInterval(mgPoll, 2000);
+      })
+      .catch(function(e) {
+        document.getElementById("mgStatus").textContent = "Error: " + e;
+        btn.disabled = false;
+        btn.textContent = "🔥 Run Monster Scan";
+      });
+  };
+
+  function mgPoll() {
+    fetch("/api/monster/status")
+      .then(function(r) { return r.json(); })
+      .then(function(d) {
+        document.getElementById("mgProgressFill").style.width = d.pct + "%";
+        document.getElementById("mgProgressMsg").textContent  = d.message || "";
+        document.getElementById("mgStatus").textContent = d.message || "";
+
+        if (!d.running) {
+          clearInterval(_mgPollId);
+          _mgPollId = null;
+          var btn = document.getElementById("mgScanBtn");
+          btn.disabled = false;
+          btn.textContent = "🔥 Run Monster Scan";
+          document.getElementById("mgProgress").style.display = "none";
+
+          if (d.error) {
+            document.getElementById("mgStatus").textContent = "❌ " + d.error;
+            return;
+          }
+          if (d.result) {
+            _mgData = d.result;
+            mgShowResults(_mgData);
+          }
+        }
+      })
+      .catch(function() { /* network blip — keep polling */ });
+  }
+
+  function mgShowResults(data) {
+    var results = data.results || [];
+
+    // Coverage warning
+    var coverage = data.fundamental_coverage || 0;
+    var total    = data.total_scanned || 0;
+    var warn     = document.getElementById("mgCoverageWarn");
+    if (coverage < total * 0.7) {
+      document.getElementById("mgCoverageNum").textContent = coverage;
+      document.getElementById("mgUniverseNum").textContent = total;
+      warn.style.display = "block";
+    } else {
+      warn.style.display = "none";
+    }
+
+    // Tier pills
+    document.getElementById("mgMonsterCnt").textContent  = data.monster_count  || 0;
+    document.getElementById("mgStrongCnt").textContent   = data.strong_count   || 0;
+    document.getElementById("mgEmergingCnt").textContent = data.emerging_count || 0;
+    document.getElementById("mgTierPills").style.display = "flex";
+
+    var dt = new Date(data.computed_at * 1000);
+    document.getElementById("mgComputedAt").textContent =
+      "Computed: " + dt.toLocaleTimeString("en-IN", {hour:"2-digit", minute:"2-digit"});
+
+    document.getElementById("mgStatus").textContent =
+      results.length + " growth stocks found · " + total + " scanned · " + coverage + " with fundamentals";
+
+    _mgRows = results.slice();
+    mgRender();
+  }
+
+  window.mgRender = function() {
+    var tier   = (document.getElementById("mgTierFilter") || {}).value || "ALL";
+    var search = ((document.getElementById("mgSearch") || {}).value || "").toUpperCase();
+
+    var rows = (_mgData ? _mgData.results : []).slice();
+    if (!rows.length) {
+      document.getElementById("mgTableWrap").style.display = "none";
+      document.getElementById("mgNoData").style.display = "block";
+      return;
+    }
+
+    // Filter
+    rows = rows.filter(function(r) {
+      if (tier !== "ALL" && r.tier !== tier) return false;
+      if (search && r.symbol.indexOf(search) === -1) return false;
+      return true;
+    });
+
+    // Sort
+    rows.sort(function(a, b) {
+      var av = a[_mgSortCol], bv = b[_mgSortCol];
+      if (av == null) av = _mgSortAsc ? Infinity : -Infinity;
+      if (bv == null) bv = _mgSortAsc ? Infinity : -Infinity;
+      return _mgSortAsc ? av - bv : bv - av;
+    });
+
+    _mgRows = rows;
+
+    var tbody = document.getElementById("mgBody");
+    tbody.innerHTML = "";
+
+    rows.forEach(function(r) {
+      // Score bar colour
+      var scoreColor = r.score >= 80 ? "#ef4444" :
+                       r.score >= 65 ? "#3b82f6" :
+                       r.score >= 50 ? "#f59e0b" : "#6b7280";
+
+      // EPS accel dots (QoQ | YoY)
+      var qqDot = r.eps_accel   === 1 ? "yes" : (r.eps_accel   === 0 ? "no" : "unk");
+      var yyDot = r.eps_accel_yoy === 1 ? "yes" : (r.eps_accel_yoy === 0 ? "no" : "unk");
+      var accelHtml = '<span class="accel-dot ' + qqDot + '" title="QoQ accel"></span>' +
+                      '<span class="accel-dot ' + yyDot + '" title="YoY accel"></span>';
+
+      // Stage colour
+      var stageClass = "stage-" + r.stage;
+      var stageLabel = ["—","Basing","↑ Stage 2","Distribution","↓ Stage 4"][r.stage] || r.stage;
+
+      // % from high colour
+      var hiColor = r.pct_from_hi >= -5  ? "#10b981" :
+                    r.pct_from_hi >= -15 ? "#f59e0b" : "#ef4444";
+
+      // PEG colour
+      var pegColor = !r.peg          ? "var(--muted)" :
+                     r.peg <= 1.0    ? "#10b981" :
+                     r.peg <= 1.5    ? "#f59e0b" :
+                     r.peg <= 2.5    ? "#f97316" : "#ef4444";
+
+      // Profit growth colour
+      var pgColor = r.profit_gr >= 35 ? "#10b981" :
+                    r.profit_gr >= 20 ? "#f59e0b" : "var(--fg)";
+
+      var tr = document.createElement("tr");
+      tr.style.cursor = "pointer";
+      tr.onclick = function() { mgToggle(r.symbol, tr); };
+      tr.innerHTML =
+        '<td><strong>' + r.symbol + '</strong></td>' +
+        '<td>' +
+          '<span style="font-weight:700;color:' + scoreColor + '">' + r.score + '</span> ' +
+          '<span class="mg-score-bar"><span class="mg-score-fill" style="width:' + r.score + '%;background:' + scoreColor + '"></span></span>' +
+        '</td>' +
+        '<td><span class="mg-badge ' + r.tier + '">' + r.tier + '</span></td>' +
+        // P2-10/11: Final Setup Score (cross-scan consensus)
+        (function() {
+          var cs = r.consensus_score || 0;
+          var sc = r.scan_count || 1;
+          var tl = r.consensus_tier || "—";
+          var col = cs >= 60 ? "#10b981" : cs >= 40 ? "#3b82f6" : cs >= 25 ? "#f59e0b" : "var(--muted)";
+          var pillBg = cs >= 60 ? "rgba(16,185,129,.15)" : cs >= 40 ? "rgba(59,130,246,.15)" : cs >= 25 ? "rgba(245,158,11,.15)" : "rgba(120,120,120,.10)";
+          return '<td title="' + tl + ' — appears in ' + sc + ' scans"><span style="display:inline-block;padding:2px 8px;border-radius:10px;background:' + pillBg + ';color:' + col + ';font-weight:700;font-size:11px">' + cs.toFixed(0) + ' · ' + sc + '×</span></td>';
+        })() +
+        // P2-14: Stage transition badge
+        (function() {
+          var sb = r.stage_badge;
+          if (!sb) return '<td style="color:var(--muted);font-size:11px">—</td>';
+          var col = r.stage_fresh ? "#10b981" : "var(--muted)";
+          var weight = r.stage_fresh ? "700" : "500";
+          return '<td title="In current stage since ' + (r.stage_since || '?') + '" style="color:' + col + ';font-weight:' + weight + ';font-size:11px">' + sb + (r.stage_fresh ? ' 🟢' : '') + '</td>';
+        })() +
+        '<td style="color:' + pgColor + ';font-weight:600">' + (r.profit_gr > 0 ? '+' : '') + r.profit_gr + '%</td>' +
+        '<td>' + (r.sales_gr > 0 ? '+' : '') + r.sales_gr + '%</td>' +
+        '<td>' + r.pe + '</td>' +
+        '<td style="color:' + pegColor + ';font-weight:600">' + (r.peg != null ? r.peg : '—') + '</td>' +
+        '<td>' + r.roe + '%</td>' +
+        '<td style="text-align:center">' + accelHtml + '</td>' +
+        '<td class="' + stageClass + '">' + stageLabel + '</td>' +
+        '<td>' + r.rs_rank + '</td>' +
+        '<td style="color:' + hiColor + '">' + (r.pct_from_hi >= 0 ? '+' : '') + r.pct_from_hi + '%</td>' +
+        '<td>₹' + r.price.toLocaleString("en-IN") + '</td>' +
+        '<td style="color:var(--muted);font-size:11px">▾</td>';
+
+      tbody.appendChild(tr);
+
+      // Detail row (hidden by default)
+      var det = document.createElement("tr");
+      det.className = "mg-detail-row";
+      det.id = "mg-det-" + r.symbol;
+      det.style.display = "none";
+      det.innerHTML = '<td colspan="14"><div class="mg-detail-inner">' + mgDetailHtml(r) + '</div></td>';
+      tbody.appendChild(det);
+    });
+
+    document.getElementById("mgTableWrap").style.display = rows.length ? "block" : "none";
+    document.getElementById("mgNoData").style.display    = rows.length ? "none"  : "block";
+  };
+
+  function mgDetailHtml(r) {
+    // Factor scores breakdown
+    var factors = [
+      {label:"Profit Growth",   pts: r.f1_profit,  max:25, val: (r.profit_gr > 0 ? "+" : "") + r.profit_gr + "%"},
+      {label:"Revenue Growth",  pts: r.f2_revenue, max:20, val: (r.sales_gr > 0 ? "+" : "") + r.sales_gr + "%"},
+      {label:"PEG Ratio",       pts: r.f3_peg,     max:20, val: r.peg != null ? r.peg : "—"},
+      {label:"EPS Acceleration",pts: r.f4_accel,   max:15, val: (r.eps_accel===1?"QoQ✓":"QoQ✗") + " " + (r.eps_accel_yoy===1?"YoY✓":"YoY?")},
+      {label:"Technical",       pts: r.f5_tech,    max:10, val: "Stage " + r.stage + " | RS " + r.rs_rank},
+      {label:"Quality",         pts: r.f6_quality, max:5,  val: "ROE " + r.roe + "% | Prom " + r.promoter_pct + "%"},
+    ];
+    var html = '<div class="mg-factor-grid">';
+    factors.forEach(function(f) {
+      var pct  = Math.round(f.pts / f.max * 100);
+      var col  = pct >= 80 ? "#10b981" : pct >= 50 ? "#f59e0b" : "#ef4444";
+      html += '<div class="mg-factor-chip">' +
+              '<div class="fc-label">' + f.label + '</div>' +
+              '<div class="fc-val" style="color:' + col + '">' + f.val +
+              '<span class="fc-pts">' + f.pts + '/' + f.max + '</span></div>' +
+              '</div>';
+    });
+    // Bonus row if any
+    if (r.bonus > 0) {
+      html += '<div class="mg-factor-chip">' +
+              '<div class="fc-label">Bonus (near 52W hi)</div>' +
+              '<div class="fc-val" style="color:#10b981">+' + r.bonus + ' pts</div>' +
+              '</div>';
+    }
+    html += '</div>';
+
+    // Extra metadata row
+    html += '<div style="display:flex;gap:20px;font-size:12px;color:var(--muted);padding-top:8px;border-top:1px solid var(--border);flex-wrap:wrap;">' +
+      '<span>📊 ADTV ₹' + (r.adtv_cr || 0) + ' Cr</span>' +
+      '<span>📈 Vol ratio: ' + r.vol_ratio + '×</span>' +
+      '<span>📉 3M RS vs Nifty: ' + (r.rs_excess_3m > 0 ? "+" : "") + r.rs_excess_3m + '%</span>' +
+      '<span>👥 Promoter: ' + r.promoter_pct + '%' +
+        (r.promoter_delta != null ? ' (' + (r.promoter_delta > 0 ? '+' : '') + r.promoter_delta + '% QoQ)' : '') +
+      '</span>' +
+      '<span>🗓 Data age: ' + r.data_age_days + ' days</span>' +
+    '</div>';
+
+    return html;
+  }
+
+  function mgToggle(sym, tr) {
+    var det = document.getElementById("mg-det-" + sym);
+    if (!det) return;
+    var show = det.style.display === "none";
+    det.style.display = show ? "table-row" : "none";
+    // Rotate arrow
+    var lastTd = tr.querySelector("td:last-child");
+    if (lastTd) lastTd.textContent = show ? "▴" : "▾";
+  }
+
+  window.mgSort = function(col) {
+    if (_mgSortCol === col) {
+      _mgSortAsc = !_mgSortAsc;
+    } else {
+      _mgSortCol = col;
+      _mgSortAsc = false;
+    }
+    mgRender();
+  };
+
+  // Auto-check if a scan is already in progress on tab switch
+  document.querySelector('[onclick="showTab(\'monster\', this)"]') &&
+    document.querySelector('[onclick="showTab(\'monster\', this)"]').addEventListener("click", function() {
+      if (_mgData) return;  // already have results
+      fetch("/api/monster/status")
+        .then(function(r) { return r.json(); })
+        .then(function(d) {
+          if (d.running) {
+            // Scan in progress — resume polling
+            document.getElementById("mgProgress").style.display = "block";
+            document.getElementById("mgScanBtn").disabled = true;
+            document.getElementById("mgScanBtn").textContent = "⏳ Scanning…";
+            _mgPollId = setInterval(mgPoll, 2000);
+          } else if (d.result && d.result.results && d.result.results.length > 0) {
+            _mgData = d.result;
+            mgShowResults(_mgData);
+          }
+        })
+        .catch(function() {});
+    });
+})();
+</script>

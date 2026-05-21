@@ -19,10 +19,21 @@ CACHE_TTL = 7_200   # 2 hours (heavy computation)
 MIN_BARS     = 80
 HOLD_PERIODS = [5, 10, 20]
 
-_NIFTY_SYMS = [
-    "RELIANCE", "TCS", "HDFCBANK", "ICICIBANK", "INFOSYS",
-    "HINDUNILVR", "SBIN", "BHARTIARTL", "ITC", "KOTAKBANK",
-]
+# BUG-030: realistic round-trip cost = brokerage + STT + slippage
+COST_PER_TRADE_BPS = 25   # 0.25% round-trip (entry + exit)
+
+
+# ── Split / Bonus backward-adjustment (BUG-013) ───────────────────────────────
+
+def _adjust_for_splits(df):
+    """Delegate to canonical analysis_utils.adjust_for_splits."""
+    from analysis_utils import adjust_for_splits
+    return adjust_for_splits(df)
+
+
+# Canonical Nifty proxy basket (was a local 10-stock list — narrower than
+# every other tab's 20-stock proxy, so backtest benchmark would differ).
+from analysis_utils import NIFTY_PROXY_SYMS as _NIFTY_SYMS
 
 
 # ── Data loader ───────────────────────────────────────────────────────────────
@@ -46,6 +57,8 @@ def _load_stocks(progress_callback=None) -> dict[str, pd.DataFrame]:
         avail = [c for c in cols if c in grp.columns]
         g = grp.set_index("Date")[avail]
         g = g[~g.index.duplicated(keep="last")].sort_index()
+        # BUG-013 FIX: apply split adjustment so backtests don't see fake -80% bars.
+        g = _adjust_for_splits(g)
         if len(g) >= MIN_BARS:
             stocks[sym] = g
     return stocks
@@ -56,7 +69,8 @@ def _build_nifty(stocks: dict) -> pd.Series | None:
     if not closes:
         return None
     combined = pd.concat(closes, axis=1).dropna(how="all")
-    bench = combined.mean(axis=1)
+    from analysis_utils import equal_weight_index
+    bench = equal_weight_index(combined)
     return bench if len(bench) >= 20 else None
 
 
@@ -119,14 +133,25 @@ def _backtest_pattern(stocks: dict, nifty: pd.Series | None, pattern: str) -> di
             if not signal:
                 continue
 
-            entry = float(df["Close"].iloc[i])
+            # BUG-012 FIX: entry must use NEXT bar's open to avoid look-ahead
+            # bias (using signal-bar's close means we know the signal AFTER
+            # the bar closes but are buying at that same close).
+            if i + 1 >= n:
+                continue
+            entry = float(df["Open"].iloc[i + 1])
             if entry <= 0:
                 continue
             sig_count += 1
             sym_sigs  += 1
             for hold in HOLD_PERIODS:
-                fut = float(df["Close"].iloc[i + hold])
-                all_rets[hold].append((fut - entry) / entry * 100)
+                fut_idx = i + 1 + hold
+                if fut_idx >= n:
+                    continue
+                fut = float(df["Close"].iloc[fut_idx])
+                gross_ret = (fut - entry) / entry * 100
+                # BUG-030 FIX: subtract realistic round-trip cost (slippage + STT + brokerage)
+                net_ret = gross_ret - (COST_PER_TRADE_BPS / 100)
+                all_rets[hold].append(net_ret)
 
     return {
         "pattern":      pattern,

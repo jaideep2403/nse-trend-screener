@@ -55,9 +55,14 @@ def _parse(df: pd.DataFrame) -> list[dict]:
     sym_col   = next((cols[k] for k in cols if "SYMBOL" in k), None)
     date_col  = next((cols[k] for k in cols if "DATE" in k), None)
     client_col = next((cols[k] for k in cols if "CLIENT" in k or "NAME" in k), None)
-    side_col  = next((cols[k] for k in cols if "BUY" in k and "SELL" not in k), None)
+    # "Buy/Sell" column contains both words — match it explicitly first,
+    # then fall back to any column with BUY in name.
+    side_col  = next((cols[k] for k in cols if "BUY" in k and "SELL" in k), None) or \
+                next((cols[k] for k in cols if "BUY" in k), None)
     qty_col   = next((cols[k] for k in cols if "QTY" in k or "QUANT" in k), None)
     price_col = next((cols[k] for k in cols if "PRICE" in k), None)
+
+    OLD_DATE_SENTINEL = "1900-01-01"
 
     records = []
     for _, row in df.iterrows():
@@ -70,9 +75,24 @@ def _parse(df: pd.DataFrame) -> list[dict]:
                 return float(str(v).replace(",", "") or 0)
             qty   = _num(qty_col)
             price = _num(price_col)
+
+            # BUG-028 FIX: parse the date defensively so a single malformed
+            # row never poisons downstream filters that do pd.Timestamp(date)
+            # comparisons. Failed parses get an old sentinel that gets
+            # filtered out gracefully (rather than blowing up the whole row).
+            raw_date = str(row.get(date_col, "") or "").strip()
+            try:
+                if raw_date:
+                    parsed = pd.to_datetime(raw_date, errors="raise", dayfirst=True)
+                    date_str = parsed.strftime("%Y-%m-%d")
+                else:
+                    date_str = OLD_DATE_SENTINEL
+            except Exception:
+                date_str = OLD_DATE_SENTINEL
+
             records.append({
                 "symbol":    sym,
-                "date":      str(row.get(date_col, "") or "").strip(),
+                "date":      date_str,
                 "client":    str(row.get(client_col, "") or "").strip(),
                 "side":      str(row.get(side_col, "") or "").strip().upper(),
                 "qty":       qty,
@@ -109,10 +129,21 @@ def run_bulk_deals() -> dict:
     block_df = _fetch(BLOCK_URL, "Block")
 
     deals = _parse(bulk_df) + _parse(block_df)
+    # Drop rows that fell through to the OLD_DATE_SENTINEL ("1900-01-01") so
+    # consumers and UI never see the sentinel as an apparent deal date.
+    deals = [d for d in deals if d.get("date") != "1900-01-01"]
     deals.sort(key=lambda x: x.get("value_cr", 0), reverse=True)
 
-    buy_deals  = [d for d in deals if "B" in d.get("side", "")]
-    sell_deals = [d for d in deals if "S" in d.get("side", "")]
+    # BUG-036 FIX: previously `"B" in side` matched strings like "PURCHASE"
+    # (contains a B), wildly inflating buy counts. Use exact match.
+    def _is_buy(s: str) -> bool:
+        return s.strip().upper() in ("BUY", "B")
+
+    def _is_sell(s: str) -> bool:
+        return s.strip().upper() in ("SELL", "S")
+
+    buy_deals  = [d for d in deals if _is_buy(d.get("side", ""))]
+    sell_deals = [d for d in deals if _is_sell(d.get("side", ""))]
 
     out = {
         "deals":         deals,

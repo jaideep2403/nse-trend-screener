@@ -20,7 +20,7 @@ from data_fetcher import _weekdays_back, _download_one_day
 from analysis_utils import (
     trend_template_score, stage_analysis, stage_label,
     is_nr7, is_inside_bar, is_3wt,
-    rs_line_new_high, detect_candle_signals,
+    rs_line_new_high, detect_candle_signals, volume_baseline,
 )
 
 MIN_BARS    = 60
@@ -29,12 +29,18 @@ SCAN_WORKERS = 8
 _cache = {"data": None, "ts": 0}
 CACHE_TTL = 3600
 
-_NIFTY50_SYMS = [
-    "RELIANCE", "TCS", "HDFCBANK", "ICICIBANK", "INFOSYS",
-    "HINDUNILVR", "SBIN", "BHARTIARTL", "ITC", "KOTAKBANK",
-    "AXISBANK", "WIPRO", "HCLTECH", "MARUTI", "BAJFINANCE",
-    "TITAN", "NTPC", "POWERGRID", "NESTLEIND", "SUNPHARMA",
-]
+
+# ── Split / Bonus backward-adjustment (BUG-001) ───────────────────────────────
+
+def _adjust_for_splits(df):
+    """Delegate to canonical analysis_utils.adjust_for_splits."""
+    from analysis_utils import adjust_for_splits
+    return adjust_for_splits(df)
+
+
+# Canonical Nifty proxy basket (single source of truth — was a local 20-stock
+# duplicate that could drift from every other tab's RS-vs-Nifty.)
+from analysis_utils import NIFTY_PROXY_SYMS as _NIFTY50_SYMS
 
 
 # ── Data loader (same bhavcopy source as breakout scanner) ────────────────────
@@ -52,10 +58,10 @@ def _load_all_stocks(progress_callback=None) -> dict[str, pd.DataFrame]:
             progress_callback(i, total, f"Loading historical data… {i}/{total} days")
     if not frames:
         return {}
-    # Filter to Nifty50 ∪ NiftyNext50 ∪ Nifty500 ∪ NiftySmallcap250
+    # Filter to Nifty Total Market 750 (Nifty50 ∪ Next50 ∪ Nifty500 ∪ Smallcap250 ∪ Microcap250 ∪ TotalMarket)
     try:
-        from nse_stocks import get_nifty500_symbols
-        _universe = set(get_nifty500_symbols())
+        from nse_stocks import get_universe_symbols
+        _universe = set(get_universe_symbols())
     except Exception:
         _universe = set()
     combined = pd.concat(frames, ignore_index=True).sort_values("Date")
@@ -65,6 +71,7 @@ def _load_all_stocks(progress_callback=None) -> dict[str, pd.DataFrame]:
             continue
         g = grp.set_index("Date")[["Open", "High", "Low", "Close", "Volume"]]
         g = g[~g.index.duplicated(keep="last")].sort_index()
+        g = _adjust_for_splits(g)
         if len(g) >= MIN_BARS:
             stocks[sym] = g
     return stocks
@@ -78,24 +85,19 @@ def _build_nifty(stocks: dict) -> pd.Series | None:
             closes.append(df["Close"].dropna())
     if not closes:
         return None
+    # BUG-FIX: rebase-to-100 equal-weight (was raw price avg, MARUTI/BAJFINANCE dominated)
+    from analysis_utils import equal_weight_index
     combined = pd.concat(closes, axis=1).dropna(how="all")
-    bench = combined.mean(axis=1)
+    bench = equal_weight_index(combined)
     return bench if len(bench) >= 20 else None
 
 
 # ── Shared utilities ──────────────────────────────────────────────────────────
 
 def _atr(df: pd.DataFrame, period: int = 14) -> float:
-    try:
-        hi = df["High"].dropna(); lo = df["Low"].dropna(); cl = df["Close"].dropna()
-        idx = hi.index.intersection(lo.index).intersection(cl.index)
-        if len(idx) < period + 2:
-            return float(cl.iloc[-1]) * 0.02
-        h = hi[idx]; l = lo[idx]; c = cl[idx]
-        tr = pd.concat([h - l, (h - c.shift(1)).abs(), (l - c.shift(1)).abs()], axis=1).max(axis=1)
-        return float(tr.rolling(period).mean().iloc[-1])
-    except Exception:
-        return 0.0
+    """Wilder's ATR via canonical analysis_utils.atr."""
+    from analysis_utils import atr as _canonical_atr
+    return _canonical_atr(df, period=period)
 
 
 def _ud_volume_ratio(close: pd.Series, vol: pd.Series, period: int = 50) -> float:
@@ -116,15 +118,25 @@ def _acc_dist_days(close: pd.Series, vol: pd.Series, period: int = 20):
     """
     Accumulation days: close UP on volume > 1.3× 20-day avg
     Distribution days: close DOWN on volume > 1.3× 20-day avg
+
+    BUG-FIX: previous code compared every bar in the period to TODAY's 20-day avg.
+    In a rising-volume environment, bars from 3 weeks ago looked like "low volume"
+    relative to today's higher average → systematically under-counted distribution
+    and over-counted accumulation. Now each bar is compared to its OWN trailing
+    20-day average (the avg that prevailed AT THAT bar).
     """
     try:
-        if len(close) < period + 1 or len(vol) < period + 1:
+        if len(close) < period + 20 or len(vol) < period + 20:
             return 0, 0
-        avg_vol  = float(vol.rolling(20).mean().iloc[-1])
+        # Rolling 20-day avg for the entire series (not just the last value)
+        avg_vol_series = vol.rolling(20).mean()
+        # Now slice the LAST `period` bars from both close + vol + their own avg
         cl       = close.iloc[-period:]
         v        = vol.iloc[-period:]
+        ref_avg  = avg_vol_series.iloc[-period:]
         chg      = cl.diff()
-        high_vol = v > avg_vol * 1.3
+        # Each bar compared to the 20-day avg that prevailed at THAT bar
+        high_vol = v > ref_avg * 1.3
         acc  = int(((chg > 0) & high_vol).sum())
         dist = int(((chg < 0) & high_vol).sum())
         return acc, dist
@@ -140,7 +152,7 @@ def _weekly_tightness(close: pd.Series, weeks: int = 10) -> float:
     try:
         if len(close) < weeks * 5 + 5:
             return 9.9
-        wk = close.resample("W").last().dropna()
+        wk = close.resample("W-FRI").last().dropna()
         if len(wk) < weeks + 1:
             return 9.9
         ret = wk.pct_change().dropna().iloc[-weeks:]
@@ -182,11 +194,25 @@ def _detect_pocket_pivot(df: pd.DataFrame):
         if cur <= prev:
             return False, {}
 
-        # Prior 10 sessions' down-day volumes
-        cl_win  = close.iloc[-12:-1]   # 11 bars ending yesterday
-        v_win   = vol.iloc[-12:-1]
-        chg     = cl_win.diff().dropna()
-        dv      = v_win.iloc[1:][chg.values < 0]  # volume on down days
+        # Prior 10 sessions' down-day volumes (Pocket Pivot rule, Morales/Kacher).
+        # BUG-FIX: previous code took `iloc[-12:-1]` (11 bars ending yesterday) and
+        # then `.diff()` which drops the leftmost → only 10 valid changes, but
+        # `v_win` had 11 entries → off-by-one alignment. The first change was
+        # also computed against the bar OUTSIDE this window (and lost to NaN).
+        # New approach: take 11 bars so diff() yields 10 valid deltas, then mask
+        # the corresponding 10 volume bars.
+        cl_win  = close.iloc[-12:-1]   # 11 closes ending yesterday
+        v_win   = vol.iloc[-11:-1]     # 10 volumes for the 10 changes diff yields
+        common  = cl_win.index.intersection(v_win.index)
+        # Compute diffs aligned to v_win's window
+        chg_full = cl_win.diff()        # 11 entries, first is NaN
+        chg = chg_full.iloc[1:]         # 10 valid deltas, indices match v_win
+        # Reindex both to the same dates to be safe
+        common2 = chg.index.intersection(v_win.index)
+        chg_a  = chg.reindex(common2)
+        v_a    = v_win.reindex(common2)
+        down_mask = chg_a < 0
+        dv      = v_a[down_mask].dropna()
         max_dv  = float(dv.max()) if len(dv) > 0 else 0.0
 
         today_vol = float(vol.iloc[-1])
@@ -248,6 +274,10 @@ def _detect_earnings_setup(df: pd.DataFrame):
         open_ = df["Open"].dropna()
 
         if len(close) < 35 or len(open_) < 35:
+            return False, {}
+
+        # BUG-009 FIX: length guard — need ≥40 bars before indexing iloc[-40..-9]
+        if len(close) < 40 or len(open_) < 40 or len(vol) < 40:
             return False, {}
 
         avg_vol_s = vol.rolling(20).mean()
@@ -347,8 +377,8 @@ def _analyze(symbol: str, df: pd.DataFrame, nifty: pd.Series | None = None) -> d
         if cur <= 0:
             return None
 
-        # Liquidity — higher floor for institutional setups
-        avg_vol = float(vol.rolling(20).mean().iloc[-1]) if len(vol) >= 20 else 0
+        # Liquidity — higher floor for institutional setups (median-based, outlier-resistant)
+        avg_vol = volume_baseline(vol, window=20)
         adtv_cr = round(avg_vol * cur / 1e7, 2)
         if adtv_cr < MIN_ADTV_CR:
             return None
@@ -366,9 +396,9 @@ def _analyze(symbol: str, df: pd.DataFrame, nifty: pd.Series | None = None) -> d
         tightness = _weekly_tightness(close)
 
         # Returns
-        r1m  = round((cur / float(close.iloc[-22]) - 1) * 100, 2) if len(close) > 22  else 0.0
-        r3m  = round((cur / float(close.iloc[-63]) - 1) * 100, 2) if len(close) > 63  else 0.0
-        r6m  = round((cur / float(close.iloc[-126])- 1) * 100, 2) if len(close) > 126 else 0.0
+        r1m  = round((cur / float(close.iloc[-21]) - 1) * 100, 2) if len(close) >= 21  else 0.0
+        r3m  = round((cur / float(close.iloc[-63]) - 1) * 100, 2) if len(close) >= 63  else 0.0
+        r6m  = round((cur / float(close.iloc[-126])- 1) * 100, 2) if len(close) >= 126 else 0.0
 
         ma50  = round(float(close.rolling(50).mean().iloc[-1]),  2) if len(close) >= 50  else None
         ma200 = round(float(close.rolling(200).mean().iloc[-1]), 2) if len(close) >= 200 else None

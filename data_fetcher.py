@@ -110,7 +110,7 @@ def _download_one_day(dt: date) -> pd.DataFrame | None:
 def _weekdays_back(n: int) -> list[date]:
     """Generate Mon–Fri dates going back n calendar days from today.
     Always tries today first — _download_one_day() returns None gracefully
-    if today's bhavcopy isn't published yet (NSE publishes ~6pm IST).
+    if today's bhavcopy isn't published yet (NSE typically publishes ~6–7 PM IST).
     """
     today  = date.today()
     result = []
@@ -135,6 +135,112 @@ def _latest_bhavcopy_date() -> date | None:
         if _bhav_cache_path(dt).exists():
             return dt
     return None
+
+
+# ── Auto-refresh: proactively pull today's bhavcopy ──────────────────────────
+
+import threading as _threading
+
+_refresh_lock  = _threading.Lock()
+_refresh_state = {"last_checked": 0.0, "last_new_date": None}
+_CHECK_INTERVAL_HAVE    = 1800   # 30 min — once we already have today's file
+_CHECK_INTERVAL_MISSING = 300    # 5 min  — aggressive retry when today's file missing
+
+
+def auto_refresh_bhavcopy() -> dict:
+    """
+    Proactively try to download today's (or the latest weekday's) bhavcopy.
+    Called from the background scheduler — safe to call frequently; internal
+    throttling ensures we only hit NSE at most every 5 min when today's data
+    is missing (4–9 PM IST window), or every 30 min once already cached.
+
+    Returns {"downloaded": bool, "date": date|None, "already_had": bool}
+    """
+    now = time.time()
+    today = date.today()
+    # Use short interval when today's file is missing, long interval once we have it
+    interval = _CHECK_INTERVAL_HAVE if _bhav_cache_path(today).exists() else _CHECK_INTERVAL_MISSING
+    if now - _refresh_state["last_checked"] < interval:
+        return {"downloaded": False, "date": None, "already_had": True,
+                "msg": "throttled"}
+
+    with _refresh_lock:
+        # Re-check after acquiring lock (another thread may have just done it)
+        interval2 = _CHECK_INTERVAL_HAVE if _bhav_cache_path(today).exists() else _CHECK_INTERVAL_MISSING
+        if time.time() - _refresh_state["last_checked"] < interval2:
+            return {"downloaded": False, "date": None, "already_had": True,
+                    "msg": "throttled"}
+
+        _refresh_state["last_checked"] = time.time()
+        # Only weekdays — NSE doesn't publish on weekends
+        if today.weekday() >= 5:
+            return {"downloaded": False, "date": None, "already_had": False,
+                    "msg": "weekend — no bhavcopy"}
+
+        # Check if we already have today's file
+        if _bhav_cache_path(today).exists():
+            return {"downloaded": False, "date": today, "already_had": True,
+                    "msg": "already have today"}
+
+        # Try to fetch today's bhavcopy from NSE (typically published ~6–7 PM IST)
+        result = _download_one_day(today)
+        if result is not None:
+            _refresh_state["last_new_date"] = today
+            print(f"[bhavcopy] ✅ Auto-downloaded {today} bhavcopy "
+                  f"({len(result)} rows)", flush=True)
+            # Bust ALL in-memory caches so next scan uses fresh data
+            try:
+                from industry_groups import _stocks_cache, _cache as _ig_cache
+                _stocks_cache["data"] = None   # raw OHLCV stocks
+                _stocks_cache["ts"]   = 0
+                _ig_cache["data"]     = None   # RS scan results
+                _ig_cache["ts"]       = 0
+            except Exception:
+                pass
+            try:
+                from sector_analysis import _cache as _sa_cache
+                _sa_cache["data"] = None       # sector heatmap results
+                _sa_cache["ts"]   = 0
+            except Exception:
+                pass
+            try:
+                from market_breadth import _cache as _mb_cache, _CACHE_PATH as _mb_disk
+                _mb_cache["data"] = None       # market breadth in-memory
+                _mb_cache["ts"]   = 0
+                # Delete disk-based breadth cache (6h TTL — stale after new bhavcopy)
+                if _mb_disk.exists():
+                    _mb_disk.unlink(missing_ok=True)
+            except Exception:
+                pass
+            try:
+                from trending import _cache as _tr_cache
+                _tr_cache["data"] = None       # trending scan results
+                _tr_cache["ts"]   = 0
+            except Exception:
+                pass
+            # BUG-FIX: previously these 4 caches were NOT busted → momentum, institutional,
+            # multi-year breakout, early-mover all served stale data after a new bhavcopy.
+            for mod_name, cache_name in [
+                ("momentum_scanner", "_cache"),
+                ("institutional_scanner", "_cache"),
+                ("multiyear_breakout", "_scan_cache"),
+                ("early_mover_scanner", "_cache"),
+                ("early_growth", "_cache"),
+                ("monster_growth", "_cache"),
+            ]:
+                try:
+                    mod = __import__(mod_name)
+                    c = getattr(mod, cache_name, None)
+                    if c is not None:
+                        c["data"] = None
+                        c["ts"] = 0
+                except Exception:
+                    pass
+            return {"downloaded": True, "date": today, "already_had": False,
+                    "msg": f"downloaded {today}"}
+        else:
+            return {"downloaded": False, "date": None, "already_had": False,
+                    "msg": f"not yet published by NSE ({today})"}
 
 
 # ── Per-stock pickle helpers (reuse across screener & sector analysis) ─────────
@@ -162,9 +268,14 @@ def _stock_pkl_load(ticker: str) -> pd.DataFrame | None:
         with open(p, "rb") as f:
             df = pickle.load(f)
         # ── Key check: reject pkl if it's missing a newer bhavcopy day ──────
+        # BUG-012 FIX: Strip timezone info before calling .date() to avoid
+        # "can't compare offset-naive and offset-aware datetimes" TypeError.
         latest = _latest_bhavcopy_date()
         if latest is not None:
-            pkl_last = df.index[-1].date() if hasattr(df.index[-1], "date") else df.index[-1]
+            last_idx = df.index[-1]
+            if hasattr(last_idx, "tzinfo") and last_idx.tzinfo is not None:
+                last_idx = last_idx.tz_localize(None)
+            pkl_last = last_idx.date() if hasattr(last_idx, "date") else last_idx
             if pkl_last < latest:
                 return None   # stale — a newer bhavcopy day exists, force rebuild
         return df
@@ -185,6 +296,15 @@ def _pkl_stats() -> tuple[int, int]:
     files = list(OHLCV_DIR.glob("*.pkl"))
     fresh = sum(1 for p in files if now - p.stat().st_mtime <= OHLCV_TTL)
     return len(files), fresh
+
+
+# ── Split / Bonus adjustment ──────────────────────────────────────────────────
+
+def _adjust_for_splits(df):
+    """Delegates to the centralised analysis_utils.adjust_for_splits which
+    handles the full set of NSE bonus ratios (3:2, 4:3, 5:4, etc.)."""
+    from analysis_utils import adjust_for_splits
+    return adjust_for_splits(df)
 
 
 # ── Main API ───────────────────────────────────────────────────────────────────
@@ -256,9 +376,16 @@ def fetch_ohlcv(tickers: list[str], min_bars: int = 200,
         sdf    = combined[combined["Symbol"] == sym].copy()
         if len(sdf) < min_bars:
             continue
-        sdf = sdf.set_index("Date")[["Open", "High", "Low", "Close", "Volume"]]
+        # BUG-FIX: was dropping DelivPer (NSE delivery %). Every downstream consumer
+        # (analysis_utils.delivery_trend, institutional/early-mover scoring, composite_rank)
+        # got None for delivery → all institutional-accumulation signals defaulted neutral.
+        cols = ["Open", "High", "Low", "Close", "Volume"]
+        if "DelivPer" in sdf.columns:
+            cols.append("DelivPer")
+        sdf = sdf.set_index("Date")[cols]
         sdf = sdf[~sdf.index.duplicated(keep="last")]   # dedupe (market holidays reshuffling)
         sdf = sdf.sort_index()
+        sdf = _adjust_for_splits(sdf)     # backward-adjust unadjusted bhavcopy prices
         _stock_pkl_save(ticker, sdf)
         result[ticker] = sdf
 

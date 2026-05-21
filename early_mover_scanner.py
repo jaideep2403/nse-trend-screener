@@ -34,7 +34,7 @@ for _grp, _syms in INDUSTRY_GROUPS.items():
 
 # ── Config ────────────────────────────────────────────────────────────────────
 MIN_BARS      = 200    # need enough history for all metrics
-MIN_PRICE     = 30.0
+# TIER-3: MIN_PRICE removed — ADTV filter is the real liquidity gate
 MIN_ADTV_CR   = 0.5    # Minimal liquidity guard only — universe filtered by Nifty500 membership
 MAX_3M_RET    = 70.0  # exclude already-running stocks
 MIN_3M_RET    = -35.0 # exclude stocks in freefall
@@ -44,6 +44,15 @@ MIN_BASE_DAYS  = 60   # at least 3 months of consolidation
 SCAN_WORKERS  = 8
 _cache        = {"data": None, "ts": 0}
 CACHE_TTL     = 3600
+
+
+# ── Split / Bonus backward-adjustment (BUG-001) ───────────────────────────────
+
+def _adjust_for_splits(df):
+    """Delegate to canonical analysis_utils.adjust_for_splits."""
+    from analysis_utils import adjust_for_splits
+    return adjust_for_splits(df)
+
 
 # ── ETF exclusion ─────────────────────────────────────────────────────────────
 # NSE ETFs trade as EQ series but should not appear as stock picks.
@@ -71,7 +80,7 @@ def _is_etf(symbol: str) -> bool:
 
 
 _NIFTY_SYMS = [
-    "RELIANCE", "TCS", "HDFCBANK", "ICICIBANK", "INFOSYS",
+    "RELIANCE", "TCS", "HDFCBANK", "ICICIBANK", "INFY",
     "HINDUNILVR", "SBIN", "BHARTIARTL", "ITC", "KOTAKBANK",
     "AXISBANK", "WIPRO", "HCLTECH", "MARUTI", "BAJFINANCE",
 ]
@@ -91,10 +100,10 @@ def _load_all_stocks(progress_callback=None) -> dict[str, pd.DataFrame]:
             progress_callback(i, total, f"Loading bhavcopy cache… {i}/{total} days")
     if not frames:
         return {}
-    # Filter to Nifty50 ∪ NiftyNext50 ∪ Nifty500 ∪ NiftySmallcap250
+    # Filter to Nifty Total Market 750 (Nifty50 ∪ Next50 ∪ Nifty500 ∪ Smallcap250 ∪ Microcap250 ∪ TotalMarket)
     try:
-        from nse_stocks import get_nifty500_symbols
-        _universe = set(get_nifty500_symbols())
+        from nse_stocks import get_universe_symbols
+        _universe = set(get_universe_symbols())
     except Exception:
         _universe = set()
     combined = pd.concat(frames, ignore_index=True).sort_values("Date")
@@ -104,6 +113,7 @@ def _load_all_stocks(progress_callback=None) -> dict[str, pd.DataFrame]:
             continue
         g = grp.set_index("Date")[["Open", "High", "Low", "Close", "Volume"]]
         g = g[~g.index.duplicated(keep="last")].sort_index()
+        g = _adjust_for_splits(g)
         if len(g) >= MIN_BARS:
             stocks[sym] = g
     return stocks
@@ -152,7 +162,9 @@ def _sector_quadrants(stocks: dict) -> dict[str, str]:
         ]
         if not nifty_closes:
             return {}
-        nifty = pd.concat(nifty_closes, axis=1).dropna(how="all").mean(axis=1)
+        # BUG-FIX: rebase-to-100 equal-weight (was raw price avg)
+        from analysis_utils import equal_weight_index
+        nifty = equal_weight_index(pd.concat(nifty_closes, axis=1).dropna(how="all"))
         if not isinstance(nifty.index, pd.DatetimeIndex):
             nifty.index = pd.to_datetime(nifty.index)
 
@@ -167,12 +179,14 @@ def _sector_quadrants(stocks: dict) -> dict[str, str]:
                     grp_closes.append(c)
             if len(grp_closes) < 2:
                 continue
-            grp_idx   = pd.concat(grp_closes, axis=1).dropna(how="all").mean(axis=1)
+            # BUG-FIX: rebase-to-100 (was raw price avg, single high-priced stock skewed sector)
+            grp_idx   = equal_weight_index(pd.concat(grp_closes, axis=1).dropna(how="all"))
             common    = grp_idx.index.intersection(nifty.index)
             if len(common) < 80:
                 continue
             rs_daily  = grp_idx[common] / nifty[common]
-            rs_weekly = rs_daily.resample("W").last().dropna()
+            # BUG-FIX: explicit W-FRI to match NSE weekly close (W defaults to W-SUN)
+            rs_weekly = rs_daily.resample("W-FRI").last().dropna()
             if len(rs_weekly) < 12:
                 continue
             rm       = rs_weekly.rolling(26, min_periods=10).mean()
@@ -208,13 +222,11 @@ def _stock_metrics(symbol: str, df: pd.DataFrame) -> dict | None:
             return None
 
         cur = float(close.iloc[-1])
-        if cur < MIN_PRICE:
-            return None
 
         # Price returns
-        r1m = (cur / float(close.iloc[-22])  - 1) * 100 if len(close) > 22  else 0.0
-        r3m = (cur / float(close.iloc[-66])  - 1) * 100 if len(close) > 66  else 0.0
-        r6m = (cur / float(close.iloc[-130]) - 1) * 100 if len(close) > 130 else 0.0
+        r1m = (cur / float(close.iloc[-21])  - 1) * 100 if len(close) >= 21  else 0.0
+        r3m = (cur / float(close.iloc[-63])  - 1) * 100 if len(close) >= 63  else 0.0
+        r6m = (cur / float(close.iloc[-126]) - 1) * 100 if len(close) >= 126 else 0.0
 
         # Exclude stocks already in heavy momentum or in freefall
         if r3m > MAX_3M_RET or r3m < MIN_3M_RET:
@@ -249,12 +261,15 @@ def _stock_metrics(symbol: str, df: pd.DataFrame) -> dict | None:
         ma50  = float(close.rolling(50).mean().iloc[-1])  if len(close) >= 50  else None
         ma200 = float(close.rolling(200).mean().iloc[-1]) if len(close) >= 200 else None
 
-        # RS delta: 3M return now vs 3M return 90 days ago
-        # Measures whether relative strength is improving
-        if len(close) >= 157:
-            r3m_old = (float(close.iloc[-90]) / float(close.iloc[-157]) - 1) * 100
+        # RS delta: today's 3M return vs the 3M return 63 bars ago.
+        # Both windows must span the SAME number of intervals so the
+        # rank-delta comparison is apples-to-apples.
+        # r3m       = close[-1] / close[-63]  → spans 62 intervals.
+        # r3m_old   = close[-64] / close[-126] → spans 62 intervals.
+        if len(close) >= 126:
+            r3m_old = (float(close.iloc[-64]) / float(close.iloc[-126]) - 1) * 100
         else:
-            r3m_old = r3m  # no history → no delta
+            r3m_old = r3m  # insufficient history → no delta
 
         # 52-week high position
         w52   = close.iloc[-252:] if len(close) >= 252 else close

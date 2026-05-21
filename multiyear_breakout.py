@@ -61,35 +61,37 @@ _scan_cache      = {"data": None, "ts": 0}
 _near_scan_cache = {"data": None, "ts": 0}
 
 
+# ── Split / Bonus backward-adjustment (BUG-003) ───────────────────────────────
+
+def _adjust_for_splits(df):
+    """Delegate to canonical analysis_utils.adjust_for_splits."""
+    from analysis_utils import adjust_for_splits
+    return adjust_for_splits(df)
+
+
 # ── Monthly sample dates ──────────────────────────────────────────────────────
 
 def _month_sample_dates(years_back: int = HISTORY_YEARS) -> list[date]:
     """
-    Return the last weekday of each month going back `years_back` years.
-    These are the dates we'll fetch bhavcopy for (1 per month = ~72 dates total).
+    BUG-FIX: was returning ONE weekday per month (~72 dates for 6 years).
+    Then resample("ME") on those single-day samples gave monthly High = monthly
+    Low = monthly Close (because each "month" had only 1 bar). So multi-year
+    resistance levels were just month-end close prices — NOT actual intra-month
+    peaks. A stock that printed ₹1,200 intra-month but closed ₹1,050 had its
+    "resistance" recorded as ₹1,050; today at ₹1,080 fired a false breakout.
+
+    Now: return EVERY weekday in the history window. _download_one_day caches
+    each bhavcopy locally, so most calls are cache hits after first run.
+    Resampled monthly High = max of all daily Highs that fell in that month.
     """
     today = date.today()
-    dates = []
-    # Start from current month, walk back month by month
-    y, m = today.year, today.month
-    for _ in range(years_back * 12 + 1):
-        # Last day of month (calendar.monthrange returns (weekday, last_day))
-        last_day = calendar.monthrange(y, m)[1]
-        d = date(y, m, last_day)
-        # Walk back to a weekday
-        while d.weekday() >= 5:  # 5=Sat, 6=Sun
-            d -= timedelta(days=1)
-        # If we're in the current month, use the latest cached/today's bhavcopy
-        if (y, m) == (today.year, today.month):
-            d = today
-            while d.weekday() >= 5 or d > today:
-                d -= timedelta(days=1)
-        dates.append(d)
-        # Decrement month
-        m -= 1
-        if m == 0:
-            m = 12
-            y -= 1
+    dates: list[date] = []
+    cutoff = today - timedelta(days=years_back * 365 + 30)
+    d = today
+    while d >= cutoff:
+        if d.weekday() < 5:    # Mon-Fri only
+            dates.append(d)
+        d -= timedelta(days=1)
     return dates
 
 
@@ -139,8 +141,15 @@ def _download_monthly_samples(progress_callback=None) -> list[pd.DataFrame]:
 
 def _build_monthly_ohlcv(frames: list[pd.DataFrame]) -> dict[str, pd.DataFrame]:
     """
-    Combine monthly bhavcopy frames into per-stock monthly OHLCV.
-    Each row in result represents one month-end snapshot (Open=Close).
+    Combine bhavcopy frames into per-stock monthly OHLCV.
+
+    BUG-002 FIX: instead of treating each bhavcopy sample as its own
+    "month bar" (which gave a single-day snapshot, not a real monthly High/Low),
+    we resample whatever daily data is available with `.resample("M").agg(...)`
+    so monthly High = max of all daily Highs that fell in the month, etc.
+
+    BUG-003 FIX: backward-adjust for stock splits/bonuses before resampling so
+    pre-split prices don't corrupt the monthly aggregation.
     """
     if not frames:
         return {}
@@ -153,8 +162,27 @@ def _build_monthly_ohlcv(frames: list[pd.DataFrame]) -> dict[str, pd.DataFrame]:
         g = g.sort_values("Date").drop_duplicates(subset=["Date"], keep="last")
         if len(g) < MIN_MONTHS:
             continue
-        df = g.set_index("Date")[["Open", "High", "Low", "Close", "Volume"]].copy()
-        out[sym] = df
+        daily = g.set_index("Date")[["Open", "High", "Low", "Close", "Volume"]].copy()
+        # Backward-adjust for splits on the underlying daily series.
+        daily = _adjust_for_splits(daily)
+        # Resample to month-end OHLCV. If only one bar exists in a month
+        # the result is effectively that bar — but when multiple samples
+        # exist per month (current setup falls back to month-end only,
+        # but future enhancements could sample more frequently) we get a
+        # proper monthly High/Low.
+        try:
+            monthly = daily.resample("ME").agg({
+                "Open":   "first",
+                "High":   "max",
+                "Low":    "min",
+                "Close":  "last",
+                "Volume": "sum",
+            }).dropna(subset=["Close"])
+        except Exception:
+            monthly = daily
+        if len(monthly) < MIN_MONTHS:
+            continue
+        out[sym] = monthly
     return out
 
 
@@ -260,7 +288,12 @@ def detect_multiyear_breakout(symbol: str, monthly: pd.DataFrame) -> dict | None
             continue
 
         pct_above   = (current_close / resistance - 1) * 100
-        base_months = (n - 1) - months_above   # months in base before breakout
+        # Months spent in the base BEFORE the breakout. The base ends `months_above`
+        # months before the latest sample, so the base count is `n - months_above`
+        # (not `n - 1 - months_above` — that was an extra -1 shift that under-counted
+        # the base length by one month, demoting genuine long-base breakouts in the
+        # tier ranking).
+        base_months = n - months_above
 
         # ATH check
         is_ath = bool(current_close >= np.max(closes[:-1]))
@@ -304,7 +337,7 @@ def detect_multiyear_breakout(symbol: str, monthly: pd.DataFrame) -> dict | None
 def run_multiyear_scan(min_base_years: int = 1,
                        progress_callback=None) -> dict:
     """
-    Scan Nifty 500 for multi-year breakouts.
+    Scan Nifty Total Market 750 for multi-year breakouts.
     Returns {"results": [...], "scanned": N, "found": M, "computed_at": ts}
     """
     # Scan-level cache (results are not pre-filtered, so reuse for any request)
@@ -314,15 +347,15 @@ def run_multiyear_scan(min_base_years: int = 1,
 
     # Universe
     try:
-        from nse_stocks import get_nifty500_symbols
-        symbols = get_nifty500_symbols()
+        from nse_stocks import get_universe_symbols
+        symbols = get_universe_symbols()
     except Exception:
         symbols = []
 
     if not symbols:
         return {"results": [], "scanned": 0, "found": 0,
                 "computed_at": time.time(),
-                "error": "Could not load Nifty 500 universe"}
+                "error": "Could not load Nifty Total Market 750 universe"}
 
     # Sector lookup
     from industry_groups import INDUSTRY_GROUPS
@@ -494,7 +527,7 @@ def detect_near_breakout(symbol: str, monthly: pd.DataFrame) -> dict | None:
 
 def run_near_breakout_scan(progress_callback=None) -> dict:
     """
-    Scan Nifty 500 for stocks approaching multi-year resistance (within 10% below).
+    Scan Nifty Total Market 750 for stocks approaching multi-year resistance (within 10% below).
     Reuses the same monthly data cache as run_multiyear_scan() — if that ran first,
     this scan completes instantly from cache.
     Returns {"results": [...], "scanned": N, "found": M, "computed_at": ts}
@@ -505,15 +538,15 @@ def run_near_breakout_scan(progress_callback=None) -> dict:
 
     # Universe
     try:
-        from nse_stocks import get_nifty500_symbols
-        symbols = get_nifty500_symbols()
+        from nse_stocks import get_universe_symbols
+        symbols = get_universe_symbols()
     except Exception:
         symbols = []
 
     if not symbols:
         return {"results": [], "scanned": 0, "found": 0,
                 "computed_at": time.time(),
-                "error": "Could not load Nifty 500 universe"}
+                "error": "Could not load Nifty Total Market 750 universe"}
 
     # Sector lookup
     from industry_groups import INDUSTRY_GROUPS

@@ -163,10 +163,16 @@ def _build_universe() -> list[str]:
 
 # ── Public API ─────────────────────────────────────────────────────────────────
 
-def get_nifty500_symbols() -> list[str]:
+def get_universe_symbols() -> list[str]:
     """
-    Return deduplicated universe: Nifty50 ∪ NiftyNext50 ∪ Nifty500 ∪ NiftySmallcap250
-                                  ∪ NiftyMicrocap250 ∪ NiftyTotalMarket (~750 stocks).
+    Return deduplicated NSE Total Market universe (~750 stocks).
+    Union of: Nifty50 ∪ NiftyNext50 ∪ Nifty500 ∪ NiftySmallcap250
+              ∪ NiftyMicrocap250 ∪ NiftyTotalMarket + hand-curated extras.
+
+    This is the SAME ~750-stock universe that the Nifty Total Market index covers —
+    we just build it from the union of 6 sub-index CSVs for resilience (if NSE
+    fails to publish one CSV on a given day, we still have the others).
+
     Uses local 7-day cache. Falls back to hardcoded Nifty100 if NSE unreachable.
     """
     cached = _load_cache()
@@ -179,8 +185,20 @@ def get_nifty500_symbols() -> list[str]:
     return universe
 
 
+# BUG-FIX: original name `get_nifty500_symbols` was misleading — it returns
+# the Nifty Total Market 750 universe (~750 stocks), NOT just Nifty 500.
+# The misleading name caused confusion: "why are we using Nifty 500 not Total Market?"
+# when the function was already returning the 750-stock universe.
+# Keep the old name as a back-compat alias so existing imports don't break,
+# but the canonical name going forward is get_universe_symbols().
+def get_nifty500_symbols() -> list[str]:
+    """[DEPRECATED NAME] Returns the Nifty Total Market 750 universe (~751 stocks).
+    Misleading name kept for back-compat. New code should use get_universe_symbols()."""
+    return get_universe_symbols()
+
+
 def get_nse_tickers() -> list[str]:
     """
     Return universe in .NS suffix format used by all scanners and the screener.
     """
-    return [f"{s}.NS" for s in get_nifty500_symbols()]
+    return [f"{s}.NS" for s in get_universe_symbols()]

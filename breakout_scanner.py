@@ -28,6 +28,14 @@ _cache = {"data": None, "ts": 0}
 CACHE_TTL = 3600       # 1 hour
 
 
+# ── Split / Bonus backward-adjustment (BUG-001) ───────────────────────────────
+
+def _adjust_for_splits(df):
+    """Delegate to canonical analysis_utils.adjust_for_splits."""
+    from analysis_utils import adjust_for_splits
+    return adjust_for_splits(df)
+
+
 # ── Load all NSE EQ stock OHLCV from cached bhavcopy files ────────────────────
 
 def _load_all_stocks(progress_callback=None) -> dict[str, pd.DataFrame]:
@@ -46,10 +54,10 @@ def _load_all_stocks(progress_callback=None) -> dict[str, pd.DataFrame]:
     if not frames:
         return {}
 
-    # Universe: Nifty50 ∪ NiftyNext50 ∪ Nifty500 ∪ NiftySmallcap250
+    # Universe: Nifty Total Market 750 (Nifty50 ∪ Next50 ∪ Nifty500 ∪ Smallcap250 ∪ Microcap250 ∪ TotalMarket)
     try:
-        from nse_stocks import get_nifty500_symbols
-        _universe = set(get_nifty500_symbols())
+        from nse_stocks import get_universe_symbols
+        _universe = set(get_universe_symbols())
     except Exception:
         _universe = set()
     combined = pd.concat(frames, ignore_index=True).sort_values("Date")
@@ -60,6 +68,7 @@ def _load_all_stocks(progress_callback=None) -> dict[str, pd.DataFrame]:
             continue
         g = grp.set_index("Date")[["Open", "High", "Low", "Close", "Volume"]]
         g = g[~g.index.duplicated(keep="last")].sort_index()
+        g = _adjust_for_splits(g)
         if len(g) >= MIN_BARS:
             stocks[sym] = g
 
@@ -69,30 +78,18 @@ def _load_all_stocks(progress_callback=None) -> dict[str, pd.DataFrame]:
 # ── Utility ───────────────────────────────────────────────────────────────────
 
 def _vol_ratio(vol: pd.Series, period: int = 20) -> float:
+    # BUG-039 FIX: enforce min_periods so partial windows don't yield misleading ratios.
     if len(vol) < period + 1:
         return 1.0
-    avg = float(vol.iloc[-(period + 1):-1].mean())
+    avg_s = vol.iloc[-(period + 1):-1].rolling(period, min_periods=20).mean()
+    avg = float(avg_s.iloc[-1]) if len(avg_s) and not pd.isna(avg_s.iloc[-1]) else 0.0
     return round(float(vol.iloc[-1]) / avg, 2) if avg > 0 else 1.0
 
 
 def _atr(df: pd.DataFrame, period: int = 14) -> float:
-    """Average True Range over `period` bars."""
-    try:
-        hi  = df["High"].dropna()
-        lo  = df["Low"].dropna()
-        cl  = df["Close"].dropna()
-        idx = hi.index.intersection(lo.index).intersection(cl.index)
-        if len(idx) < period + 2:
-            return float(cl.iloc[-1]) * 0.02   # fallback: 2% of price
-        h = hi[idx]; l = lo[idx]; c = cl[idx]
-        tr = pd.concat([
-            h - l,
-            (h - c.shift(1)).abs(),
-            (l - c.shift(1)).abs(),
-        ], axis=1).max(axis=1)
-        return float(tr.rolling(period).mean().iloc[-1])
-    except Exception:
-        return 0.0
+    """Wilder's ATR via canonical analysis_utils.atr (single source of truth)."""
+    from analysis_utils import atr as _canonical_atr
+    return _canonical_atr(df, period=period)
 
 
 def _week_pct_range(close: pd.Series, weeks_ago_start: int, weeks_ago_end: int) -> float:
@@ -117,14 +114,14 @@ def _detect_timeframes(close: pd.Series, vol: pd.Series) -> list[str]:
     cur = float(close.iloc[-1])
 
     # D — new 20-day closing high
-    if len(close) >= 22:
+    if len(close) >= 21:
         if cur >= float(close.iloc[-22:-1].max()):
             tf.append("D")
 
     # W — new 13-week high (weekly resampled)
     if len(close) >= 65:
         try:
-            wk = close.resample("W").last().dropna()
+            wk = close.resample("W-FRI").last().dropna()
             if len(wk) >= 14 and float(wk.iloc[-1]) >= float(wk.iloc[-14:-1].max()):
                 tf.append("W")
         except Exception:
@@ -140,10 +137,12 @@ def _detect_timeframes(close: pd.Series, vol: pd.Series) -> list[str]:
             pass
 
     # Y — new 52-week high or near ATH
+    # BUG-008 FIX: exclude current bar from the lookback so a "new high" really
+    # means the bar broke ABOVE prior 251 sessions, not just tied with itself.
     if len(close) >= 252:
-        if cur >= float(close.iloc[-252:].max()) * 0.995:
+        if cur >= float(close.iloc[-252:-1].max()) * 0.995:
             tf.append("Y")
-    elif cur >= float(close.max()) * 0.995:
+    elif len(close) >= 2 and cur >= float(close.iloc[:-1].max()) * 0.995:
         tf.append("Y")   # ATH even with < 1yr data
 
     return tf
@@ -152,7 +151,10 @@ def _detect_timeframes(close: pd.Series, vol: pd.Series) -> list[str]:
 # ── Pattern detection — returns (matched, levels_dict) ────────────────────────
 
 def _is_ath(close: pd.Series) -> bool:
-    return float(close.iloc[-1]) >= float(close.max()) * 0.995
+    # BUG-008 FIX: ATH means current bar > all PRIOR bars — exclude self from max().
+    if len(close) < 2:
+        return False
+    return float(close.iloc[-1]) >= float(close.iloc[:-1].max()) * 0.995
 
 
 def _is_vcp(close: pd.Series, vol: pd.Series):
@@ -345,7 +347,13 @@ def _compute_levels(df: pd.DataFrame, entry: float, base_high: float, base_low: 
     t3 = round(max(ath * 1.001, entry + 3.0 * risk), 2)  # 3R or ATH+
 
     risk_pct = round(risk / entry * 100, 2)
-    rr       = round((t2 - entry) / risk, 2) if risk > 0 else 0.0
+    # BUG-026 FIX: R:R measured from effective entry (current price when past entry)
+    # so we never show inflated R:R for stocks already past their pivot entry.
+    cur = float(df["Close"].iloc[-1]) if len(df) > 0 else entry
+    effective_entry = max(entry, cur)
+    effective_risk  = effective_entry - sl
+    reward_t2       = t2 - effective_entry
+    rr = round(reward_t2 / effective_risk, 2) if effective_risk > 0 else 0
 
     return {
         "sl":       sl,
@@ -393,14 +401,14 @@ def _compute_group_ranks(stocks: dict) -> dict[str, int]:
     Returns {group_name: rank}  (1 = strongest group).
     """
     try:
-        nifty_syms = ["RELIANCE", "TCS", "HDFCBANK", "ICICIBANK", "INFOSYS",
-                      "HINDUNILVR", "SBIN", "BHARTIARTL", "ITC", "KOTAKBANK"]
+        # Canonical 20-stock Nifty proxy basket (single source of truth).
+        from analysis_utils import NIFTY_PROXY_SYMS, equal_weight_index
         nifty_closes = [stocks[s]["Close"].dropna()
-                        for s in nifty_syms if s in stocks and len(stocks[s]) >= 63]
+                        for s in NIFTY_PROXY_SYMS if s in stocks and len(stocks[s]) >= 63]
         if not nifty_closes:
             return {}
-        nifty      = pd.concat(nifty_closes, axis=1).dropna(how="all").mean(axis=1)
-        nifty_r3m  = (float(nifty.iloc[-1]) / float(nifty.iloc[-63]) - 1) * 100 if len(nifty) > 63 else 0.0
+        nifty = equal_weight_index(pd.concat(nifty_closes, axis=1).dropna(how="all"))
+        nifty_r3m  = (float(nifty.iloc[-1]) / float(nifty.iloc[-63]) - 1) * 100 if len(nifty) >= 63 else 0.0
 
         group_rs: dict[str, float] = {}
         for grp, syms in INDUSTRY_GROUPS.items():
@@ -408,7 +416,7 @@ def _compute_group_ranks(stocks: dict) -> dict[str, int]:
                       for s in syms if s in stocks and len(stocks[s]) >= 63]
             if len(closes) < 2:
                 continue
-            grp_idx = pd.concat(closes, axis=1).dropna(how="all").mean(axis=1)
+            grp_idx = equal_weight_index(pd.concat(closes, axis=1).dropna(how="all"))
             if len(grp_idx) < 63:
                 continue
             r3m = (float(grp_idx.iloc[-1]) / float(grp_idx.iloc[-63]) - 1) * 100
@@ -464,8 +472,8 @@ def _analyze(symbol: str, df: pd.DataFrame) -> dict | None:
         pct_ath = round((cur - ath) / ath * 100, 2)
         vr      = _vol_ratio(vol, 20)
 
-        r1m = round((cur / float(close.iloc[-22])  - 1) * 100, 2) if len(close) > 22 else 0.0
-        r3m = round((cur / float(close.iloc[-66])  - 1) * 100, 2) if len(close) > 66 else 0.0
+        r1m = round((cur / float(close.iloc[-21])  - 1) * 100, 2) if len(close) >= 21 else 0.0
+        r3m = round((cur / float(close.iloc[-63])  - 1) * 100, 2) if len(close) >= 63 else 0.0
 
         ma50  = round(float(close.rolling(50).mean().iloc[-1]), 2)  if len(close) >= 50  else None
         ma200 = round(float(close.rolling(200).mean().iloc[-1]), 2) if len(close) >= 200 else None
@@ -558,9 +566,28 @@ def run_breakout_scan(progress_callback=None) -> dict:
                 results.append(r)
 
     # 3. Assign RS Rating from r3m rank across the full universe
+    # BUG-019 / BUG-027 FIX: prefer ranking across the FULL loaded universe
+    # (industry_groups._get_stocks output via `stocks`) rather than just the
+    # breakout subset, so RS=99 means top 1% of the whole investable universe.
+    # If the universe is unavailable we fall back to subset ranking and flag it.
     if results:
-        r3m_s  = pd.Series([r["r3m"] for r in results])
-        rs_arr = (r3m_s.rank(pct=True) * 99).round(0).astype(int).tolist()
+        try:
+            universe_r3m: dict[str, float] = {}
+            for sym, sdf in stocks.items():
+                sc = sdf["Close"].dropna()
+                if len(sc) > 66:
+                    universe_r3m[sym] = (float(sc.iloc[-1]) / float(sc.iloc[-63]) - 1) * 100
+            if len(universe_r3m) >= len(results):
+                u_series = pd.Series(universe_r3m)
+                u_ranks  = (u_series.rank(pct=True) * 99).round(0).astype(int)
+                rs_arr = [int(u_ranks.get(r["symbol"], 50)) for r in results]
+            else:
+                # Subset fallback (still directionally correct)
+                r3m_s  = pd.Series([r["r3m"] for r in results])
+                rs_arr = (r3m_s.rank(pct=True) * 99).round(0).astype(int).tolist()
+        except Exception:
+            r3m_s  = pd.Series([r["r3m"] for r in results])
+            rs_arr = (r3m_s.rank(pct=True) * 99).round(0).astype(int).tolist()
         for r, rs in zip(results, rs_arr):
             r["rs_rating"]  = int(rs)
             r["price_str"]  = int(rs)   # Price Strength = RS Rating 0-99

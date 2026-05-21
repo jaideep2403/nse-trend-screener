@@ -68,6 +68,8 @@ def add_trade(data: dict) -> dict:
         "sl":          float(data.get("sl", 0) or 0),
         "target":      float(data.get("target", 0) or 0),
         "qty":         int(data.get("qty", 0) or 0),
+        # BUG-038 FIX: track LONG vs SHORT so P&L direction is correct.
+        "side":        str(data.get("side", "LONG") or "LONG").upper(),
         "notes":       data.get("notes", ""),
         "status":      "open",
         "exit_price":  None,
@@ -90,10 +92,17 @@ def update_trade(trade_id: str, data: dict) -> dict | None:
                 t["exit_price"] = ep
                 t["exit_date"]  = data.get("exit_date", "")
                 t["status"]     = "closed"
-                pnl = (ep - t["entry_price"]) * t["qty"]
+                # BUG-038 FIX: shorts profit when price falls, so we must
+                # reverse the sign of P&L for SHORT trades.
+                side = str(t.get("side", "LONG") or "LONG").upper()
+                if side == "SHORT":
+                    pnl = (t["entry_price"] - ep) * t["qty"]
+                    pct = (t["entry_price"] - ep) / t["entry_price"] * 100 if t["entry_price"] else 0
+                else:
+                    pnl = (ep - t["entry_price"]) * t["qty"]
+                    pct = (ep - t["entry_price"]) / t["entry_price"] * 100 if t["entry_price"] else 0
                 t["pnl"]     = round(pnl, 2)
-                t["pnl_pct"] = round((ep - t["entry_price"]) / t["entry_price"] * 100, 2) \
-                               if t["entry_price"] else 0
+                t["pnl_pct"] = round(pct, 2)
             for k in ["notes", "sl", "target", "qty"]:
                 if k in data:
                     t[k] = data[k]

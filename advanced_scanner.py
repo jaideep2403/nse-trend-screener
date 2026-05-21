@@ -25,12 +25,17 @@ SCAN_WORKERS = 8
 _cache = {"data": None, "ts": 0}
 CACHE_TTL = 3600
 
-_NIFTY50_SYMS = [
-    "RELIANCE", "TCS", "HDFCBANK", "ICICIBANK", "INFOSYS",
-    "HINDUNILVR", "SBIN", "BHARTIARTL", "ITC", "KOTAKBANK",
-    "AXISBANK", "WIPRO", "HCLTECH", "MARUTI", "BAJFINANCE",
-    "TITAN", "NTPC", "POWERGRID", "NESTLEIND", "SUNPHARMA",
-]
+
+# ── Split / Bonus backward-adjustment (BUG-001) ───────────────────────────────
+
+def _adjust_for_splits(df):
+    """Delegate to canonical analysis_utils.adjust_for_splits."""
+    from analysis_utils import adjust_for_splits
+    return adjust_for_splits(df)
+
+
+# Canonical Nifty proxy basket (single source of truth in analysis_utils).
+from analysis_utils import NIFTY_PROXY_SYMS as _NIFTY50_SYMS
 
 
 # ── Data loader ───────────────────────────────────────────────────────────────
@@ -47,10 +52,10 @@ def _load_all_stocks(progress_callback=None) -> dict[str, pd.DataFrame]:
             progress_callback(i, total, f"Loading historical data… {i}/{total} days")
     if not frames:
         return {}
-    # Filter to Nifty50 ∪ NiftyNext50 ∪ Nifty500 ∪ NiftySmallcap250
+    # Filter to Nifty Total Market 750 (Nifty50 ∪ Next50 ∪ Nifty500 ∪ Smallcap250 ∪ Microcap250 ∪ TotalMarket)
     try:
-        from nse_stocks import get_nifty500_symbols
-        _universe = set(get_nifty500_symbols())
+        from nse_stocks import get_universe_symbols
+        _universe = set(get_universe_symbols())
     except Exception:
         _universe = set()
     combined = pd.concat(frames, ignore_index=True).sort_values("Date")
@@ -63,6 +68,7 @@ def _load_all_stocks(progress_callback=None) -> dict[str, pd.DataFrame]:
             cols.append("DelivPer")
         g = grp.set_index("Date")[cols]
         g = g[~g.index.duplicated(keep="last")].sort_index()
+        g = _adjust_for_splits(g)
         if len(g) >= MIN_BARS:
             stocks[sym] = g
     return stocks
@@ -77,7 +83,8 @@ def _build_nifty(stocks: dict) -> pd.Series | None:
     if not closes:
         return None
     combined = pd.concat(closes, axis=1).dropna(how="all")
-    bench = combined.mean(axis=1)
+    from analysis_utils import equal_weight_index
+    bench = equal_weight_index(combined)
     return bench if len(bench) >= 20 else None
 
 
@@ -123,8 +130,11 @@ def _analyze(symbol: str, df: pd.DataFrame, nifty: pd.Series | None) -> dict | N
         if cur <= 0:
             return None
 
-        # Liquidity
-        avg_vol = float(vol.rolling(20).mean().iloc[-1]) if len(vol) >= 20 else 0
+        # Liquidity — use canonical volume_baseline (median of last 20 bars,
+        # robust to single-day expiry/block-deal spikes that a raw rolling().mean()
+        # would inflate by 2-3x).
+        from analysis_utils import volume_baseline
+        avg_vol = volume_baseline(vol, window=20) if len(vol) >= 20 else 0
         adtv_cr = round(avg_vol * cur / 1e7, 2)
         if adtv_cr < MIN_ADTV_CR:
             return None
@@ -174,13 +184,17 @@ def _analyze(symbol: str, df: pd.DataFrame, nifty: pd.Series | None) -> dict | N
         comp     = composite_rank(tt_score, 50, stage, deliv_tr, b_cnt, pt_ok)
 
         # ── Returns ───────────────────────────────────────────────
-        r1m  = round((cur / float(close.iloc[-22])  - 1) * 100, 2) if len(close) > 22  else 0.0
-        r3m  = round((cur / float(close.iloc[-63])  - 1) * 100, 2) if len(close) > 63  else 0.0
-        r6m  = round((cur / float(close.iloc[-126]) - 1) * 100, 2) if len(close) > 126 else 0.0
+        r1m  = round((cur / float(close.iloc[-21])  - 1) * 100, 2) if len(close) >= 21  else 0.0
+        r3m  = round((cur / float(close.iloc[-63])  - 1) * 100, 2) if len(close) >= 63  else 0.0
+        r6m  = round((cur / float(close.iloc[-126]) - 1) * 100, 2) if len(close) >= 126 else 0.0
 
         ma50  = round(float(close.rolling(50).mean().iloc[-1]),  2) if len(close) >= 50  else None
         ma200 = round(float(close.rolling(200).mean().iloc[-1]), 2) if len(close) >= 200 else None
-        ath   = float(close.max())
+        # Exclude current bar from ATH so `pct_ath` is computed against PRIOR
+        # all-time high, not against itself (avoids the inconsistency where a
+        # stock can be flagged "at ATH" yet show pct_ath ≈ 0 because ath includes
+        # today's close).
+        ath = float(close.iloc[:-1].max()) if len(close) >= 2 else float(close.iloc[-1])
 
         # ── Levels (use HTF if available, else recent pivot) ─────
         if htf_ok:

@@ -29,12 +29,20 @@ for _grp, _syms in INDUSTRY_GROUPS.items():
         _SYM_TO_GROUP[_s] = _grp
 
 # ── Config ────────────────────────────────────────────────────────────────────
-MIN_PRICE    = 20.0
+# TIER-3: MIN_PRICE removed — ADTV filter is the real liquidity gate
 MIN_ADTV_CR  = 0.5    # Minimal liquidity guard only — universe filtered by Nifty500 membership
 MIN_RVOL     = 1.5    # minimum relative volume to include
 SCAN_WORKERS = 8
 _cache       = {"data": None, "ts": 0}
 CACHE_TTL    = 1800   # 30 min — volume data ages faster than momentum
+
+
+# ── Split / Bonus backward-adjustment (BUG-001) ───────────────────────────────
+
+def _adjust_for_splits(df):
+    """Delegate to canonical analysis_utils.adjust_for_splits."""
+    from analysis_utils import adjust_for_splits
+    return adjust_for_splits(df)
 
 # ── ETF exclusion (same patterns as early_mover_scanner) ─────────────────────
 _ETF_ENDSWITH = ("ETF", "BEES", "FUND", "BENCHMARK", "NIFTY1")
@@ -71,10 +79,10 @@ def _load_all_stocks(progress_callback=None) -> dict[str, pd.DataFrame]:
             progress_callback(i, total, f"Loading bhavcopy cache… {i}/{total} days")
     if not frames:
         return {}
-    # Filter to Nifty50 ∪ NiftyNext50 ∪ Nifty500 ∪ NiftySmallcap250
+    # Filter to Nifty Total Market 750 (Nifty50 ∪ Next50 ∪ Nifty500 ∪ Smallcap250 ∪ Microcap250 ∪ TotalMarket)
     try:
-        from nse_stocks import get_nifty500_symbols
-        _universe = set(get_nifty500_symbols())
+        from nse_stocks import get_universe_symbols
+        _universe = set(get_universe_symbols())
     except Exception:
         _universe = set()
     combined = pd.concat(frames, ignore_index=True).sort_values("Date")
@@ -84,6 +92,7 @@ def _load_all_stocks(progress_callback=None) -> dict[str, pd.DataFrame]:
             continue
         g = grp.set_index("Date")[["Open", "High", "Low", "Close", "Volume"]]
         g = g[~g.index.duplicated(keep="last")].sort_index()
+        g = _adjust_for_splits(g)
         if len(g) >= 25:
             stocks[sym] = g
     return stocks
@@ -126,8 +135,6 @@ def _metrics(symbol: str, df: pd.DataFrame) -> dict | None:
             return None
 
         cur = float(close.iloc[-1])
-        if cur < MIN_PRICE:
-            return None
 
         # ADTV filter
         adtv_cr = float((df["Close"] * df["Volume"]).iloc[-20:].mean()) / 1e7
@@ -159,9 +166,21 @@ def _metrics(symbol: str, df: pd.DataFrame) -> dict | None:
         body_pct = round(abs(cur - open_p) / open_p * 100, 2) if open_p > 0 else 0.0
 
         # ── Volume streak ─────────────────────────────────────────────────────
+        # Compare each bar to its OWN trailing 20-bar baseline (the avg that
+        # prevailed AT THAT bar), not a single today-anchored vol_avg20. The
+        # old method counted older bars against an average that included bars
+        # AFTER them — in rising-volume regimes older bars looked artificially
+        # small (under-counting the streak); in falling-volume they looked
+        # artificially large (over-counting).
         streak = 0
+        # Pre-compute rolling 20-bar mean once for the lookback window
+        vol_roll20 = vol.rolling(20).mean()
         for i in range(-1, -min(11, len(vol)), -1):
-            if float(vol.iloc[i]) > vol_avg20:
+            # Need a valid trailing baseline at this bar (skip if NaN — too early)
+            baseline = vol_roll20.iloc[i]
+            if pd.isna(baseline) or baseline <= 0:
+                break
+            if float(vol.iloc[i]) > float(baseline):
                 streak += 1
             else:
                 break
@@ -176,10 +195,17 @@ def _metrics(symbol: str, df: pd.DataFrame) -> dict | None:
                 vdu = True
 
         # ── 52-week high / position ───────────────────────────────────────────
-        w52   = close.iloc[-min(252, len(close)):]
+        # BUG-010 FIX: exclude current bar from the 52w lookback so the breakout
+        # comparison ("near 52w high") really means current vs PRIOR 252 sessions.
+        if len(close) >= 2:
+            w52   = close.iloc[-min(252, len(close)):-1]
+        else:
+            w52   = close
+        if len(w52) == 0:
+            w52 = close
         hi52  = float(w52.max())
         lo52  = float(w52.min())
-        pft_h = round((cur / hi52 - 1) * 100, 2)
+        pft_h = round((cur / hi52 - 1) * 100, 2) if hi52 > 0 else 0.0
         pos52 = round((cur - lo52) / (hi52 - lo52) * 100, 1) if hi52 > lo52 else 50.0
 
         # ── Moving averages ───────────────────────────────────────────────────

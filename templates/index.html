@@ -70,6 +70,16 @@
   .panel, .container > section, .tab-content > div {
     backdrop-filter: blur(2px);
   }
+  /* But hero cards must be fully opaque — text legibility matters more than aesthetic */
+  .mg-hero, .eg-hero, .sl-hero, .cn-hero,
+  .sl-stat-card, .cn-stat-card {
+    backdrop-filter: none !important;
+    background-color: var(--surface) !important;
+  }
+  /* Tables inside containers are also blurred-through; force opaque */
+  #mgTable, #cnTable, #slTable {
+    background: var(--surface);
+  }
 
   /* ── Header ── */
   header {
@@ -176,21 +186,40 @@
   .freshness-time  { color: var(--text2); font-weight: 600; font-family: var(--mono); font-size: 11px; }
 
   /* ── Tabs ── */
-  .tab-bar { display: flex; gap: 0; background: var(--surface); border-bottom: 1px solid var(--border); padding: 0 28px; overflow-x: auto; flex-wrap: nowrap; }
+  .tab-bar { display: flex; gap: 4px; background: var(--surface); border-bottom: 2px solid var(--border); padding: 6px 16px 0; overflow-x: auto; flex-wrap: nowrap; }
   .tab-btn {
-    background: none; border: none;
-    border-bottom: 2px solid transparent;
+    background: var(--surface2);
+    border: 1.5px solid var(--border2);
+    border-bottom: none;
+    border-radius: 7px 7px 0 0;
     color: var(--muted); cursor: pointer;
     font-size: 12px; font-weight: 600;
-    padding: 11px 18px;
+    padding: 8px 14px;
     transition: all 0.15s;
     display: flex; align-items: center; gap: 6px;
     white-space: nowrap;
     font-family: 'Inter', sans-serif;
     letter-spacing: 0.1px;
+    position: relative;
+    bottom: -2px;
   }
-  .tab-btn:hover { color: var(--text); }
-  .tab-btn.active { color: var(--accent2); border-bottom-color: var(--accent); }
+  .tab-btn:hover {
+    color: var(--text);
+    background: var(--surface);
+    border-color: var(--accent);
+  }
+  .tab-btn.active {
+    color: var(--accent2);
+    background: var(--surface);
+    border-color: var(--accent);
+    border-bottom: 2px solid var(--surface);
+  }
+  body.light .tab-btn {
+    background: #edf1f7;
+    border-color: #b0bece;
+  }
+  body.light .tab-btn:hover  { background: #fff; border-color: var(--accent); }
+  body.light .tab-btn.active { background: #fff; border-color: var(--accent); border-bottom-color: #fff; }
   .tab-content { display: none; }
   .tab-content.active { display: block; }
 
@@ -256,6 +285,9 @@
   .btn-primary  { background: var(--accent); color: #fff; }
   .btn-secondary{ background: var(--surface2); border: 1px solid var(--border); color: var(--text); }
   .btn-green    { background: var(--green); color: #fff; }
+  /* BUG-016 FIX: btn-orange and btn-blue were used in HTML but never defined */
+  .btn-orange   { background: #f97316; color: #fff; }
+  .btn-blue     { background: #3b82f6; color: #fff; }
 
   /* ── Progress ── */
   .progress-bar-wrap { background: var(--border); border-radius: 6px; height: 6px; width: 100%; overflow: hidden; }
@@ -275,6 +307,9 @@
   .stat-card { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 14px 18px; flex: 1; min-width: 130px; }
   .stat-card .label { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.7px; font-weight: 600; }
   .stat-card .value { font-size: 26px; font-weight: 800; color: var(--white); margin-top: 5px; font-family: var(--mono); letter-spacing: -1px; line-height: 1; }
+  /* BUG-017 FIX: stat-label/stat-val used globally (breadth, portfolio etc.) — define here */
+  .stat-label { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.7px; font-weight: 600; }
+  .stat-val   { font-size: 24px; font-weight: 800; color: var(--white); margin-top: 4px; font-family: var(--mono); letter-spacing: -1px; line-height: 1; }
 
   /* ── Tables ── */
   table { width: 100%; border-collapse: collapse; font-size: 12px; }
@@ -519,6 +554,12 @@
   <button class="tab-btn" onclick="showTab('early-mover', this)">💎 Early Movers</button>
   <button class="tab-btn" onclick="showTab('advanced', this)">🎯 Advanced Setups</button>
   <button class="tab-btn" onclick="showTab('institutional', this)">🏛️ Institutional Edge</button>
+  {% if alpha_enabled %}<button class="tab-btn" onclick="showTab('alpha', this)" style="background:rgba(168,85,247,0.10);border-color:rgba(168,85,247,0.5);color:#c084fc">⚡ Alpha Engine</button>{% endif %}
+  {% if monster_enabled %}<button class="tab-btn" onclick="showTab('monster', this)" style="background:rgba(239,68,68,0.10);border-color:rgba(239,68,68,0.5);color:#f87171">🔥 Monster Growth</button>{% endif %}
+  {% if early_growth_enabled %}<button class="tab-btn" onclick="showTab('early-growth', this);egCheckCache()" style="background:rgba(34,197,94,0.10);border-color:rgba(34,197,94,0.5);color:#22c55e">🌱 Early Growth</button>{% endif %}
+  {% if vvv_enabled %}<button class="tab-btn" onclick="showTab('vvv', this);vvvCheckCache()" style="background:rgba(168,85,247,0.12);border-color:rgba(168,85,247,0.6);color:#c084fc;font-weight:700">🎯 Minervini VVV</button>{% endif %}
+  <button class="tab-btn" onclick="showTab('consensus', this);consensusLoad()" style="background:rgba(251,191,36,0.12);border-color:rgba(251,191,36,0.6);color:#fbbf24;font-weight:700">🎖️ Consensus Picks</button>
+  <button class="tab-btn" onclick="showTab('stage-log', this);stageLogLoad()" style="background:rgba(99,102,241,0.12);border-color:rgba(99,102,241,0.6);color:#a5b4fc;font-weight:700">📊 Stage Transitions</button>
 </div>
 
 <!-- ══════════════════════════════════════════════════════════ SCREENER TAB -->
@@ -1616,7 +1657,7 @@
     RS vs Nifty = group's 3-month return minus Nifty's 3-month return.
     <strong>Top groups = institutional money is flowing in.</strong>
     Data: NSE bhavcopy — zero extra API calls.
-    <div class="tags"><span class="tag">RS vs Nifty</span><span class="tag">3-Month Return</span><span class="tag">25 Groups</span></div>
+    <div class="tags"><span class="tag">RS vs Nifty</span><span class="tag">3-Month Return</span><span class="tag">55+ Groups</span></div>
   </div>
 
   <div class="panel">
@@ -1638,7 +1679,7 @@
     </div>
     <div id="indEmpty" class="empty-state">
       <div class="icon">🏭</div>
-      <p>Click "Load Industry Groups" to rank all 25 NSE sectors by relative strength.</p>
+      <p>Click "Load Industry Groups" to rank all 55+ NSE sectors by relative strength.</p>
     </div>
     <div id="indTableWrap" style="display:none;overflow-x:auto">
       <table>
@@ -1790,7 +1831,7 @@
     <strong>Multi-Year Breakout Logic:</strong>
     Identifies stocks breaking above a multi-year resistance level after a prolonged base.
     Longer the base, bigger the potential move. &bull;
-    Data: yfinance 10yr monthly OHLCV (cached 7 days) with NSE bhavcopy fallback.
+    Data: NSE bhavcopy (~14 months OHLCV, cached locally — no external APIs).
     <div class="tags">
       <span class="tag">Multi-Year Base</span>
       <span class="tag">Resistance Breakout</span>
@@ -2202,14 +2243,43 @@
 
     <!-- ── Sector RS Heatmap ─────────────────────────────────────── -->
     <div class="panel">
-      <div class="panel-header"><h2>📊 Sector RS Heatmap — Leading vs Lagging</h2></div>
+      <div class="panel-header">
+        <h2>📊 Sector RS Heatmap — Leading vs Lagging</h2>
+        <span style="font-size:11px;color:var(--muted)">Click any sector to see all stocks ↓</span>
+      </div>
       <div id="trendHeatmap" style="padding:10px 14px 14px;display:flex;flex-wrap:wrap;gap:8px"></div>
+    </div>
+
+    <!-- ── Sector Drill-Down Panel ──────────────────────────────── -->
+    <div id="sectorDrillPanel" style="display:none" class="panel">
+      <div class="panel-header" style="display:flex;align-items:center;justify-content:space-between">
+        <h2 id="sectorDrillTitle">Sector Stocks</h2>
+        <button onclick="closeSectorDrill()" style="background:none;border:none;color:var(--muted);font-size:18px;cursor:pointer;padding:0 4px;line-height:1" title="Close">✕</button>
+      </div>
+      <div class="panel-body" style="overflow-x:auto;padding-bottom:6px">
+        <table style="width:100%;border-collapse:collapse;font-size:12px;min-width:640px">
+          <thead>
+            <tr style="border-bottom:2px solid var(--border);background:var(--surface2)">
+              <th style="padding:8px 10px;text-align:left;font-weight:800;color:#111;font-size:11px;text-transform:uppercase;letter-spacing:0.4px">#</th>
+              <th style="padding:8px 10px;text-align:left;font-weight:800;color:#111;font-size:11px;text-transform:uppercase;letter-spacing:0.4px">Symbol</th>
+              <th style="padding:8px 10px;text-align:right;font-weight:800;color:#111;font-size:11px;text-transform:uppercase;letter-spacing:0.4px">Price (₹)</th>
+              <th style="padding:8px 10px;text-align:right;font-weight:800;color:#111;font-size:11px;text-transform:uppercase;letter-spacing:0.4px">1M Ret</th>
+              <th style="padding:8px 10px;text-align:right;font-weight:800;color:#111;font-size:11px;text-transform:uppercase;letter-spacing:0.4px">3M Ret</th>
+              <th style="padding:8px 10px;text-align:right;font-weight:800;color:#111;font-size:11px;text-transform:uppercase;letter-spacing:0.4px">6M Ret</th>
+              <th style="padding:8px 10px;text-align:right;font-weight:800;color:#111;font-size:11px;text-transform:uppercase;letter-spacing:0.4px">vs Nifty (3M)</th>
+              <th style="padding:8px 10px;text-align:right;font-weight:800;color:#111;font-size:11px;text-transform:uppercase;letter-spacing:0.4px">ADTV (₹Cr)</th>
+            </tr>
+          </thead>
+          <tbody id="sectorDrillTbody"></tbody>
+        </table>
+      </div>
     </div>
 
     <!-- ── Stock table ───────────────────────────────────────────── -->
     <div class="panel">
       <!-- Filters row -->
-      <div style="padding:10px 0 10px;display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+      <!-- Row 1: Score + special + sector + search -->
+      <div style="padding:10px 0 6px;display:flex;gap:8px;flex-wrap:wrap;align-items:center">
         <!-- Score pills -->
         <button onclick="trendSetFilter('score','all')" id="trendF-all" class="tag" style="cursor:pointer">All</button>
         <button onclick="trendSetFilter('score','10')"  id="trendF-10"  class="tag" style="cursor:pointer">🔥 10/10</button>
@@ -2229,6 +2299,21 @@
           style="padding:5px 10px;border-radius:6px;border:1px solid var(--border);background:var(--surface2);color:var(--text);font-size:12px;width:120px"
           oninput="trendRender()">
         <span id="trendCount" style="font-size:11px;color:var(--text2)"></span>
+      </div>
+      <!-- Row 2: Criteria filter chips -->
+      <div style="padding:0 0 10px;display:flex;gap:6px;flex-wrap:wrap;align-items:center">
+        <span style="font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-right:2px">Criteria:</span>
+        <button onclick="trendToggleCrit(0)"  id="trendC-0"  class="tag" style="cursor:pointer;font-size:11px" title="Price > MA20 & MA50">P&gt;MA20/50</button>
+        <button onclick="trendToggleCrit(1)"  id="trendC-1"  class="tag" style="cursor:pointer;font-size:11px" title="MA20 > MA50 (golden cross)">MA20&gt;MA50</button>
+        <button onclick="trendToggleCrit(2)"  id="trendC-2"  class="tag" style="cursor:pointer;font-size:11px" title="MA50 slope rising (vs 20d ago)">MA50↑</button>
+        <button onclick="trendToggleCrit(3)"  id="trendC-3"  class="tag" style="cursor:pointer;font-size:11px" title="Within 20% of 52-week high">Near 52H</button>
+        <button onclick="trendToggleCrit(4)"  id="trendC-4"  class="tag" style="cursor:pointer;font-size:11px" title="Beating Nifty over 1 month">Beat 1M</button>
+        <button onclick="trendToggleCrit(5)"  id="trendC-5"  class="tag" style="cursor:pointer;font-size:11px" title="Beating Nifty over 3 months">Beat 3M</button>
+        <button onclick="trendToggleCrit(6)"  id="trendC-6"  class="tag" style="cursor:pointer;font-size:11px" title="Volume expanding (5d avg vs 20d avg)">Vol↑</button>
+        <button onclick="trendToggleCrit(7)"  id="trendC-7"  class="tag" style="cursor:pointer;font-size:11px" title="ADX ≥ 25 (trending strongly)">ADX≥25</button>
+        <button onclick="trendToggleCrit(8)"  id="trendC-8"  class="tag" style="cursor:pointer;font-size:11px" title="Higher highs and higher lows pattern">HH/HL</button>
+        <button onclick="trendToggleCrit(9)"  id="trendC-9"  class="tag" style="cursor:pointer;font-size:11px" title="Price > MA200 (long-term uptrend)">P&gt;MA200</button>
+        <button onclick="trendClearCrit()" id="trendC-clear" style="cursor:pointer;font-size:11px;padding:3px 8px;border-radius:4px;border:1px solid var(--border);background:none;color:var(--muted);display:none">✕ Clear</button>
       </div>
 
       <div style="overflow-x:auto">
@@ -2266,6 +2351,12 @@
 <!-- ══ LOCAL-ONLY: Portfolio tab (only rendered when portfolio.py is available) ══ -->
 {% if portfolio_enabled %}{% include 'portfolio_tab.html' ignore missing %}{% endif %}
 {% if investgrade_enabled %}{% include 'investment_grade_tab.html' ignore missing %}{% endif %}
+{% if alpha_enabled %}{% include 'alpha_engine_tab.html' ignore missing %}{% endif %}
+{% if monster_enabled %}{% include 'monster_growth_tab.html' ignore missing %}{% endif %}
+{% if early_growth_enabled %}{% include 'early_growth_tab.html' ignore missing %}{% endif %}
+{% if vvv_enabled %}{% include 'vvv_tab.html' ignore missing %}{% endif %}
+{% include 'consensus_tab.html' ignore missing %}
+{% include 'stage_log_tab.html' ignore missing %}
 
 <!-- ══════════════════════════════════════════════════════════ JAVASCRIPT -->
 <script>
@@ -2303,7 +2394,7 @@ function updateFreshness(scanId, unixSec) {
   const dot = document.getElementById(dotId);
   if (dot) dot.style.background = ageHrs < 6 ? 'var(--green2)' : 'var(--gold2)';
   // Refresh bhavcopy bar immediately — scan may have downloaded newer day files
-  pollBhavcopySatus();
+  pollBhavcopuStatus();
 }
 
 // ── Tab switching ──────────────────────────────────────────────────────────
@@ -2589,6 +2680,14 @@ function pollSector() {
            <p style="margin-top:6px;font-size:11px">Run the <strong>Stock Screener</strong> first to warm the cache, then click Load Sector Data again.</p>`;
       }
     }
+  })
+  // BUG-014 FIX: catch network errors
+  .catch(err => {
+    clearInterval(sectorPoll);
+    document.getElementById('sectorBtn').disabled = false;
+    document.getElementById('sectorProgressWrap').style.display = 'none';
+    document.getElementById('sectorEmpty').style.display = 'block';
+    document.getElementById('sectorEmpty').innerHTML = `<div class="icon">⚠️</div><p style="color:var(--red)">Network error: ${err}</p>`;
   });
 }
 
@@ -3413,7 +3512,10 @@ function pollInstStatus() {
       document.getElementById('instProgressPct').textContent   = d.pct.toFixed(1) + '%';
       document.getElementById('instProgressLabel').textContent = d.message || 'Scanning…';
 
-      if (!d.running && (d.result || d.error)) {
+      // BUG-015 FIX: Stop polling on !d.running alone (not waiting for result/error).
+      // Previously the condition !d.running && (d.result || d.error) would loop
+      // forever if the server returned {running:false, result:null, error:null}.
+      if (!d.running) {
         clearInterval(_instPoll);
         document.getElementById('instProgressWrap').style.display = 'none';
         document.getElementById('instBtn').disabled    = false;
@@ -3423,6 +3525,14 @@ function pollInstStatus() {
           document.getElementById('instEmpty').style.display = 'block';
           document.getElementById('instEmpty').innerHTML =
             `<div style="color:var(--red)">Error: ${d.error}</div>`;
+          return;
+        }
+
+        if (!d.result) {
+          // Running finished but no result yet (cold start) — show empty state
+          document.getElementById('instEmpty').style.display = 'block';
+          document.getElementById('instEmpty').innerHTML =
+            '<div style="font-size:36px;margin-bottom:12px">⏳</div><p>No data — try running again.</p>';
           return;
         }
 
@@ -3447,6 +3557,15 @@ function pollInstStatus() {
         document.getElementById('instEmpty').style.display = 'none';
         renderInstTable();
       }
+    })
+    // BUG-014 FIX: catch network errors
+    .catch(err => {
+      clearInterval(_instPoll); _instPoll = null;
+      document.getElementById('instBtn').disabled = false;
+      document.getElementById('instBtn').textContent = 'Run Institutional Scan';
+      document.getElementById('instProgressWrap').style.display = 'none';
+      document.getElementById('instEmpty').style.display = 'block';
+      document.getElementById('instEmpty').innerHTML = `<div style="color:var(--red)">Network error: ${err}</div>`;
     });
 }
 
@@ -3758,6 +3877,15 @@ function pollBreadthStatus() {
       }
       renderBreadth(d.result);
     }
+  })
+  // BUG-014 FIX: catch network errors
+  .catch(err => {
+    clearInterval(_breadthPoll); _breadthPoll = null;
+    document.getElementById('breadthBtn').disabled = false;
+    document.getElementById('breadthBtn').textContent = 'Refresh Breadth';
+    document.getElementById('breadthProgress').style.display = 'none';
+    document.getElementById('breadthEmpty').style.display = 'block';
+    document.getElementById('breadthEmpty').innerHTML = `<div style="color:var(--red)">Network error: ${err}</div>`;
   });
 }
 
@@ -4306,6 +4434,14 @@ function pollMom() {
         document.getElementById('momEmpty').innerHTML =
           `<div class="icon">⏳</div><p>No data yet — bhavcopy cache may still be warming up. Try again in 1–2 min.</p>`;
       }
+    })
+    // BUG-014 FIX: catch network errors to prevent UI lock
+    .catch(err => {
+      clearInterval(_momPoll); _momPoll = null;
+      document.getElementById('momBtn').disabled = false;
+      document.getElementById('momProgressWrap').style.display = 'none';
+      document.getElementById('momEmpty').style.display = 'block';
+      document.getElementById('momEmpty').innerHTML = `<div class="icon">⚠️</div><p style="color:var(--red)">Network error: ${err}</p>`;
     });
 }
 
@@ -4516,7 +4652,14 @@ function _refreshHeader() {
         ? 'Authoritative — from Market Breadth tab (matches that signal)'
         : 'Computing breadth signal in background — will refresh in <30s';
     }
-  }).catch(() => {});
+  }).catch((err) => {
+    // BUG-022 FIX: Log error and dim header values to indicate stale/unavailable data
+    console.warn('[header] refresh failed:', err);
+    const niftyEl = document.getElementById('hdrNifty');
+    const trEl    = document.getElementById('hdrTrend');
+    if (niftyEl && niftyEl.textContent !== '—') niftyEl.style.opacity = '0.4';
+    if (trEl)    trEl.style.opacity = '0.4';
+  });
 }
 _refreshHeader();
 setInterval(_refreshHeader, 60000);
@@ -4589,6 +4732,13 @@ function pollVol() {
           document.getElementById('volEmpty').style.display    = '';
         }
       }
+    })
+    // BUG-014 FIX: catch network errors
+    .catch(err => {
+      clearInterval(_volPoll); _volPoll = null;
+      document.getElementById('volBtn').disabled = false;
+      document.getElementById('volProgress').style.display = 'none';
+      document.getElementById('volMsg').textContent = '⚠ Network error: ' + err;
     });
 }
 
@@ -5207,6 +5357,13 @@ function pollEdge() {
         document.getElementById('edgeProgress').style.display = '';
       }
     }
+  })
+  // BUG-014 FIX: catch network errors
+  .catch(err => {
+    clearInterval(_edgePoll); _edgePoll = null;
+    document.getElementById('edgeBtn').disabled = false;
+    document.getElementById('edgeProgress').style.display = 'none';
+    document.getElementById('edgeMsg').textContent = '⚠ Network error: ' + err;
   });
 }
 
@@ -5317,7 +5474,8 @@ function renderEdgeTable() {
   let rows = _edgeData.filter(r => {
     if (search && !r.symbol.toLowerCase().includes(search)) return false;
     if (tier === 'A+' && r.score <  80) return false;
-    if (tier === 'A'  && r.score <  70) return false;
+    // BUG-023 FIX: Tier A is exclusive (70≤score<80). Previously score≥70 included A+ stocks too.
+    if (tier === 'A'  && (r.score < 70 || r.score >= 80)) return false;
     if (tier === 'B'  && r.score <  60) return false;
     if (quad  && r.quadrant !== quad)  return false;
     if (stage && r.stage   !== parseInt(stage)) return false;
@@ -5512,32 +5670,58 @@ function refreshFundamentals() {
   pollFundamentals();
 }
 
-// ── Bhavcopy freshness — poll on load and every 5 minutes ─────────────────
-function pollBhavcopySatus() {
+// ── Bhavcopy freshness — poll on load and every 2 minutes ──────────────────
+// UX policy: the app itself is always LIVE (the dashboard runs continuously
+// on the latest bhavcopy NSE has published). NSE's EOD bhavcopy may lag the
+// real market by a few hours — that lag is acceptable and surfaced in the
+// per-tab data-as-of labels and in the bhavDot/bhavLabel below. The top-level
+// LIVE badge therefore stays green LIVE in all states; bhavLabel carries the
+// honest freshness text for users who want to see the exact data date.
+function pollBhavcopuStatus() {
   fetch('/api/bhavcopy/status').then(r => r.json()).then(d => {
     const dot   = document.getElementById('bhavDot');
     const label = document.getElementById('bhavLabel');
     if (!dot || !label) return;
+
+    // Always keep the top-right LIVE badge in green LIVE state.
+    const liveBadge = document.querySelector('.live-badge');
+    if (liveBadge) {
+      liveBadge.style.background  = 'rgba(16,185,129,0.18)';
+      liveBadge.style.borderColor = 'rgba(16,185,129,0.45)';
+      liveBadge.style.color       = 'var(--green)';
+      liveBadge.innerHTML         = '<span class="live-dot"></span>LIVE';
+    }
+
+    // The bhavcopy DOT + LABEL below still reflects the real freshness so the
+    // user can see exactly which trading day's data is loaded.
     if (!d.latest_date) {
-      dot.style.background = 'var(--muted)';
-      label.textContent = 'No data yet';
+      dot.style.background = '#94a3b8';
+      label.style.color    = '#94a3b8';
+      label.textContent    = 'Waiting for NSE bhavcopy…';
       return;
     }
     if (d.status === 'today') {
       dot.style.background = 'var(--green2)';
       label.style.color    = 'var(--green2)';
+      label.textContent    = d.label;
     } else {
-      dot.style.background = 'var(--gold2, #f59e0b)';
-      label.style.color    = 'var(--gold2, #f59e0b)';
+      // Bhavcopy is from a prior trading day — note it honestly but keep LIVE.
+      dot.style.background = '#f59e0b';
+      label.style.color    = '#f59e0b';
+      const now = new Date();
+      const isWeekend = now.getDay() === 0 || now.getDay() === 6;
+      const suffix = isWeekend
+        ? ' (market closed — next bhavcopy Monday)'
+        : ' · auto-checking every 20 min';
+      label.textContent = d.label + suffix;
     }
-    label.textContent = d.label;
   }).catch(() => {
     const label = document.getElementById('bhavLabel');
     if (label) label.textContent = 'unavailable';
   });
 }
-pollBhavcopySatus();
-setInterval(pollBhavcopySatus, 300_000); // refresh every 5 min
+pollBhavcopuStatus();
+setInterval(pollBhavcopuStatus, 120_000); // re-check every 2 min so UI updates as soon as new data arrives
 
 function pollFundamentals() {
   fetch('/api/fundamentals/status').then(r => r.json()).then(d => {
@@ -5578,6 +5762,7 @@ let _trendScoreMin   = 5;
 let _trendSortCol    = 'score';
 let _trendSortAsc    = false;
 let _trendSpecial    = null;   // 'new_high' | 'pullback' | null
+let _trendCritFilt   = new Set();  // indices 0-9 that must be true
 
 // ── Scan lifecycle ──────────────────────────────────────────────
 function startTrendScan() {
@@ -5615,9 +5800,13 @@ function _trendPoll() {
 
     const nifty = _trendData.nifty_3m != null
       ? ((_trendData.nifty_3m >= 0 ? '+' : '') + _trendData.nifty_3m + '%') : '—';
+    const bhavLabel = _trendData.bhavcopy_date
+      ? `📅 Data as of ${_trendData.bhavcopy_date} (last trading day)  ·  `
+      : '';
     document.getElementById('trendTimestamp').textContent =
-      `${_trendData.trending_count} trending · ${_trendData.universe_count} scanned · Nifty 3M: ${nifty} · ` +
-      new Date(_trendData.computed_at * 1000).toLocaleTimeString();
+      bhavLabel +
+      `${_trendData.trending_count} trending · ${_trendData.universe_count} scanned · Nifty 3M: ${nifty} · Scan ran: ` +
+      new Date(_trendData.computed_at * 1000).toLocaleString('en-IN', {day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'});
 
     document.getElementById('trendResults').style.display = '';
     _renderHeatmap();
@@ -5626,34 +5815,96 @@ function _trendPoll() {
 }
 
 // ── Sector Heatmap ──────────────────────────────────────────────
+let _activeSectorDrill = null;
+
 function _renderHeatmap() {
-  const srs = (_trendData.sector_rs || []).slice(0, 30);
+  const srs = (_trendData.sector_rs || []);
   if (!srs.length) return;
   const n   = srs.length;
-  // Tier by rank: top third = leading (light green), bottom third = lagging (yellow), middle = neutral (white)
   const leadCut = Math.ceil(n / 3);
   const lagCut  = n - Math.ceil(n / 3);
   const el = document.getElementById('trendHeatmap');
   el.innerHTML = srs.map((s, i) => {
     const v = s.rs_vs_nifty;
-    let bg, border;
-    if (i < leadCut) {            // leading
-      bg     = '#d1fae5';         // light green
-      border = '#10b981';
-    } else if (i >= lagCut) {     // lagging
-      bg     = '#fef3c7';         // yellow
-      border = '#f59e0b';
-    } else {                      // neutral
-      bg     = '#ffffff';
-      border = '#cbd5e1';
+    let bg, border, hoverBorder;
+    if (i < leadCut) {
+      bg = '#d1fae5'; border = '#10b981'; hoverBorder = '#059669';
+    } else if (i >= lagCut) {
+      bg = '#fef3c7'; border = '#f59e0b'; hoverBorder = '#d97706';
+    } else {
+      bg = '#ffffff'; border = '#cbd5e1'; hoverBorder = '#6366f1';
     }
-    return `<div style="background:${bg};border:1px solid ${border};border-radius:8px;padding:9px 13px;min-width:148px;cursor:default"
-                 title="1M: ${v>=0?'+':''}${s.r1m}% · 3M: ${s.r3m>=0?'+':''}${s.r3m}% · ${s.member_count} stocks">
+    const gEsc = s.group.replace(/'/g, "\\'");
+    return `<div id="hm-card-${i}"
+                 onclick="toggleSectorDrill('${gEsc}', ${i})"
+                 onmouseover="this.style.borderColor='${hoverBorder}';this.style.transform='translateY(-2px)';this.style.boxShadow='0 4px 12px rgba(0,0,0,0.12)'"
+                 onmouseout="if(_activeSectorDrill!=='${gEsc}'){this.style.borderColor='${border}';this.style.transform='';this.style.boxShadow=''}"
+                 style="background:${bg};border:2px solid ${border};border-radius:8px;padding:9px 13px;min-width:148px;
+                        cursor:pointer;transition:all 0.15s;user-select:none"
+                 title="Click to see all ${s.member_count} stocks · 1M: ${v>=0?'+':''}${s.r1m}% · 3M: ${s.r3m>=0?'+':''}${s.r3m}%">
       <div style="font-size:11px;font-weight:800;color:#000000;margin-bottom:3px;letter-spacing:0.2px">${s.group}</div>
       <div style="font-size:14px;font-weight:900;color:#000000">${v>=0?'+':''}${v}% vs Nifty</div>
       <div style="font-size:10px;color:rgba(0,0,0,0.75);margin-top:2px;font-weight:600">${s.member_count} stocks · 3M: ${s.r3m>=0?'+':''}${s.r3m}%</div>
     </div>`;
   }).join('');
+}
+
+function toggleSectorDrill(groupName, idx) {
+  if (_activeSectorDrill === groupName) {
+    closeSectorDrill();
+    return;
+  }
+  // Deactivate old card border
+  if (_activeSectorDrill !== null) {
+    const srs = _trendData.sector_rs || [];
+    srs.forEach((s, i) => {
+      const card = document.getElementById('hm-card-' + i);
+      if (card) { card.style.outline = ''; card.style.boxShadow = ''; }
+    });
+  }
+  _activeSectorDrill = groupName;
+  // Highlight active card
+  const card = document.getElementById('hm-card-' + idx);
+  if (card) { card.style.outline = '3px solid #6366f1'; card.style.boxShadow = '0 4px 16px rgba(99,102,241,0.25)'; }
+
+  const srs = _trendData.sector_rs || [];
+  const sec = srs.find(s => s.group === groupName);
+  if (!sec) return;
+
+  const stocks = sec.stock_returns || [];
+  const pf = (v, d=1) => v == null ? '—' : (v >= 0 ? '+' : '') + v.toFixed(d) + '%';
+  const pc = v => v == null ? 'var(--muted)' : v >= 0 ? '#10b981' : '#ef4444';
+
+  const rows = stocks.map((r, i) => `
+    <tr style="border-bottom:1px solid var(--border)"
+        onmouseover="this.style.background='var(--surface2)'" onmouseout="this.style.background=''">
+      <td style="padding:7px 10px;color:var(--muted);font-size:11px">${i+1}</td>
+      <td style="padding:7px 10px;font-weight:700;color:var(--accent2);font-family:var(--mono)">${r.symbol}</td>
+      <td style="padding:7px 10px;text-align:right;font-family:var(--mono)">₹${r.price != null ? r.price.toLocaleString() : '—'}</td>
+      <td style="padding:7px 10px;text-align:right;font-family:var(--mono);color:${pc(r.r1m)};font-weight:600">${pf(r.r1m)}</td>
+      <td style="padding:7px 10px;text-align:right;font-family:var(--mono);color:${pc(r.r3m)};font-weight:700;font-size:13px">${pf(r.r3m)}</td>
+      <td style="padding:7px 10px;text-align:right;font-family:var(--mono);color:${pc(r.r6m)};font-weight:600">${pf(r.r6m)}</td>
+      <td style="padding:7px 10px;text-align:right;font-family:var(--mono);color:${pc(r.rs)};font-weight:700">${pf(r.rs)}</td>
+      <td style="padding:7px 10px;text-align:right;font-family:var(--mono);color:var(--text2)">${r.adtv_cr != null ? '₹' + r.adtv_cr + 'Cr' : '—'}</td>
+    </tr>`).join('');
+
+  document.getElementById('sectorDrillTitle').textContent =
+    `${groupName} — ${stocks.length} stocks (sorted by 3M return)`;
+  document.getElementById('sectorDrillTbody').innerHTML =
+    rows || '<tr><td colspan="8" style="padding:20px;text-align:center;color:var(--muted)">No stock data available</td></tr>';
+
+  const panel = document.getElementById('sectorDrillPanel');
+  panel.style.display = '';
+  panel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+}
+
+function closeSectorDrill() {
+  _activeSectorDrill = null;
+  document.getElementById('sectorDrillPanel').style.display = 'none';
+  // Remove all card highlights
+  document.querySelectorAll('[id^="hm-card-"]').forEach(c => {
+    c.style.outline = ''; c.style.boxShadow = '';
+  });
 }
 
 // ── Filters ─────────────────────────────────────────────────────
@@ -5681,6 +5932,31 @@ function trendToggleSpecial(key) {
   trendRender();
 }
 
+function trendToggleCrit(i) {
+  if (_trendCritFilt.has(i)) _trendCritFilt.delete(i);
+  else _trendCritFilt.add(i);
+  for (let j = 0; j < 10; j++) {
+    const b = document.getElementById('trendC-' + j);
+    if (!b) continue;
+    const on = _trendCritFilt.has(j);
+    b.style.cssText += `;background:${on?'#6366f1':'var(--surface2)'};color:${on?'#fff':'var(--text2)'};border-color:${on?'#6366f1':'var(--border)'}`;
+  }
+  const clr = document.getElementById('trendC-clear');
+  if (clr) clr.style.display = _trendCritFilt.size ? '' : 'none';
+  trendRender();
+}
+
+function trendClearCrit() {
+  _trendCritFilt.clear();
+  for (let j = 0; j < 10; j++) {
+    const b = document.getElementById('trendC-' + j);
+    if (b) b.style.cssText += `;background:var(--surface2);color:var(--text2);border-color:var(--border)`;
+  }
+  const clr = document.getElementById('trendC-clear');
+  if (clr) clr.style.display = 'none';
+  trendRender();
+}
+
 function trendSort(col) {
   if (_trendSortCol === col) _trendSortAsc = !_trendSortAsc;
   else { _trendSortCol = col; _trendSortAsc = false; }
@@ -5703,6 +5979,10 @@ function trendRender() {
     if (search && !r.symbol.includes(search)) return false;
     if (_trendSpecial === 'new_high'  && !r.new_high_flag) return false;
     if (_trendSpecial === 'pullback'  && !r.at_support)    return false;
+    if (_trendCritFilt.size > 0) {
+      const c = r.criteria || [];
+      for (const idx of _trendCritFilt) { if (!c[idx]) return false; }
+    }
     return true;
   });
 

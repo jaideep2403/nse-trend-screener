@@ -1,9 +1,9 @@
 """
-Fundamentals — screener.in scraper, ~240 stocks/hour, fully background.
+Fundamentals — screener.in scraper, ~400 stocks/hour, fully background.
 
 Design:
   - Auto-starts on app launch as a daemon thread
-  - 15 seconds base delay + random 0-5s jitter between requests (~240 stocks/hour)
+  - 8 seconds base delay + random 0-3s jitter between requests (~400 stocks/hour)
   - Jitter makes requests look human — avoids clock-pattern rate limiting
   - Resume-safe: skips symbols already in cache with real data
   - SQLite local cache (fundamentals.db), TTL 90 days
@@ -12,7 +12,7 @@ Design:
 Source:  screener.in  (public HTML, 1 req/stock, no login needed)
 Cache:   ./fundamentals.db  SQLite
 
-Safe floor confirmed by testing: 10s clean, 5s rate-limited → 15s + jitter is safe.
+Safe floor confirmed by testing: 10s clean, 5s rate-limited → 8s + jitter is safe.
 
 Progress visible at /api/fundamentals/status:
   scraped_count, failed_count, pending_count, eta_minutes, current_symbol
@@ -28,8 +28,8 @@ from typing import Optional
 
 DB_PATH      = os.path.join(os.environ.get("DATA_DIR", os.path.dirname(__file__)), "fundamentals.db")
 TTL_DAYS     = 90          # re-fetch after 90 days
-FETCH_DELAY  = 15          # base seconds between requests
-FETCH_JITTER = 5           # add random 0–FETCH_JITTER seconds to each delay
+FETCH_DELAY  = 8           # base seconds between requests (tested clean; 5s gets rate-limited)
+FETCH_JITTER = 3           # add random 0–FETCH_JITTER seconds — looks human to screener.in
 FRESH_DAYS   = 30          # consider cached "fresh" if < 30 days old AND has data
 
 _db_lock = threading.Lock()   # serialises SQLite writes
@@ -67,11 +67,20 @@ def _init_db():
                 market_cap         REAL,
                 promoter_holding   REAL,
                 updated_at         INTEGER,
-                -- F2: quarterly EPS acceleration
+                -- BUG-029: split TTM vs 3Y CAGR (early_growth.py reads these)
+                growth_ttm         REAL,
+                growth_3y_cagr     REAL,
+                sales_growth_ttm   REAL,
+                sales_growth_3y_cagr REAL,
+                -- F2: quarterly EPS acceleration (8 quarters for YoY comparison)
                 eps_q1             REAL,
                 eps_q2             REAL,
                 eps_q3             REAL,
                 eps_q4             REAL,
+                eps_q5             REAL,
+                eps_q6             REAL,
+                eps_q7             REAL,
+                eps_q8             REAL,
                 eps_accel          INTEGER,
                 result_date        TEXT,
                 -- F3: promoter holding delta
@@ -82,8 +91,15 @@ def _init_db():
         # Add new columns to existing DB (safe on re-run)
         for col_def in [
             "eps_q1 REAL", "eps_q2 REAL", "eps_q3 REAL", "eps_q4 REAL",
+            # YoY comparison quarters (same quarter, prior year) — added later
+            "eps_q5 REAL", "eps_q6 REAL", "eps_q7 REAL", "eps_q8 REAL",
+            # BUG-029: TTM vs 3Y CAGR split (early_growth.py depends on these)
+            "growth_ttm REAL", "growth_3y_cagr REAL",
+            "sales_growth_ttm REAL", "sales_growth_3y_cagr REAL",
             "eps_accel INTEGER", "result_date TEXT",
             "promoter_prev REAL", "promoter_delta REAL",
+            # BUG-SEASONAL FIX: YoY quarterly profit acceleration (q1 vs q5)
+            "eps_accel_yoy INTEGER",
         ]:
             col_name = col_def.split()[0]
             try:
@@ -101,15 +117,21 @@ def _upsert(data: dict):
             INSERT OR REPLACE INTO fundamentals
             (symbol, eps_growth_yoy, sales_growth_yoy, roe,
              debt_to_equity, pe_ratio, market_cap, promoter_holding, updated_at,
-             eps_q1, eps_q2, eps_q3, eps_q4, eps_accel, result_date,
-             promoter_prev, promoter_delta)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             growth_ttm, growth_3y_cagr, sales_growth_ttm, sales_growth_3y_cagr,
+             eps_q1, eps_q2, eps_q3, eps_q4, eps_q5, eps_q6, eps_q7, eps_q8,
+             eps_accel, result_date,
+             promoter_prev, promoter_delta, eps_accel_yoy)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (data["symbol"], data["eps_growth_yoy"], data["sales_growth_yoy"],
               data["roe"], data["debt_to_equity"], data["pe_ratio"],
               data["market_cap"], data["promoter_holding"], data["updated_at"],
+              data.get("growth_ttm"), data.get("growth_3y_cagr"),
+              data.get("sales_growth_ttm"), data.get("sales_growth_3y_cagr"),
               data.get("eps_q1"), data.get("eps_q2"), data.get("eps_q3"), data.get("eps_q4"),
+              data.get("eps_q5"), data.get("eps_q6"), data.get("eps_q7"), data.get("eps_q8"),
               data.get("eps_accel"), data.get("result_date"),
-              data.get("promoter_prev"), data.get("promoter_delta")))
+              data.get("promoter_prev"), data.get("promoter_delta"),
+              data.get("eps_accel_yoy")))
         conn.commit()
         conn.close()
 
@@ -143,7 +165,14 @@ def load_all_fundamentals() -> dict[str, dict]:
 
 
 def _is_cached_fresh(symbol: str, cached: dict | None = None) -> bool:
-    """True if symbol has real data AND was fetched < FRESH_DAYS ago."""
+    """
+    True if symbol has real data AND was fetched < FRESH_DAYS ago AND
+    quarterly data is populated (eps_q1 not None).
+
+    Stocks scraped before the eps_q1 regex fix will have eps_q1=None —
+    treat them as stale so the scheduler re-scrapes them at the normal
+    15-20s rate. No extra API hammering; just re-queues missing data.
+    """
     if cached is None:
         cached = load_all_fundamentals()
     row = cached.get(symbol)
@@ -152,6 +181,13 @@ def _is_cached_fresh(symbol: str, cached: dict | None = None) -> bool:
     has_data = any(row.get(k) for k in
                    ("eps_growth_yoy", "sales_growth_yoy", "roe", "pe_ratio"))
     if not has_data:
+        return False
+    # If quarterly data is missing, or YoY quarters missing (scraped before q5-q8 columns),
+    # treat as stale so scheduler re-scrapes with full 8-quarter history.
+    if row.get("eps_q1") is None or row.get("eps_q5") is None:
+        return False
+    # BUG-029: TTM/3Y growth columns added later — force re-scrape if missing
+    if row.get("growth_ttm") is None and row.get("growth_3y_cagr") is None:
         return False
     age_days = (time.time() - row.get("updated_at", 0)) / 86400
     return age_days <= FRESH_DAYS
@@ -226,9 +262,26 @@ def _fetch_one(symbol: str) -> Optional[dict]:
         resp = _session.get(url, timeout=15)
         if resp.status_code == 404:
             return None          # symbol not on screener.in (SME / delisted)
-        if resp.status_code != 200:
+        if resp.status_code == 429:
+            # Rate-limited — back off 5 minutes then retry once.
+            # 5 min is enough for screener.in's sliding window to clear.
+            print(f"[fundamentals] 429 rate-limited for {symbol}, sleeping 5 min…", flush=True)
+            time.sleep(300)
+            resp2 = _session.get(url, timeout=15)
+            if resp2.status_code != 200:
+                # Still blocked — skip this stock, will retry next scheduler pass
+                print(f"[fundamentals] still blocked after backoff, skipping {symbol}", flush=True)
+                return None
+            html = resp2.text
+        elif resp.status_code == 503:
+            # Server overloaded — wait 3 min
+            print(f"[fundamentals] 503 for {symbol}, sleeping 3 min…", flush=True)
+            time.sleep(180)
             return None
-        html = resp.text
+        elif resp.status_code != 200:
+            return None
+        else:
+            html = resp.text
 
         # ── Reject ETFs / Mutual Funds — screener.in puts "ETF" in <title> ────
         title_m = re.search(r'<title>(.*?)</title>', html, re.IGNORECASE)
@@ -258,12 +311,22 @@ def _fetch_one(symbol: str) -> Optional[dict]:
         pe         = top_ratios.get("Stock P/E", 0.0)
         market_cap = top_ratios.get("Market Cap", 0.0)   # in Cr on screener.in
 
-        # Universe = Nifty50 ∪ NiftyNext50 ∪ Nifty500 ∪ NiftySmallcap250
+        # Universe = Nifty Total Market 750 (Nifty50 ∪ Next50 ∪ Nifty500 ∪ Smallcap250 ∪ Microcap250 ∪ TotalMarket)
         # No market-cap gate here — all index constituents are valid targets.
 
         # ── Ranges tables: Sales Growth + Profit Growth (prefer TTM, fall back 3Y) ──
+        # BUG-029 FIX: previously TTM and 3Y CAGR were conflated into a
+        # single growth number ("best available"). Now we keep them
+        # separate so consumers can pick the right one (TTM = momentum,
+        # 3Y CAGR = sustained growth). `eps_growth_yoy` / `sales_growth_yoy`
+        # continue to reflect the TTM-preferred number for back-compat,
+        # but `*_ttm` and `*_3y_cagr` are exposed as well.
         sales_growth = 0.0
         eps_growth   = 0.0
+        sales_growth_ttm    = None
+        sales_growth_3y     = None
+        eps_growth_ttm      = None
+        eps_growth_3y       = None
         roe_from_table = None   # fallback if ROE missing from top-ratios
 
         tables = re.findall(
@@ -296,10 +359,14 @@ def _fetch_one(symbol: str) -> Optional[dict]:
                     last_yr_val = fval
 
             if 'Sales Growth' in header:
+                sales_growth_ttm = ttm_val
+                sales_growth_3y  = yr3_val
                 best = ttm_val if ttm_val is not None else yr3_val
                 if best is not None:
                     sales_growth = best
             elif 'Profit Growth' in header:
+                eps_growth_ttm = ttm_val
+                eps_growth_3y  = yr3_val
                 best = ttm_val if ttm_val is not None else yr3_val
                 if best is not None:
                     eps_growth = best
@@ -313,7 +380,14 @@ def _fetch_one(symbol: str) -> Optional[dict]:
         if roe == 0.0 and roe_from_table is not None:
             roe = roe_from_table
 
-        # ── F2: Quarterly EPS (Net Profit) — parse from #quarters section ─────
+        # ── F2: Quarterly NET PROFIT (NOT EPS!) — parse from #quarters section ─
+        # BUG-014 FIX / NOTE: the fields below are mislabelled "eps_q1..4"
+        # for historical reasons but are actually QUARTERLY NET PROFIT in
+        # rupees crore — share-count is NOT normalised, so this signal
+        # under-/over-states true per-share EPS when shares outstanding
+        # change (buybacks, fresh issuance, splits). Treated here as a
+        # profit-acceleration proxy. Aliased to profit_q1..4 in the return
+        # dict for new consumers; old `eps_q*` keys remain for back-compat.
         eps_quarters: list[float] = []
         result_date_str = None
         m_qtr = re.search(r'<section[^>]+id=["\']quarters["\'][^>]*>([\s\S]*?)</section>', html)
@@ -329,8 +403,13 @@ def _fetch_one(symbol: str) -> Optional[dict]:
                 qtr_html, re.IGNORECASE
             )
             if np_match:
-                td_vals = re.findall(r'<td[^>]*>([\d,\.\-]+)</td>', np_match.group(1))
-                for v in td_vals[:4]:
+                # BUG-FIX: screener.in wraps cell values in whitespace/newlines;
+                # must strip \s* around the value or regex returns empty list.
+                td_vals = re.findall(r'<td[^>]*>\s*([\d,\.\-]+)\s*</td>', np_match.group(1))
+                # BUG-SEASONAL FIX: parse up to 8 quarters (was 4) so we can
+                # compare the most-recent quarter (q1) against the same quarter
+                # one year ago (q5) — a YoY signal that is immune to seasonal bias.
+                for v in td_vals[:8]:
                     try:
                         eps_quarters.append(float(v.replace(',', '')))
                     except ValueError:
@@ -341,10 +420,32 @@ def _fetch_one(symbol: str) -> Optional[dict]:
         eps_q2 = eps_quarters[1] if len(eps_quarters) > 1 else None
         eps_q3 = eps_quarters[2] if len(eps_quarters) > 2 else None
         eps_q4 = eps_quarters[3] if len(eps_quarters) > 3 else None
+        # SEASONAL FIX: Q1>Q2>Q3 confuses seasonal cycles with genuine acceleration
+        # (e.g. PGIL garments: Dec always > Sep always > Jun — that's seasonality, not growth).
+        # True acceleration = at least 2 of the last 3 quarters improving vs same quarter YoY.
+        # q1 vs q5, q2 vs q6, q3 vs q7 (each vs same quarter prior year).
+        eps_q5 = eps_quarters[4] if len(eps_quarters) > 4 else None
+        eps_q6 = eps_quarters[5] if len(eps_quarters) > 5 else None
+        eps_q7 = eps_quarters[6] if len(eps_quarters) > 6 else None
+
         eps_accel = None
-        if eps_q1 is not None and eps_q2 is not None and eps_q3 is not None:
-            # accel = 1 if q1 > q2 > q3 (most recent first), else 0
-            eps_accel = 1 if (eps_q1 > eps_q2 > eps_q3) else 0
+        yoy_beats = []
+        if eps_q1 is not None and eps_q5 is not None:
+            yoy_beats.append(1 if eps_q1 > eps_q5 else 0)
+        if eps_q2 is not None and eps_q6 is not None:
+            yoy_beats.append(1 if eps_q2 > eps_q6 else 0)
+        if eps_q3 is not None and eps_q7 is not None:
+            yoy_beats.append(1 if eps_q3 > eps_q7 else 0)
+        if len(yoy_beats) >= 2:
+            # Accelerating = majority of recent quarters beating same quarter prior year
+            eps_accel = 1 if sum(yoy_beats) >= 2 else 0
+        elif len(yoy_beats) == 1:
+            eps_accel = yoy_beats[0]   # only one comparable quarter available
+
+        # YoY acceleration on most recent quarter alone (single-quarter signal)
+        eps_accel_yoy = None
+        if eps_q1 is not None and eps_q5 is not None:
+            eps_accel_yoy = 1 if eps_q1 > eps_q5 else 0
 
         # ── F3: Promoter Holding Delta — parse shareholding section ───────────
         promoter_holding  = 0.0
@@ -358,7 +459,9 @@ def _fetch_one(symbol: str) -> Optional[dict]:
                 sh_html, re.IGNORECASE
             )
             if prom_match:
-                td_vals = re.findall(r'<td[^>]*>([\d,\.]+)</td>', prom_match.group(1))
+                # BUG-FIX: screener.in wraps values in whitespace AND appends '%'
+                # e.g. <td>66.56%</td> — must strip \s* and allow optional %
+                td_vals = re.findall(r'<td[^>]*>\s*([\d,\.]+)%?\s*</td>', prom_match.group(1))
                 promo_vals = []
                 for v in td_vals[:4]:
                     try:
@@ -375,26 +478,65 @@ def _fetch_one(symbol: str) -> Optional[dict]:
         if promoter_holding == 0.0:
             promoter_holding = top_ratios.get("Promoter holding", 0.0)
 
-        # ── Validate: reject if no meaningful data at all ─────────────────────
-        if roe == 0 and pe == 0 and sales_growth == 0 and eps_growth == 0:
+        # ── Validate: reject ONLY when every metric is missing from the page.
+        # The previous check `roe == 0 and pe == 0 and sales_growth == 0 and
+        # eps_growth == 0` rejected legitimate turnaround/loss-recovery names
+        # whose actual values happen to be 0. Distinguish "not found in HTML"
+        # (top_ratios/missing) from "found and equal to 0.0".
+        found_any = (
+            "ROE" in top_ratios
+            or "Stock P/E" in top_ratios
+            or sales_growth_ttm is not None
+            or sales_growth_3y  is not None
+            or eps_growth_ttm   is not None
+            or eps_growth_3y    is not None
+            or roe_from_table   is not None
+        )
+        if not found_any:
             return None
+
+        # BUG-004 FIX: D/E is not reliably present in screener.in top-level HTML.
+        # Return None so the UI can display "—" instead of misleading "0.0".
+        # TODO: Parse D/E from the "Debt to equity" row in the top-ratios section
+        #       if screener.in ever exposes it consistently.
+        de_ratio = top_ratios.get("Debt to equity") or top_ratios.get("D/E") or None
 
         return {
             "symbol":           symbol,
             "eps_growth_yoy":   round(eps_growth,   2),
             "sales_growth_yoy": round(sales_growth, 2),
+            # BUG-029: split TTM vs 3Y CAGR
+            "growth_ttm":         round(eps_growth_ttm, 2)   if eps_growth_ttm   is not None else None,
+            "growth_3y_cagr":     round(eps_growth_3y,  2)   if eps_growth_3y    is not None else None,
+            "sales_growth_ttm":   round(sales_growth_ttm, 2) if sales_growth_ttm is not None else None,
+            "sales_growth_3y_cagr": round(sales_growth_3y, 2) if sales_growth_3y is not None else None,
             "roe":              round(roe,           2),
-            "debt_to_equity":   0.0,   # not exposed in screener.in top-level HTML
+            "debt_to_equity":   round(de_ratio, 2) if de_ratio is not None else None,
             "pe_ratio":         round(pe,            2),
             "market_cap":       round(market_cap,    2),
             "promoter_holding": round(promoter_holding, 2),
             "updated_at":       int(time.time()),
             # F2 — quarterly EPS
+            # BUG-014 — keep historical eps_q* keys (DB-backed) and expose
+            # profit_q* aliases so new code can use the correct name.
             "eps_q1":           eps_q1,
             "eps_q2":           eps_q2,
             "eps_q3":           eps_q3,
             "eps_q4":           eps_q4,
+            # YoY comparison quarters (same quarter, one year ago)
+            "eps_q5":           eps_q5,
+            "eps_q6":           eps_q6,
+            "eps_q7":           eps_q7,
+            "eps_q8":           eps_quarters[7] if len(eps_quarters) > 7 else None,
+            "profit_q1":        eps_q1,
+            "profit_q2":        eps_q2,
+            "profit_q3":        eps_q3,
+            "profit_q4":        eps_q4,
             "eps_accel":        eps_accel,
+            "profit_accel":     eps_accel,
+            # BUG-SEASONAL FIX: YoY quarterly acceleration (q1 vs same quarter prior year)
+            "eps_accel_yoy":    eps_accel_yoy,
+            "profit_accel_yoy": eps_accel_yoy,
             "result_date":      result_date_str,
             # F3 — promoter delta
             "promoter_prev":    promoter_prev,
@@ -411,14 +553,14 @@ def _fetch_one(symbol: str) -> Optional[dict]:
 
 def _get_symbol_list() -> list[str]:
     """
-    Return the Nifty 500 symbol list — NSE's authoritative large-cap universe.
-    ETFs are already excluded by nse_stocks.get_nifty500_symbols().
+    Return the Nifty Total Market 750 symbol list (~751 stocks).
+    ETFs are already excluded by nse_stocks.get_universe_symbols().
     The market-cap gate in _fetch_one() further filters to > 5000 Cr stocks.
     """
     try:
-        from nse_stocks import get_nifty500_symbols
+        from nse_stocks import get_universe_symbols
         from edge_engine import _is_etf
-        syms = get_nifty500_symbols()
+        syms = get_universe_symbols()
         # Double-check: strip any ETFs that slip through the index list
         return [s for s in syms if not _is_etf(s)]
     except Exception:
@@ -503,10 +645,16 @@ def start_background_scheduler():
     """
     Call once from app.py at startup.
     Spawns the daemon scheduler thread if not already running.
+    BUG-010 FIX: Set _sched["running"] = True INSIDE the lock BEFORE spawning
+    the thread. Previously _sched["running"] was only set inside the thread
+    (after the initial 8-second sleep), allowing a second caller to race in
+    and spawn a duplicate thread during that window.
     """
     with _sched_lock:
         if _sched["running"]:
-            return   # already started
+            return   # already started — guard under lock prevents race
+        # Mark running NOW (before spawn) so concurrent callers see it immediately
+        _sched["running"]    = True
         _sched["started_at"] = time.time()
 
     t = threading.Thread(target=_scheduler_loop, daemon=True,

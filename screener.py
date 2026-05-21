@@ -3,6 +3,7 @@ import pandas as pd
 import numpy as np
 from nse_stocks import get_nse_tickers
 from data_fetcher import fetch_ohlcv, _pkl_stats
+from analysis_utils import volume_baseline
 import warnings
 warnings.filterwarnings("ignore")
 
@@ -28,12 +29,17 @@ def compute_metrics(ticker: str, df: pd.DataFrame):
         pct_ath = round((price - ath) / ath * 100, 2)
 
         volume  = df["Volume"].dropna()
-        adtv    = float(volume.rolling(20).mean().iloc[-1]) if len(volume) >= 20 else 0
+        # Median-based volume baseline (canonical) — robust to single-day
+        # expiry/block-deal volume spikes that a raw 20-day mean would inflate by 2-3x.
+        adtv    = volume_baseline(volume, window=20, use_median=True) if len(volume) >= 20 else 0
         adtv_cr = round(adtv * price / 1e7, 2)
 
-        ret_12m = (price / float(close.iloc[-252]) - 1) * 100 if len(close) >= 252 else 0.0
-        ret_6m  = (price / float(close.iloc[-126]) - 1) * 100 if len(close) >= 126 else 0.0
-        ret_3m  = (price / float(close.iloc[-63])  - 1) * 100 if len(close) >= 63  else 0.0
+        # Use None for missing-history sentinel (not 0.0) so a stock with
+        # genuine 0% return is distinguishable from one missing the lookback
+        # window. The IBD composite below treats None as "no signal" (NaN).
+        ret_12m = (price / float(close.iloc[-252]) - 1) * 100 if len(close) >= 252 else None
+        ret_6m  = (price / float(close.iloc[-126]) - 1) * 100 if len(close) >= 126 else None
+        ret_3m  = (price / float(close.iloc[-63])  - 1) * 100 if len(close) >= 63  else None
 
         return {
             "Symbol":     ticker.replace(".NS", ""),
@@ -56,10 +62,38 @@ def compute_metrics(ticker: str, df: pd.DataFrame):
 # ── IBD-style RS score ─────────────────────────────────────────────────────────
 
 def compute_ibd_score(df_all: pd.DataFrame) -> pd.DataFrame:
+    """
+    IBD-style composite RS score (0-99 percentile).
+
+    BUG-FIX: prior formula `0.4*r3m + 0.2*r6m + 0.4*r12m` triple-counted recent
+    momentum because r6m INCLUDES r3m and r12m INCLUDES BOTH. A stock that
+    surged 30% in the last 3 months saw that move counted in r3m, again as
+    part of r6m, and a third time as part of r12m → effective weight ≈ 0.6
+    on the most recent quarter, biasing top picks toward short-term runners.
+
+    Correct IBD method: separate NON-OVERLAPPING quarter returns weighted
+    40/20/20/20 with the most recent quarter highest. Each price-action
+    period is counted exactly once.
+    """
     df = df_all.copy()
+    # Convert to numeric; preserve NaN for stocks missing the window (vs forcing 0
+    # which would treat missing-data stocks the same as 0%-return stocks).
     for col in ["_r3m", "_r6m", "_r12m"]:
-        df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0)
-    df["_composite"] = df["_r3m"] * 0.4 + df["_r6m"] * 0.2 + df["_r12m"] * 0.4
+        df[col] = pd.to_numeric(df[col], errors="coerce")
+
+    # Non-overlapping quarter returns derived from cumulative windows:
+    #   q1 = last 3 months                             (from _r3m)
+    #   q2 = months 4-6  → (1+_r6m) / (1+_r3m)  - 1
+    #   q3/q4 = months 7-12 → (1+_r12m) / (1+_r6m) - 1  (split equally as q3+q4)
+    # All inputs are in percent; convert to fractions for compounding.
+    r3 = df["_r3m"]  / 100.0
+    r6 = df["_r6m"]  / 100.0
+    r12 = df["_r12m"] / 100.0
+    q1 = r3
+    q2 = (1 + r6)  / (1 + r3)  - 1
+    q34 = (1 + r12) / (1 + r6) - 1   # months 7-12 combined
+    # Weight 40 on q1, 20 on q2, 40 on months 7-12 combined (= 20+20 for q3+q4).
+    df["_composite"] = (0.40 * q1 + 0.20 * q2 + 0.40 * q34) * 100.0
     df["IBD_score"]  = (df["_composite"].rank(pct=True) * 99).round(1)
     df.drop(columns=["_composite", "_r3m", "_r6m", "_r12m"], inplace=True)
     return df
@@ -98,7 +132,7 @@ def apply_filters(df: pd.DataFrame, params: dict):
 def run_screener(params=None, progress_callback=None):
     if params is None:
         params = {}
-    # Universe is already Nifty 500 (large-cap) via get_nse_tickers() — no ADTV proxy needed
+    # Universe is already Nifty Total Market 750 via get_nse_tickers() — no ADTV proxy needed
 
     tickers = list(dict.fromkeys(get_nse_tickers()))
     total   = len(tickers)

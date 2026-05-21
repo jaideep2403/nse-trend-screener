@@ -1,0 +1,220 @@
+<!-- ═══════════════════════════════════════════════ CONSENSUS PICKS TAB -->
+<div id="tab-consensus" class="tab-content">
+<div class="container">
+
+  <style>
+    .cn-hero {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-left: 4px solid var(--gold);
+      border-radius: 10px;
+      padding: 16px 22px;
+      margin-bottom: 18px;
+    }
+    .cn-hero h3 { margin: 0 0 6px; font-size: 16px; color: var(--gold); font-weight: 700; }
+    .cn-hero p  { margin: 0; font-size: 13px; color: var(--text); line-height: 1.6; }
+    .cn-hero strong { color: var(--white); }
+
+    .cn-pill {
+      padding: 6px 14px; border-radius: 20px; font-size: 12px; font-weight: 600;
+      border: 1px solid var(--border); background: var(--surface); color: var(--text);
+      cursor: pointer; transition: all 0.15s;
+    }
+    .cn-pill:hover  { border-color: var(--gold); color: var(--gold2); }
+    .cn-pill-on     { background: rgba(245,158,11,0.18); border-color: var(--gold); color: var(--gold2); }
+
+    .cn-stat-card {
+      background: var(--surface); border: 1px solid var(--border); border-radius: 10px;
+      padding: 10px 14px; min-width: 140px; flex: 1;
+    }
+    .cn-stat-card .cn-stat-label { font-size: 11px; font-weight: 700; text-transform: uppercase; color: var(--text2); letter-spacing: 0.5px; }
+    .cn-stat-card .cn-stat-value { font-size: 22px; font-weight: 800; margin-top: 4px; color: var(--white); }
+
+    #cnTable { width: 100%; font-size: 12px; border-collapse: separate; border-spacing: 0; }
+    #cnTable th {
+      background: var(--surface2); color: var(--text); font-weight: 700; font-size: 11px;
+      text-transform: uppercase; letter-spacing: 0.4px; text-align: left;
+      padding: 10px 12px; border-bottom: 2px solid var(--border); position: sticky; top: 0;
+    }
+    #cnTable td { padding: 9px 12px; border-bottom: 1px solid var(--border); vertical-align: middle; color: var(--text); }
+    #cnTable tbody tr:hover { background: rgba(245,158,11,0.05); }
+
+    .cn-score-bar  { display: inline-block; width: 70px; height: 6px; background: var(--border); border-radius: 3px; vertical-align: middle; margin-left: 8px; overflow: hidden; }
+    .cn-score-fill { display: block; height: 100%; border-radius: 3px; }
+
+    .cn-tier {
+      display: inline-block; padding: 3px 10px; border-radius: 12px; font-size: 11px; font-weight: 700;
+      text-transform: uppercase; letter-spacing: 0.3px;
+    }
+    .cn-tier-buy    { background: rgba(16,185,129,0.18);  color: var(--green2); }
+    .cn-tier-strong { background: rgba(59,130,246,0.18);  color: var(--accent2); }
+    .cn-tier-em     { background: rgba(245,158,11,0.18);  color: var(--gold2); }
+    .cn-tier-weak   { background: rgba(75,96,128,0.18);   color: var(--muted); }
+
+    .cn-scanner-chip {
+      display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 10px; font-weight: 600;
+      margin-right: 4px; margin-bottom: 3px; border: 1px solid transparent;
+    }
+    .cn-sc-mon    { background: rgba(239,68,68,0.15);  color: var(--red2);    border-color: rgba(239,68,68,0.3); }
+    .cn-sc-alpha  { background: rgba(168,85,247,0.15); color: #c084fc;        border-color: rgba(168,85,247,0.3); }
+    .cn-sc-early  { background: rgba(34,197,94,0.15);  color: var(--green2);  border-color: rgba(34,197,94,0.3); }
+    .cn-sc-other  { background: rgba(75,96,128,0.18);  color: var(--text);    border-color: var(--border); }
+  </style>
+
+  <!-- Description -->
+  <div class="cn-hero">
+    <h3>🎖️ Final Setup Score — Cross-Scan Consensus</h3>
+    <p>
+      Stocks flagged by <strong>multiple scanners simultaneously</strong> — the highest-conviction setups in the app.
+      A stock appearing in Monster Growth + Alpha Engine + Early Growth = institutional-grade consensus.
+      Final Setup Score is a weighted aggregate (0–100) of each scanner's tier; tier label distils it into a single judgement.
+    </p>
+  </div>
+
+  <!-- Stats row -->
+  <div id="cnStatsRow" style="display:flex; gap:10px; flex-wrap:wrap; margin-bottom:14px;">
+    <!-- populated by JS -->
+  </div>
+
+  <!-- Filters -->
+  <div style="display:flex; align-items:center; gap:10px; margin-bottom:14px; flex-wrap:wrap;">
+    <span style="font-size:11px; color:var(--text2); text-transform:uppercase; font-weight:700; letter-spacing:0.4px">Filter:</span>
+    <button id="cnFilter-all"    class="cn-pill cn-pill-on" onclick="consensusFilter('all')">All</button>
+    <button id="cnFilter-strong" class="cn-pill"            onclick="consensusFilter('strong')">🎯 Strong Consensus (≥40)</button>
+    <button id="cnFilter-multi"  class="cn-pill"            onclick="consensusFilter('multi')">⭐ In 2+ scans</button>
+    <button id="cnFilter-triple" class="cn-pill"            onclick="consensusFilter('triple')">🏆 In 3+ scans</button>
+    <span id="cnCount" style="margin-left:auto; font-size:12px; color:var(--text2)">— stocks</span>
+    <button onclick="consensusLoad()" class="btn btn-primary" style="font-size:12px; padding:6px 14px;">🔄 Refresh</button>
+  </div>
+
+  <!-- Table -->
+  <div style="background:var(--card); border:1px solid var(--border); border-radius:10px; overflow:hidden;">
+    <table id="cnTable">
+      <thead>
+        <tr>
+          <th style="width:40px">#</th>
+          <th style="width:130px">Symbol</th>
+          <th style="width:170px; text-align:center" title="Cross-scan Final Setup Score 0–100">Final Setup Score</th>
+          <th style="width:80px; text-align:center" title="# of scanners that flagged this stock">Scanners</th>
+          <th style="width:170px">Tier</th>
+          <th>Scanners + Tiers</th>
+          <th style="width:280px">Why this score</th>
+        </tr>
+      </thead>
+      <tbody id="cnBody"></tbody>
+    </table>
+  </div>
+
+  <div id="cnEmpty" style="text-align:center; padding:40px; color:var(--text2); display:none;">
+    <p style="font-size:14px">No consensus data yet.</p>
+    <p style="font-size:12px; margin-top:6px">Run the Alpha Engine, Monster Growth, and Early Growth scans first — consensus is computed across all scanner outputs.</p>
+  </div>
+
+</div>
+</div>
+
+<script>
+  (function() {
+    var _consensusData = null;
+    var _filter = 'all';
+
+    function _scannerClass(name) {
+      var n = (name || '').toLowerCase();
+      if (n.includes('monster')) return 'cn-sc-mon';
+      if (n.includes('alpha'))   return 'cn-sc-alpha';
+      if (n.includes('early'))   return 'cn-sc-early';
+      return 'cn-sc-other';
+    }
+    function _tierClass(t) {
+      t = (t || '').toUpperCase();
+      if (t.includes('BUY'))      return 'cn-tier-buy';
+      if (t.includes('STRONG'))   return 'cn-tier-strong';
+      if (t.includes('EMERGING')) return 'cn-tier-em';
+      return 'cn-tier-weak';
+    }
+    function _scoreColor(s) {
+      if (s >= 60) return 'var(--green2)';
+      if (s >= 40) return 'var(--accent2)';
+      if (s >= 25) return 'var(--gold2)';
+      return 'var(--muted)';
+    }
+
+    window.consensusLoad = function() {
+      fetch('/api/consensus').then(function(r){ return r.json(); }).then(function(d){
+        _consensusData = d;
+        consensusRender();
+      }).catch(function(e){
+        var emp = document.getElementById('cnEmpty');
+        if (emp) { emp.style.display='block'; emp.querySelector('p').textContent = 'Error: ' + e.message; }
+      });
+    };
+
+    window.consensusFilter = function(mode) {
+      _filter = mode;
+      ['all','strong','multi','triple'].forEach(function(m){
+        var el = document.getElementById('cnFilter-' + m);
+        if (el) el.classList.toggle('cn-pill-on', m === mode);
+      });
+      consensusRender();
+    };
+
+    function consensusRender() {
+      if (!_consensusData) return;
+      var all = _consensusData.top || [];
+
+      // Build stats
+      var triple = all.filter(function(x){return (x.scan_count||0)>=3;}).length;
+      var dual   = all.filter(function(x){return (x.scan_count||0)>=2;}).length;
+      var strong = all.filter(function(x){return (x.consensus_score||0)>=40;}).length;
+      document.getElementById('cnStatsRow').innerHTML =
+        '<div class="cn-stat-card" style="border-color:rgba(245,158,11,0.4)"><div class="cn-stat-label" style="color:var(--gold2)">🏆 In 3+ Scans</div><div class="cn-stat-value" style="color:var(--gold2)">' + triple + '</div></div>' +
+        '<div class="cn-stat-card" style="border-color:rgba(59,130,246,0.4)"><div class="cn-stat-label" style="color:var(--accent2)">⭐ In 2+ Scans</div><div class="cn-stat-value" style="color:var(--accent2)">' + dual + '</div></div>' +
+        '<div class="cn-stat-card" style="border-color:rgba(16,185,129,0.4)"><div class="cn-stat-label" style="color:var(--green2)">🎯 Strong (≥40)</div><div class="cn-stat-value" style="color:var(--green2)">' + strong + '</div></div>' +
+        '<div class="cn-stat-card"><div class="cn-stat-label">Total Symbols</div><div class="cn-stat-value">' + all.length + '</div></div>';
+
+      // Apply filter
+      var top = all.slice();
+      if (_filter === 'strong')      top = top.filter(function(x){ return (x.consensus_score||0) >= 40; });
+      else if (_filter === 'multi')  top = top.filter(function(x){ return (x.scan_count||0) >= 2; });
+      else if (_filter === 'triple') top = top.filter(function(x){ return (x.scan_count||0) >= 3; });
+
+      document.getElementById('cnCount').textContent = top.length + ' of ' + all.length + ' stocks';
+
+      var body = document.getElementById('cnBody');
+      body.innerHTML = '';
+      if (top.length === 0) {
+        body.innerHTML = '<tr><td colspan="7" style="text-align:center; padding:30px; color:var(--text2)">No stocks match this filter.</td></tr>';
+        return;
+      }
+
+      top.forEach(function(r, i) {
+        var cs   = r.consensus_score || 0;
+        var sc   = r.scan_count || 1;
+        var tier = r.tier_label || '—';
+        var col  = _scoreColor(cs);
+
+        var scannerChips = (r.scans || []).map(function(s){
+          var cls = _scannerClass(s.scanner);
+          var label = (s.scanner || '?').replace('Monster Growth','Monster').replace('Alpha Engine','Alpha').replace('Early Growth','Early');
+          return '<span class="cn-scanner-chip ' + cls + '" title="' + (s.tier || '') + ' · score ' + s.score + '">' + label + (s.tier ? ' ' + s.tier : '') + '</span>';
+        }).join('');
+
+        var why = (r.scans || []).map(function(s){ return s.why || ''; }).filter(function(x){return x;}).join(' · ');
+
+        var tr = document.createElement('tr');
+        tr.innerHTML =
+          '<td style="color:var(--text2); font-weight:600">' + (i + 1) + '</td>' +
+          '<td><strong style="color:var(--gold2); font-size:14px">' + r.symbol + '</strong></td>' +
+          '<td style="text-align:center">' +
+            '<span style="font-size:16px; font-weight:800; color:' + col + '; font-family:var(--mono)">' + cs.toFixed(1) + '</span>' +
+            '<span class="cn-score-bar"><span class="cn-score-fill" style="width:' + Math.min(100, cs) + '%; background:' + col + '"></span></span>' +
+          '</td>' +
+          '<td style="text-align:center"><strong style="color:' + col + '; font-size:14px">' + sc + '×</strong></td>' +
+          '<td><span class="cn-tier ' + _tierClass(tier) + '">' + tier + '</span></td>' +
+          '<td>' + scannerChips + '</td>' +
+          '<td style="color:var(--text2); font-size:11px; line-height:1.5">' + (why.slice(0, 120) || '—') + '</td>';
+        body.appendChild(tr);
+      });
+    }
+  })();
+</script>

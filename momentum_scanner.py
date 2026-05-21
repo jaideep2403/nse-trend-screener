@@ -26,11 +26,20 @@ for _grp, _syms in INDUSTRY_GROUPS.items():
 
 # ── Config ────────────────────────────────────────────────────────────────────
 MIN_BARS    = 130    # need at least 6M of history (≈130 trading days)
-MIN_PRICE   = 30.0  # filter sub-₹30 (penny stocks)
+# TIER-3: MIN_PRICE removed — ADTV filter is the real liquidity gate.
+# A ₹25 stock with ₹5Cr daily turnover (200M shares) is perfectly liquid.
 MIN_ADTV_CR = 0.5    # Minimal liquidity guard only — universe filtered by Nifty500 membership
 SCAN_WORKERS = 8
 _cache   = {"data": None, "ts": 0}
 CACHE_TTL = 3600    # 1 hour
+
+
+# ── Split / Bonus backward-adjustment (BUG-001) ───────────────────────────────
+
+def _adjust_for_splits(df):
+    """Delegate to canonical analysis_utils.adjust_for_splits."""
+    from analysis_utils import adjust_for_splits
+    return adjust_for_splits(df)
 
 
 # ── Data loader ───────────────────────────────────────────────────────────────
@@ -48,10 +57,10 @@ def _load_all_stocks(progress_callback=None) -> dict[str, pd.DataFrame]:
             progress_callback(i, total, f"Loading bhavcopy cache… {i}/{total} days")
     if not frames:
         return {}
-    # Filter to Nifty50 ∪ NiftyNext50 ∪ Nifty500 ∪ NiftySmallcap250
+    # Filter to Nifty Total Market 750 (Nifty50 ∪ Next50 ∪ Nifty500 ∪ Smallcap250 ∪ Microcap250 ∪ TotalMarket)
     try:
-        from nse_stocks import get_nifty500_symbols
-        _universe = set(get_nifty500_symbols())
+        from nse_stocks import get_universe_symbols
+        _universe = set(get_universe_symbols())
     except Exception:
         _universe = set()
     combined = pd.concat(frames, ignore_index=True).sort_values("Date")
@@ -61,6 +70,7 @@ def _load_all_stocks(progress_callback=None) -> dict[str, pd.DataFrame]:
             continue
         g = grp.set_index("Date")[["Open", "High", "Low", "Close", "Volume"]]
         g = g[~g.index.duplicated(keep="last")].sort_index()
+        g = _adjust_for_splits(g)
         if len(g) >= MIN_BARS:
             stocks[sym] = g
     return stocks
@@ -77,18 +87,21 @@ def _metrics(symbol: str, df: pd.DataFrame) -> dict | None:
             return None
 
         cur = float(close.iloc[-1])
-        if cur < MIN_PRICE:
-            return None
 
         # Liquidity: average daily turnover in ₹ Cr (last 20 sessions)
-        adtv_cr = float((df["Close"] * df["Volume"]).iloc[-20:].mean()) / 1e7
+        # Align Close + Volume on a common non-NaN index before multiplying
+        # (mis-aligned dropna() of the two columns would silently pair wrong rows).
+        cv = df[["Close", "Volume"]].dropna()
+        if len(cv) < 20:
+            return None
+        adtv_cr = float((cv["Close"].iloc[-20:] * cv["Volume"].iloc[-20:]).mean()) / 1e7
         if adtv_cr < MIN_ADTV_CR:
             return None
 
         # ── Returns ──────────────────────────────────────────────────────────
-        r1m = (cur / float(close.iloc[-22])  - 1) * 100 if len(close) > 22  else None
-        r3m = (cur / float(close.iloc[-66])  - 1) * 100 if len(close) > 66  else None
-        r6m = (cur / float(close.iloc[-130]) - 1) * 100 if len(close) > 130 else None
+        r1m = (cur / float(close.iloc[-21])  - 1) * 100 if len(close) >= 21  else None
+        r3m = (cur / float(close.iloc[-63])  - 1) * 100 if len(close) >= 63  else None
+        r6m = (cur / float(close.iloc[-126]) - 1) * 100 if len(close) >= 126 else None
         if r1m is None or r3m is None or r6m is None:
             return None
 
@@ -108,11 +121,14 @@ def _metrics(symbol: str, df: pd.DataFrame) -> dict | None:
         ma50  = float(close.rolling(50).mean().iloc[-1])  if len(close) >= 50  else None
         ma200 = float(close.rolling(200).mean().iloc[-1]) if len(close) >= 200 else None
 
-        # ── Trend strength: consecutive closes above MA50 ─────────────────────
+        # ── Trend strength: count of last 20 closes above MA50 ────────────────
+        # BUG-032 FIX: renamed from `above_streak` to `above_count` since the
+        # value is a non-contiguous count (sum of booleans), not a streak.
         if ma50 is not None:
-            above_streak = int((close.iloc[-20:] > close.rolling(50).mean().iloc[-20:]).sum())
+            above_count = int((close.iloc[-20:] > close.rolling(50).mean().iloc[-20:]).sum())
         else:
-            above_streak = 0
+            above_count = 0
+        above_streak = above_count  # kept for backward compatibility with old UI/consumers
 
         # ── Stage & trend ─────────────────────────────────────────────────────
         stg     = stage_analysis(close)
@@ -131,6 +147,7 @@ def _metrics(symbol: str, df: pd.DataFrame) -> dict | None:
             "above_ma50":     bool(ma50  and cur > ma50),
             "above_ma200":    bool(ma200 and cur > ma200),
             "above_streak":   above_streak,
+            "above_count":    above_count,
             "stage":          stg,
             "stage_lbl":      stg_lbl,
             "group":          _SYM_TO_GROUP.get(symbol, ""),

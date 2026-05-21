@@ -1,0 +1,583 @@
+<!-- ══════════════════════════════════════════════════ EARLY GROWTH TAB -->
+<div id="tab-early-growth" class="tab-content">
+<div class="container">
+
+  <style>
+    .eg-hero {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-left: 4px solid var(--green);
+      border-radius: 10px;
+      padding: 16px 22px;
+      margin-bottom: 18px;
+    }
+    .eg-hero h3 { margin: 0 0 6px; font-size: 16px; color: var(--green); font-weight: 700; }
+    .eg-hero p  { margin: 0; font-size: 13px; color: var(--text); line-height: 1.6; }
+    .eg-hero strong { color: var(--white); }
+
+    .eg-tier-pills { display: flex; gap: 10px; margin-bottom: 16px; flex-wrap: wrap; align-items: center; }
+    .eg-pill {
+      padding: 4px 12px; border-radius: 16px; font-size: 12px;
+      font-weight: 600; border: 1px solid transparent;
+    }
+    .eg-pill.em      { background: rgba(34,197,94,0.15);  border-color: #22c55e; color: #22c55e; }
+    .eg-pill.watch   { background: rgba(234,179,8,0.15);  border-color: #eab308; color: #eab308; }
+    .eg-pill.track   { background: rgba(99,102,241,0.15); border-color: #818cf8; color: #818cf8; }
+    .eg-pill.monitor { background: rgba(100,116,139,0.12);border-color: #64748b; color: #94a3b8; }
+    .eg-pill.stage   { background: transparent; border-color: var(--border); color: var(--muted); }
+
+    .eg-legend { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 14px; }
+    .eg-legend-item {
+      font-size: 11px; padding: 2px 8px; border-radius: 4px;
+      border: 1px solid; white-space: nowrap;
+    }
+
+    .eg-sort-row { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 12px; align-items: center; }
+    .eg-sort-btn {
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      color: var(--muted);
+      padding: 4px 12px;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 12px;
+      transition: all .15s;
+    }
+    .eg-sort-btn:hover, .eg-sort-btn.active {
+      background: rgba(34,197,94,0.12);
+      border-color: rgba(34,197,94,0.5);
+      color: #22c55e;
+    }
+
+    #eg-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+    #eg-table thead th {
+      padding: 8px 8px;
+      text-align: left;
+      color: var(--muted);
+      border-bottom: 2px solid var(--border);
+      font-weight: 600;
+      white-space: nowrap;
+    }
+    #eg-table tbody tr {
+      border-bottom: 1px solid var(--border);
+      cursor: pointer;
+      transition: background .12s;
+    }
+    #eg-table tbody tr:hover { background: rgba(255,255,255,0.03); }
+    #eg-table td { padding: 8px 8px; vertical-align: middle; }
+
+    .eg-detail-row td { padding: 0 !important; }
+    .eg-detail-panel {
+      padding: 14px 18px;
+      background: rgba(34,197,94,0.04);
+      border-left: 3px solid rgba(34,197,94,0.35);
+      display: flex;
+      flex-wrap: wrap;
+      gap: 16px;
+    }
+    .eg-factor {
+      display: flex; flex-direction: column; min-width: 130px; font-size: 11px;
+    }
+    .eg-factor-label { color: var(--muted); margin-bottom: 3px; }
+    .eg-factor-bar-bg { background: var(--border); border-radius: 3px; height: 5px; width: 100%; margin-bottom: 3px; }
+    .eg-factor-bar    { height: 100%; border-radius: 3px; background: #22c55e; }
+    .eg-factor-desc   { color: var(--muted); font-size: 10px; line-height: 1.4; }
+
+    .eg-ctx-box {
+      min-width: 200px; font-size: 11px; color: var(--muted); line-height: 1.6;
+    }
+    .eg-ctx-box strong { color: var(--text); }
+
+    .eg-tier-badge {
+      display: inline-block;
+      padding: 2px 7px; border-radius: 4px;
+      font-size: 11px; font-weight: 700; border: 1px solid;
+      white-space: nowrap;
+    }
+
+    .eg-progress-bar-wrap {
+      background: var(--border); border-radius: 4px; height: 6px; overflow: hidden;
+    }
+    .eg-progress-bar-fill {
+      height: 100%; background: #22c55e; transition: width .3s;
+    }
+  </style>
+
+  <!-- Hero banner -->
+  <div class="eg-hero">
+    <h3>🌱 Early Growth Scanner</h3>
+    <p>
+      Catches stocks 2–4 quarters <strong>before they become obvious</strong>.
+      Looks for: Stage 1 base or early Stage 2 breakout + earnings just starting to accelerate
+      + small/mid market cap + promoter buying + delivery % rising quietly.
+    </p>
+  </div>
+
+  <!-- Scan control panel -->
+  <div class="panel">
+    <div class="panel-header">
+      <h2>Scanner Controls</h2>
+      <button id="eg-scan-btn" onclick="egStartScan()"
+              style="padding:7px 20px;border-radius:7px;border:none;
+                     background:linear-gradient(135deg,#22c55e,#16a34a);
+                     color:#fff;font-weight:700;font-size:13px;cursor:pointer">
+        🌱 Run Scan
+      </button>
+    </div>
+    <div class="panel-body">
+
+      <!-- Legend -->
+      <div class="eg-legend">
+        <span class="eg-legend-item" style="background:rgba(34,197,94,.12);border-color:rgba(34,197,94,.4);color:#22c55e">🌱 EARLY MONSTER ≥75</span>
+        <span class="eg-legend-item" style="background:rgba(234,179,8,.12);border-color:rgba(234,179,8,.4);color:#eab308">💡 WATCH 60–74</span>
+        <span class="eg-legend-item" style="background:rgba(99,102,241,.12);border-color:rgba(99,102,241,.4);color:#818cf8">📋 TRACK 45–59</span>
+        <span class="eg-legend-item" style="background:rgba(100,116,139,.08);border-color:var(--border);color:var(--muted)">🔭 MONITOR 38–44</span>
+        <span style="font-size:11px;color:var(--muted);align-self:center;margin-left:4px">
+          · Stage 1 = still in base (best) · Early S2 = just crossed MA150
+        </span>
+      </div>
+
+      <!-- Progress -->
+      <div id="eg-progress-wrap" style="display:none;margin-bottom:10px">
+        <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--muted);margin-bottom:4px">
+          <span id="eg-progress-msg">Starting…</span>
+          <span id="eg-progress-pct">0%</span>
+        </div>
+        <div class="eg-progress-bar-wrap">
+          <div id="eg-progress-bar" class="eg-progress-bar-fill" style="width:0%"></div>
+        </div>
+      </div>
+
+      <!-- Error -->
+      <div id="eg-error" style="display:none;background:rgba(239,68,68,.10);color:#f87171;
+           border:1px solid rgba(239,68,68,.3);border-radius:8px;padding:10px 14px;
+           font-size:12px;margin-bottom:10px"></div>
+
+    </div>
+  </div>
+
+  <!-- Results panel -->
+  <div id="eg-results-panel" class="panel" style="display:none">
+    <div class="panel-header">
+      <h2>Results</h2>
+      <span id="eg-scanned" style="font-size:11px;color:var(--muted);font-weight:400"></span>
+    </div>
+    <div class="panel-body">
+
+      <!-- Summary pills -->
+      <div class="eg-tier-pills" id="eg-summary">
+        <span id="eg-pill-em"  class="eg-pill em"></span>
+        <span id="eg-pill-w"   class="eg-pill watch"></span>
+        <span id="eg-pill-t"   class="eg-pill track"></span>
+        <span id="eg-pill-m"   class="eg-pill monitor"></span>
+        <span id="eg-pill-s1"  class="eg-pill stage"></span>
+        <span id="eg-pill-s2"  class="eg-pill stage"></span>
+      </div>
+
+      <!-- Sort row -->
+      <div class="eg-sort-row">
+        <span style="font-size:11px;color:var(--muted)">Sort:</span>
+        <button class="eg-sort-btn active" data-col="score"      onclick="egSort(this,'score')">Score ↓</button>
+        <button class="eg-sort-btn"        data-col="base_weeks" onclick="egSort(this,'base_weeks')">Base Wks</button>
+        <button class="eg-sort-btn"        data-col="profit_gr"  onclick="egSort(this,'profit_gr')">Profit%</button>
+        <button class="eg-sort-btn"        data-col="market_cap" onclick="egSort(this,'market_cap')">Mkt Cap</button>
+        <button class="eg-sort-btn"        data-col="rs_rank"    onclick="egSort(this,'rs_rank')">RS Rank</button>
+      </div>
+
+      <!-- Table -->
+      <div style="overflow-x:auto">
+        <table id="eg-table">
+          <thead>
+            <tr>
+              <th>#</th>
+              <th>Symbol</th>
+              <th>Tier</th>
+              <th>Score</th>
+              <th title="Cross-scan Final Setup Score — appears in N scans">Consensus</th>
+              <th title="Weinstein stage + how long in this stage">Stage Age</th>
+              <th>Stage</th>
+              <th>Base</th>
+              <th>Depth%</th>
+              <th>Vol↓</th>
+              <th>Near Hi</th>
+              <th>Profit%</th>
+              <th>EPS QoQ</th>
+              <th>EPS YoY</th>
+              <th>PE</th>
+              <th>PEG</th>
+              <th>Mkt Cap ₹Cr</th>
+              <th>Promo%</th>
+              <th>Promo Δ</th>
+              <th>Deliv Δ%</th>
+              <th>RS</th>
+            </tr>
+          </thead>
+          <tbody id="eg-tbody"></tbody>
+        </table>
+      </div>
+
+      <!-- Empty -->
+      <div id="eg-empty" style="display:none;text-align:center;padding:40px;
+                                  color:var(--muted);font-size:13px">
+        No stocks passed all early-growth filters. Fundamentals DB updates nightly — results improve as coverage grows.
+      </div>
+
+    </div>
+  </div>
+
+  <!-- Coverage note -->
+  <p id="eg-coverage-note" style="display:none;font-size:11px;color:var(--muted);
+     margin-top:4px;padding:8px 12px;
+     background:rgba(14,21,32,0.5);border-radius:6px;border:1px solid var(--border)">
+    ⚠️ Scores depend on fundamentals DB (auto-refreshed nightly). Stocks without fundamentals are skipped.
+    RS rank is cross-sectional. Click any row to expand factor breakdown.
+  </p>
+
+</div><!-- /container -->
+</div><!-- /tab-early-growth -->
+
+<script>
+/* ── State ──────────────────────────────────────────────────────────── */
+var egData      = null;
+var egSortCol   = "score";
+var egSortAsc   = false;
+var egPollTimer = null;
+
+/* ── Start scan ─────────────────────────────────────────────────────── */
+function egStartScan() {
+  var btn = document.getElementById("eg-scan-btn");
+  btn.disabled = true;
+  btn.textContent = "Scanning…";
+  document.getElementById("eg-error").style.display         = "none";
+  document.getElementById("eg-results-panel").style.display = "none";
+  document.getElementById("eg-coverage-note").style.display = "none";
+  document.getElementById("eg-progress-wrap").style.display = "block";
+  egSetProgress(0, "Starting…");
+
+  fetch("/api/early_growth/scan", {method:"POST"})
+    .then(function(r){ return r.json(); })
+    .then(function(){ egPoll(); })
+    .catch(function(e){ egShowError("Failed to start: " + e); });
+}
+
+/* ── Poll ───────────────────────────────────────────────────────────── */
+function egPoll() {
+  clearTimeout(egPollTimer);
+  fetch("/api/early_growth/status")
+    .then(function(r){ return r.json(); })
+    .then(function(d) {
+      egSetProgress(d.pct || 0, d.message || "");
+      if (d.running) { egPollTimer = setTimeout(egPoll, 1500); return; }
+      if (d.error)   { egShowError(d.error); return; }
+      if (d.result)  { egShowResults(d.result); }
+      else           { egShowError("No results returned."); }
+    })
+    .catch(function(){ egPollTimer = setTimeout(egPoll, 3000); });
+}
+
+function egSetProgress(pct, msg) {
+  document.getElementById("eg-progress-bar").style.width    = pct + "%";
+  document.getElementById("eg-progress-pct").textContent    = pct + "%";
+  document.getElementById("eg-progress-msg").textContent    = msg;
+}
+
+function egShowError(msg) {
+  document.getElementById("eg-progress-wrap").style.display = "none";
+  var el = document.getElementById("eg-error");
+  el.textContent = msg; el.style.display = "block";
+  var btn = document.getElementById("eg-scan-btn");
+  btn.disabled = false; btn.textContent = "🌱 Run Scan";
+}
+
+/* ── Show results ───────────────────────────────────────────────────── */
+function egShowResults(data) {
+  egData = data;
+  document.getElementById("eg-progress-wrap").style.display = "none";
+  var btn = document.getElementById("eg-scan-btn");
+  btn.disabled = false; btn.textContent = "🌱 Run Scan";
+
+  var rows = data.results || [];
+
+  // Pills
+  document.getElementById("eg-pill-em").textContent  = "🌱 Early Monster: " + (data.early_monster_count || 0);
+  document.getElementById("eg-pill-w").textContent   = "💡 Watch: "         + (data.watch_count  || 0);
+  document.getElementById("eg-pill-t").textContent   = "📋 Track: "         + (data.track_count  || 0);
+  document.getElementById("eg-pill-m").textContent   = "🔭 Monitor: "       + (data.monitor_count|| 0);
+  document.getElementById("eg-pill-s1").textContent  = "Stage 1 base: "     + (data.stage1_count || 0);
+  document.getElementById("eg-pill-s2").textContent  = "Early S2: "         + (data.early_s2_count || 0);
+  document.getElementById("eg-scanned").textContent  =
+    (data.total_scanned || 0) + " scanned · " + (data.fundamental_coverage || 0) + " with fundamentals";
+
+  // Start live scraper progress poll (updates every 20s from /api/fundamentals/status)
+  egUpdateScraperNote();
+  if (!egScraperTimer) egScraperTimer = setInterval(egUpdateScraperNote, 20000);
+
+  document.getElementById("eg-results-panel").style.display  = "block";
+
+  if (!rows.length) {
+    document.getElementById("eg-empty").style.display = "block";
+    return;
+  }
+  document.getElementById("eg-empty").style.display = "none";
+  egRender(rows);
+}
+
+/* ── Render table ───────────────────────────────────────────────────── */
+function egRender(rows) {
+  var tbody = document.getElementById("eg-tbody");
+  tbody.innerHTML = "";
+
+  rows.forEach(function(r, i) {
+    var tierStyle =
+      r.tier === "EARLY MONSTER"
+        ? "background:rgba(34,197,94,.15);color:#22c55e;border-color:rgba(34,197,94,.4)"
+        : r.tier === "WATCH"
+          ? "background:rgba(234,179,8,.15);color:#eab308;border-color:rgba(234,179,8,.4)"
+          : r.tier === "TRACK"
+            ? "background:rgba(99,102,241,.12);color:#818cf8;border-color:rgba(99,102,241,.4)"
+            : "background:rgba(100,116,139,.10);color:#94a3b8;border-color:#64748b";
+
+    var stageHtml = r.is_stage1
+      ? '<span style="color:#94a3b8;font-size:11px">S1 Base</span>'
+      : '<span style="color:#22c55e;font-size:11px">S2 +' + r.cross_bars + 'd</span>';
+
+    var epsQoQ = r.eps_accel    === 1 ? '<span style="color:#22c55e">✓</span>'
+               : r.eps_accel    === 0 ? '<span style="color:#ef4444">✗</span>'
+               : '<span style="color:var(--muted)">—</span>';
+    var epsYoY = r.eps_accel_yoy === 1 ? '<span style="color:#22c55e">✓</span>'
+               : r.eps_accel_yoy === 0 ? '<span style="color:#ef4444">✗</span>'
+               : '<span style="color:var(--muted)">—</span>';
+
+    // Consistent display: always 2-decimal % with explicit sign.
+    // Zero shown as "0.00%" in muted color (not blank) so user knows we evaluated it.
+    var pdHtml;
+    if (r.promoter_delta == null) {
+      pdHtml = '<span style="color:var(--muted)" title="data not scraped yet">—</span>';
+    } else if (r.promoter_delta > 0.005) {
+      pdHtml = '<span style="color:#22c55e">+' + r.promoter_delta.toFixed(2) + '%</span>';
+    } else if (r.promoter_delta < -0.005) {
+      pdHtml = '<span style="color:#ef4444">'  + r.promoter_delta.toFixed(2) + '%</span>';
+    } else {
+      pdHtml = '<span style="color:#94a3b8" title="no change vs prior quarter">0.00%</span>';
+    }
+
+    var dvHtml = r.deliv_chg == null
+      ? '<span style="color:var(--muted)">—</span>'
+      : r.deliv_chg > 0
+        ? '<span style="color:#22c55e">+' + r.deliv_chg + '%</span>'
+        : '<span style="color:#ef4444">' + r.deliv_chg + '%</span>';
+
+    var pgColor = r.profit_gr >= 50 ? "#22c55e" : r.profit_gr >= 25 ? "#eab308" : "var(--text)";
+    // ✓ = signal active, ✗ = evaluated but not active (NOT missing data)
+    var volHtml = r.vol_declining
+      ? '<span style="color:#22c55e">✓</span>'
+      : '<span style="color:#94a3b8">✗</span>';
+    var nhHtml = r.near_high
+      ? '<span style="color:#22c55e">✓</span>'
+      : '<span style="color:#94a3b8">✗</span>';
+
+    // BUG-FIX: was dividing by 100 for mcap >= 10000 — corrupted KPIL (21476→214),
+    // GRAVITA (12460→125), SARDAEN (19194→192). Screener.in returns Cr already.
+    // Display: < 1L Cr as "X,XXX Cr"; >= 1L Cr ("Lakh Crore") as "X.XX L Cr"
+    var mcStr;
+    if (!r.market_cap || r.market_cap <= 0) {
+      mcStr = '<span style="color:var(--muted)">—</span>';
+    } else if (r.market_cap >= 100000) {
+      mcStr = (r.market_cap / 100000).toFixed(2) + " L Cr";
+    } else {
+      mcStr = r.market_cap.toLocaleString('en-IN', {maximumFractionDigits:0}) + " Cr";
+    }
+
+    var tr = document.createElement("tr");
+    tr.id = "eg-row-" + i;
+    tr.onclick = function(){ egToggle(i); };
+    tr.innerHTML =
+      '<td style="color:var(--muted)">' + (i+1) + '</td>' +
+      '<td style="font-weight:700;color:var(--white)">' + r.symbol + '</td>' +
+      '<td><span class="eg-tier-badge" style="' + tierStyle + '">' + r.tier + '</span></td>' +
+      '<td style="font-weight:700;color:var(--accent)">' + r.score + '</td>' +
+      // P2-10/11: Final Setup Score (consensus across scanners)
+      (function() {
+        var cs = r.consensus_score || 0;
+        var sc = r.scan_count || 1;
+        var tl = r.consensus_tier || "—";
+        var col = cs >= 60 ? "#10b981" : cs >= 40 ? "#3b82f6" : cs >= 25 ? "#f59e0b" : "var(--muted)";
+        var bg  = cs >= 60 ? "rgba(16,185,129,.15)" : cs >= 40 ? "rgba(59,130,246,.15)" : cs >= 25 ? "rgba(245,158,11,.15)" : "rgba(120,120,120,.10)";
+        return '<td title="' + tl + ' — appears in ' + sc + ' scans"><span style="display:inline-block;padding:2px 8px;border-radius:10px;background:' + bg + ';color:' + col + ';font-weight:700;font-size:11px">' + cs.toFixed(0) + ' · ' + sc + '×</span></td>';
+      })() +
+      // P2-14: Stage transition badge
+      (function() {
+        var sb = r.stage_badge;
+        if (!sb) return '<td style="color:var(--muted);font-size:11px">—</td>';
+        var col = r.stage_fresh ? "#10b981" : "var(--muted)";
+        var w = r.stage_fresh ? "700" : "500";
+        return '<td title="In current stage since ' + (r.stage_since || '?') + '" style="color:' + col + ';font-weight:' + w + ';font-size:11px">' + sb + (r.stage_fresh ? ' 🟢' : '') + '</td>';
+      })() +
+      '<td>' + stageHtml + '</td>' +
+      '<td>' + r.base_weeks + 'w</td>' +
+      '<td>' + r.base_depth_pct + '%</td>' +
+      '<td>' + volHtml + '</td>' +
+      '<td>' + nhHtml  + '</td>' +
+      '<td style="color:' + pgColor + ';font-weight:600">' + (r.profit_gr >= 0 ? '+' : '') + r.profit_gr + '%</td>' +
+      '<td>' + epsQoQ + '</td>' +
+      '<td>' + epsYoY + '</td>' +
+      '<td style="color:var(--text)">' + (r.pe > 0 ? r.pe : '<span style="color:var(--muted)">—</span>') + '</td>' +
+      '<td style="color:var(--text)">' + (r.peg != null ? r.peg : '<span style="color:var(--muted)">—</span>') + '</td>' +
+      '<td style="color:var(--text)">' + mcStr + '</td>' +
+      '<td>' + (r.promoter_pct > 0 ? r.promoter_pct + '%' : '<span style="color:var(--muted)">—</span>') + '</td>' +
+      '<td>' + pdHtml + '</td>' +
+      '<td>' + dvHtml + '</td>' +
+      '<td style="color:var(--muted)">' + r.rs_rank + '</td>';
+    tbody.appendChild(tr);
+
+    // Detail row
+    var dr  = document.createElement("tr");
+    dr.id   = "eg-detail-" + i;
+    dr.style.display = "none";
+    var dtd = document.createElement("td");
+    dtd.colSpan = 99;
+    dtd.innerHTML = egDetailHtml(r);
+    dr.appendChild(dtd);
+    tbody.appendChild(dr);
+  });
+}
+
+/* ── Detail panel ───────────────────────────────────────────────────── */
+function egDetailHtml(r) {
+  var factors = [
+    { label: "Base Quality",    pts: r.f1_base,    max: 35,
+      desc: r.base_weeks + "w · " + r.base_depth_pct + "% depth" +
+            (r.vol_declining ? " · vol drying ✓" : "") +
+            (r.near_high     ? " · near high ✓"  : "") },
+    { label: "Earnings Accel", pts: r.f2_accel,   max: 25,
+      desc: "Profit +" + r.profit_gr + "%" +
+            " · QoQ:" + (r.eps_accel    ===1?"✓":r.eps_accel    ===0?"✗":"—") +
+            " YoY:"   + (r.eps_accel_yoy===1?"✓":r.eps_accel_yoy===0?"✗":"—") },
+    { label: "Market Cap",     pts: r.f3_mktcap,  max: 20,
+      desc: r.market_cap ? "₹" + r.market_cap.toFixed(0) + " Cr" : "unknown" },
+    { label: "Smart Money",    pts: r.f4_smart,   max: 15,
+      desc: "Promoter " + r.promoter_pct + "%" +
+            (r.promoter_delta != null ? " Δ" + (r.promoter_delta>0?"+":"") + r.promoter_delta.toFixed(1) + "%" : "") +
+            (r.deliv_chg      != null ? " · Deliv " + (r.deliv_chg>0?"+":"") + r.deliv_chg + "%" : "") },
+    { label: "Revenue",        pts: r.f5_revenue, max: 5,
+      desc: "Sales +" + r.sales_gr + "%" },
+  ];
+
+  var html = '<div class="eg-detail-panel">';
+  factors.forEach(function(f) {
+    var pct = Math.round(f.pts / f.max * 100);
+    html +=
+      '<div class="eg-factor">' +
+        '<span class="eg-factor-label">' + f.label +
+          ' <strong style="color:var(--white)">' + f.pts + '/' + f.max + '</strong>' +
+        '</span>' +
+        '<div class="eg-factor-bar-bg"><div class="eg-factor-bar" style="width:' + pct + '%"></div></div>' +
+        '<span class="eg-factor-desc">' + f.desc + '</span>' +
+      '</div>';
+  });
+
+  var stageCtx = r.is_stage1
+    ? "Stage 1 — forming base (pre-breakout)"
+    : "Stage 2 — broke MA150 " + r.cross_bars + " bars ago";
+
+  html +=
+    '<div class="eg-ctx-box">' +
+      '<strong>' + stageCtx + '</strong><br>' +
+      'Price ₹' + r.price + ' · MA150 slope ' + (r.ma150_slope > 0 ? '+' : '') + r.ma150_slope + '%<br>' +
+      '52W: ' + r.pct_from_hi + '% from high · RS rank ' + r.rs_rank + '<br>' +
+      'ADTV ₹' + r.adtv_cr + ' Cr · Base ' + r.base_low + '–' + r.base_high +
+    '</div>';
+
+  html += '</div>';
+  return html;
+}
+
+/* ── Toggle detail row ──────────────────────────────────────────────── */
+function egToggle(i) {
+  var dr = document.getElementById("eg-detail-" + i);
+  if (!dr) return;
+  dr.style.display = dr.style.display === "none" ? "table-row" : "none";
+}
+
+/* ── Sort ───────────────────────────────────────────────────────────── */
+function egSort(btn, col) {
+  if (egSortCol === col) { egSortAsc = !egSortAsc; }
+  else { egSortCol = col; egSortAsc = false; }
+
+  document.querySelectorAll(".eg-sort-btn").forEach(function(b){
+    b.classList.remove("active");
+  });
+  btn.classList.add("active");
+  btn.textContent = col.replace(/_/g," ") + (egSortAsc ? " ↑" : " ↓");
+
+  if (!egData || !egData.results) return;
+  var sorted = egData.results.slice().sort(function(a, b) {
+    var av = (a[col] != null ? a[col] : (egSortAsc ? Infinity : -Infinity));
+    var bv = (b[col] != null ? b[col] : (egSortAsc ? Infinity : -Infinity));
+    return egSortAsc ? (av > bv ? 1 : -1) : (av < bv ? 1 : -1);
+  });
+  egRender(sorted);
+}
+
+/* ── Live scraper progress — polls /api/fundamentals/status every 20s ── */
+var egScraperTimer = null;
+
+function egUpdateScraperNote() {
+  var noteEl = document.getElementById("eg-coverage-note");
+  if (!noteEl) return;
+  fetch("/api/fundamentals/status")
+    .then(function(r){ return r.json(); })
+    .then(function(d) {
+      var cache     = d.cache || {};
+      var withData  = cache.with_data || 0;
+      var total     = cache.count     || 751;
+      // eps_q1 coverage comes from scheduler: scraped_count tracks how many
+      // have been processed in this pass; use pct_complete as progress signal
+      var scraped   = d.scraped_count || 0;
+      var totalSym  = d.total_symbols || 751;
+      var pct       = d.pct_complete  || 0;
+      var current   = d.current_symbol || "";
+      var eta       = d.eta || "—";
+      var running   = d.scheduler_running;
+      noteEl.style.display = "block";
+      if (pct < 90) {
+        noteEl.innerHTML =
+          "⏳ <strong>Re-scraping quarterly data:</strong> " +
+          scraped + "/" + totalSym + " stocks (" + pct.toFixed(1) + "%) · " +
+          (current ? "now: <strong>" + current + "</strong> · " : "") +
+          "ETA: " + eta + " · ~400/hour" +
+          "<br>Only stocks with <em>confirmed non-seasonal</em> EPS acceleration shown. " +
+          "Re-run scan as progress increases.";
+        noteEl.style.color = "#eab308";
+        noteEl.style.borderColor = "rgba(234,179,8,.4)";
+        noteEl.style.background  = "rgba(234,179,8,.06)";
+      } else {
+        noteEl.innerHTML =
+          "✅ Quarterly data complete (" + scraped + "/" + totalSym + " stocks). " +
+          "EPS acceleration = non-seasonal: 2/3 recent quarters beat same quarter prior year. " +
+          "Click any row to expand factor breakdown.";
+        noteEl.style.color = "var(--muted)";
+        noteEl.style.borderColor = "var(--border)";
+        noteEl.style.background  = "rgba(14,21,32,0.5)";
+        clearInterval(egScraperTimer);
+        egScraperTimer = null;
+      }
+    })
+    .catch(function(){});
+}
+
+/* ── Auto-load cached results on tab open ───────────────────────────── */
+function egCheckCache() {
+  // Always show live scraper progress when tab opens
+  egUpdateScraperNote();
+  if (!egScraperTimer) egScraperTimer = setInterval(egUpdateScraperNote, 20000);
+  if (egData) return;
+  fetch("/api/early_growth/status")
+    .then(function(r){ return r.json(); })
+    .then(function(d) {
+      if (d.running) { egPoll(); return; }
+      if (d.result && d.result.results && d.result.results.length) egShowResults(d.result);
+    })
+    .catch(function(){});
+}
+</script>

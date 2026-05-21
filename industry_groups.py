@@ -1,6 +1,6 @@
 """
 Industry Group Relative Strength
-Groups NSE stocks into 55 sectors covering the full Nifty 500 universe.
+Groups NSE stocks into 55 sectors covering the full Nifty Total Market universe.
 Ranks each sector by 3-month RS vs Nifty. Zero extra NSE API calls.
 """
 import math
@@ -8,17 +8,23 @@ import time
 import pandas as pd
 from data_fetcher import _weekdays_back, _download_one_day
 
+# ── Auto-sector mapper (NSE TotalMarket CSV, no yfinance) ─────────────────────
+try:
+    from sector_mapper import (
+        get_enriched_industry_groups as _get_enriched_groups,
+        get_enriched_sector_map      as _get_enriched_sector_map,
+        refresh_sector_cache,
+    )
+    _SECTOR_MAPPER_AVAILABLE = True
+except ImportError:
+    _SECTOR_MAPPER_AVAILABLE = False
+
 _cache        = {"data": None, "ts": 0}
 _stocks_cache = {"data": None, "ts": 0}
 CACHE_TTL     = 3600   # 1 hour
 STOCKS_TTL    = 3600   # reuse loaded stocks for 1 hour
 
-_NIFTY_SYMS = [
-    "RELIANCE", "TCS", "HDFCBANK", "ICICIBANK", "INFOSYS",
-    "HINDUNILVR", "SBIN", "BHARTIARTL", "ITC", "KOTAKBANK",
-    "AXISBANK", "WIPRO", "HCLTECH", "MARUTI", "BAJFINANCE",
-    "TITAN", "NTPC", "POWERGRID", "NESTLEIND", "SUNPHARMA",
-]
+from analysis_utils import NIFTY_PROXY_SYMS as _NIFTY_SYMS, equal_weight_index as _ewi
 
 INDUSTRY_GROUPS: dict[str, list[str]] = {
 
@@ -240,6 +246,14 @@ INDUSTRY_GROUPS: dict[str, list[str]] = {
 # ── Data loader ───────────────────────────────────────────────────────────────
 
 def _load_stocks(progress_callback=None) -> dict[str, pd.DataFrame]:
+    # BUG-FIX (universe consistency): now filters to Nifty Total Market 750 to match
+    # every other scanner — was loading the full ~2500-stock bhavcopy including illiquid
+    # penny stocks which then bloated the in-memory dict.
+    try:
+        from nse_stocks import get_universe_symbols
+        _universe = set(get_universe_symbols())
+    except Exception:
+        _universe = set()
     dates  = _weekdays_back(300)
     total  = len(dates)
     frames = []
@@ -254,25 +268,33 @@ def _load_stocks(progress_callback=None) -> dict[str, pd.DataFrame]:
     combined = pd.concat(frames, ignore_index=True).sort_values("Date")
     stocks: dict[str, pd.DataFrame] = {}
     for sym, grp in combined.groupby("Symbol"):
+        if _universe and sym not in _universe:
+            continue   # restrict to Nifty Total Market 750
         cols = [c for c in ["Open", "High", "Low", "Close", "Volume", "DelivPer"]
                 if c in grp.columns]
         g = grp.set_index("Date")[cols]
         g = g[~g.index.duplicated(keep="last")].sort_index()
+        g = _adjust_for_splits(g)   # backward-adjust for stock splits / bonus issues
         if len(g) >= 60:
             stocks[sym] = g
     return stocks
 
 
+def _adjust_for_splits(df):
+    """Delegates to the centralised analysis_utils.adjust_for_splits which
+    handles the full set of NSE bonus ratios (3:2, 4:3, 5:4, etc.)."""
+    from analysis_utils import adjust_for_splits
+    return adjust_for_splits(df)
+
+
 def _build_nifty(stocks: dict) -> pd.Series | None:
-    closes = []
-    for sym in _NIFTY_SYMS:
-        df = stocks.get(sym)
-        if df is not None and len(df) >= 63:
-            closes.append(df["Close"].dropna())
+    """Equal-weight Nifty proxy. TIER-3: uses canonical NIFTY_PROXY_SYMS from analysis_utils."""
+    closes = [stocks[s]["Close"].dropna() for s in _NIFTY_SYMS
+              if s in stocks and len(stocks[s]) >= 63]
     if not closes:
         return None
     combined = pd.concat(closes, axis=1).dropna(how="all")
-    bench = combined.mean(axis=1)
+    bench = _ewi(combined)
     return bench if len(bench) >= 20 else None
 
 
@@ -280,20 +302,34 @@ def _build_nifty(stocks: dict) -> pd.Series | None:
 
 def _group_rs(stocks: dict, nifty: pd.Series) -> list[dict]:
     results = []
-    for group_name, symbols in INDUSTRY_GROUPS.items():
+    nifty_r3m_global = None
+    if nifty is not None and len(nifty) >= 63:
+        nifty_r3m_global = round((float(nifty.iloc[-1]) / float(nifty.iloc[-63]) - 1) * 100, 2)
+
+    # Use enriched groups (INDUSTRY_GROUPS + NSE-auto-mapped extras) if available
+    if _SECTOR_MAPPER_AVAILABLE:
+        groups = _get_enriched_groups()
+    else:
+        groups = INDUSTRY_GROUPS
+
+    for group_name, symbols in groups.items():
         group_closes = []
         found_syms   = []
+        sym_dfs      = {}
         for sym in symbols:
             df = stocks.get(sym)
             if df is not None and len(df) >= 63:
                 group_closes.append(df["Close"].dropna())
                 found_syms.append(sym)
+                sym_dfs[sym] = df
 
         if len(group_closes) < 2:
             continue
 
+        # BUG-FIX: rebase-to-100 (was raw price mean — MRF dominated Auto Ancillary)
+        from analysis_utils import equal_weight_index
         combined  = pd.concat(group_closes, axis=1).dropna(how="all")
-        group_idx = combined.mean(axis=1)
+        group_idx = equal_weight_index(combined)
         if len(group_idx) < 63:
             continue
 
@@ -304,21 +340,58 @@ def _group_rs(stocks: dict, nifty: pd.Series) -> list[dict]:
         g = group_idx[idx]
         n = nifty[idx]
 
-        r1m = round((float(g.iloc[-1]) / float(g.iloc[-22])  - 1) * 100, 2) if len(g) > 22  else 0.0
-        r3m = round((float(g.iloc[-1]) / float(g.iloc[-63])  - 1) * 100, 2) if len(g) > 63  else 0.0
-        r6m = round((float(g.iloc[-1]) / float(g.iloc[-126]) - 1) * 100, 2) if len(g) > 126 else 0.0
+        r1m = round((float(g.iloc[-1]) / float(g.iloc[-21])  - 1) * 100, 2) if len(g) >= 21  else 0.0
+        r3m = round((float(g.iloc[-1]) / float(g.iloc[-63])  - 1) * 100, 2) if len(g) >= 63  else 0.0
+        r6m = round((float(g.iloc[-1]) / float(g.iloc[-126]) - 1) * 100, 2) if len(g) >= 126 else 0.0
 
-        nifty_r3m   = round((float(n.iloc[-1]) / float(n.iloc[-63]) - 1) * 100, 2) if len(n) > 63 else 0.0
+        nifty_r3m   = round((float(n.iloc[-1]) / float(n.iloc[-63]) - 1) * 100, 2) if len(n) >= 63 else 0.0
         rs_vs_nifty = round(r3m - nifty_r3m, 2)
 
+        # ── Per-stock returns for drill-down ─────────────────────────
+        stock_returns = []
+        for sym in found_syms:
+            df = sym_dfs[sym]
+            cl = df["Close"].dropna()
+            try:
+                s_r1m = round((float(cl.iloc[-1]) / float(cl.iloc[-21])  - 1) * 100, 2) if len(cl) >= 21  else None
+                s_r3m = round((float(cl.iloc[-1]) / float(cl.iloc[-63])  - 1) * 100, 2) if len(cl) >= 63  else None
+                s_r6m = round((float(cl.iloc[-1]) / float(cl.iloc[-126]) - 1) * 100, 2) if len(cl) >= 126 else None
+                s_price = round(float(cl.iloc[-1]), 2)
+                s_rs = round(s_r3m - nifty_r3m, 2) if s_r3m is not None else None
+                # Align Close and Volume on a common index before multiplying.
+                # The previous code did `cl.iloc[-20:] * vol.iloc[-20:]` where
+                # cl and vol had independent dropna() applied — if either had
+                # NaN on a day the other did not, the two -20 slices covered
+                # different calendar dates and silently paired misaligned rows,
+                # producing wrong turnover figures.
+                adtv = None
+                if "Volume" in df.columns:
+                    pv = df[["Close", "Volume"]].dropna()
+                    if len(pv) >= 20:
+                        adtv = round(float((pv["Close"].iloc[-20:] * pv["Volume"].iloc[-20:]).mean()) / 1e7, 1)
+            except Exception:
+                s_r1m = s_r3m = s_r6m = s_price = s_rs = adtv = None
+            stock_returns.append({
+                "symbol":  sym,
+                "price":   s_price,
+                "r1m":     s_r1m,
+                "r3m":     s_r3m,
+                "r6m":     s_r6m,
+                "rs":      s_rs,
+                "adtv_cr": adtv,
+            })
+        # Sort by 3M return desc
+        stock_returns.sort(key=lambda x: (x["r3m"] or -9999), reverse=True)
+
         results.append({
-            "group":        group_name,
-            "r1m":          r1m,
-            "r3m":          r3m,
-            "r6m":          r6m,
-            "rs_vs_nifty":  rs_vs_nifty,
-            "member_count": len(found_syms),
-            "symbols":      found_syms,
+            "group":         group_name,
+            "r1m":           r1m,
+            "r3m":           r3m,
+            "r6m":           r6m,
+            "rs_vs_nifty":   rs_vs_nifty,
+            "member_count":  len(found_syms),
+            "symbols":       found_syms,
+            "stock_returns": stock_returns,
         })
 
     results.sort(key=lambda x: x["rs_vs_nifty"], reverse=True)
@@ -361,9 +434,17 @@ def _compute_rrg(stocks: dict, nifty: pd.Series) -> list[dict]:
     if not isinstance(nifty.index, pd.DatetimeIndex):
         nifty.index = pd.to_datetime(nifty.index)
 
+    # BUG-006 FIX: Use enriched groups (751 stocks) same as run_industry_analysis(),
+    # not the bare INDUSTRY_GROUPS dict (523 stocks). This ensures RRG and the
+    # industry table use the same universe.
+    if _SECTOR_MAPPER_AVAILABLE:
+        _rrg_groups = _get_enriched_groups()
+    else:
+        _rrg_groups = INDUSTRY_GROUPS
+
     results = []
 
-    for group_name, symbols in INDUSTRY_GROUPS.items():
+    for group_name, symbols in _rrg_groups.items():
         group_closes = []
         for sym in symbols:
             df = stocks.get(sym)
@@ -376,9 +457,10 @@ def _compute_rrg(stocks: dict, nifty: pd.Series) -> list[dict]:
         if len(group_closes) < 2:
             continue
 
-        # Daily group price index
+        # Daily group price index — rebased-to-100 equal-weight (BUG-FIX raw price avg)
+        from analysis_utils import equal_weight_index
         combined  = pd.concat(group_closes, axis=1).dropna(how="all")
-        group_idx = combined.mean(axis=1)
+        group_idx = equal_weight_index(combined)
 
         # Align with nifty
         common = group_idx.index.intersection(nifty.index)
@@ -391,13 +473,14 @@ def _compute_rrg(stocks: dict, nifty: pd.Series) -> list[dict]:
         # Raw relative-strength line
         rs_daily = g / n
 
-        # Weekly resampling (ISO week, last bar)
-        rs_weekly = rs_daily.resample("W").last().dropna()
+        # BUG-013 FIX: resample to W-FRI (NSE week ends Friday) and min_periods=20
+        rs_weekly = rs_daily.resample("W-FRI").last().dropna()
         if len(rs_weekly) < 12:
             continue
 
         # RS-Ratio: normalise to 100 via 26-week rolling mean
-        rolling_mean = rs_weekly.rolling(window=26, min_periods=10).mean()
+        # BUG-013 FIX: min_periods raised from 10 to 20 for more reliable normalization
+        rolling_mean = rs_weekly.rolling(window=26, min_periods=20).mean()
         rs_ratio     = (rs_weekly / rolling_mean * 100).dropna()
         if len(rs_ratio) < 8:
             continue
@@ -465,8 +548,8 @@ def _compute_rrg(stocks: dict, nifty: pd.Series) -> list[dict]:
             df = stocks.get(sym)
             if df is not None:
                 c = df["Close"].dropna()
-                r1m = round((float(c.iloc[-1]) / float(c.iloc[-22]) - 1) * 100, 1) if len(c) >= 22 else None
-                r3m = round((float(c.iloc[-1]) / float(c.iloc[-66]) - 1) * 100, 1) if len(c) >= 66 else None
+                r1m = round((float(c.iloc[-1]) / float(c.iloc[-21]) - 1) * 100, 1) if len(c) >= 21 else None
+                r3m = round((float(c.iloc[-1]) / float(c.iloc[-63]) - 1) * 100, 1) if len(c) >= 63 else None
                 sector_returns.append({"symbol": sym, "r1m": r1m, "r3m": r3m})
         sector_returns.sort(key=lambda x: -(x["r1m"] or -9999))
         top_stocks = sector_returns   # full list — frontend handles display
