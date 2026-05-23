@@ -3,6 +3,24 @@ import threading
 import time
 import pandas as pd
 from flask import Flask, render_template, request, jsonify, make_response
+
+# ── Concurrent scan semaphore (F10) ───────────────────────────────────────────
+# Cap simultaneous heavy scans across the whole process. Each scan loads
+# 200+ pkl files into pandas (~150-300 MB resident peak), so allowing 16
+# concurrent scans drove the dev server to OOM. With the cap, excess scan
+# threads wait their turn instead of stampeding RAM.
+# Override via env: MAX_CONCURRENT_SCANS=4
+MAX_CONCURRENT_SCANS = int(os.getenv("MAX_CONCURRENT_SCANS", 2))
+_scan_semaphore = threading.BoundedSemaphore(MAX_CONCURRENT_SCANS)
+
+class _ScanSlot:
+    """Context manager — `with _ScanSlot(): run_scan()` serialises CPU/RAM
+    pressure. Non-blocking; caller can pre-check len(_scan_semaphore._value)."""
+    def __enter__(self):
+        _scan_semaphore.acquire()
+        return self
+    def __exit__(self, *a):
+        _scan_semaphore.release()
 from screener import run_screener
 from sector_analysis import run_sector_analysis
 from breakout_scanner import run_breakout_scan
@@ -101,7 +119,8 @@ if INVESTGRADE_AVAILABLE:
                 ig_state["total"] = total
                 ig_state["message"] = msg
         try:
-            result = _ig.run_investment_grade_scan(progress_callback=progress_cb)
+            with _scan_semaphore:
+                result = _ig.run_investment_grade_scan(progress_callback=progress_cb)
             with ig_lock:
                 ig_state["result"] = result
                 ig_state["running"] = False
@@ -239,7 +258,8 @@ def do_scan(params):
             scan_state["current_ticker"] = ticker
 
     try:
-        df, funnel = run_screener(params=params, progress_callback=progress_cb)
+        with _scan_semaphore:
+            df, funnel = run_screener(params=params, progress_callback=progress_cb)
         with scan_lock:
             scan_state["result"]  = df.to_dict(orient="records")
             scan_state["funnel"]  = funnel
@@ -262,7 +282,8 @@ sector_lock = threading.Lock()
 
 def do_sector_analysis():
     try:
-        result = run_sector_analysis()
+        with _scan_semaphore:
+            result = run_sector_analysis()
         with sector_lock:
             sector_state["result"]  = result
             sector_state["running"] = False
@@ -377,7 +398,8 @@ def do_breakout_scan():
             breakout_state["message"]  = msg
 
     try:
-        result = run_breakout_scan(progress_callback=progress_cb)
+        with _scan_semaphore:
+            result = run_breakout_scan(progress_callback=progress_cb)
         with breakout_lock:
             breakout_state["result"]  = result
             breakout_state["running"] = False
@@ -436,7 +458,8 @@ def do_institutional_scan():
             inst_state["message"]  = msg
 
     try:
-        result = run_institutional_scan(progress_callback=progress_cb)
+        with _scan_semaphore:
+            result = run_institutional_scan(progress_callback=progress_cb)
         with inst_lock:
             inst_state["result"]  = result
             inst_state["running"] = False
@@ -489,7 +512,8 @@ def do_advanced_scan():
             adv_state["total"]    = total
             adv_state["message"]  = msg
     try:
-        result = run_advanced_scan(progress_callback=progress_cb)
+        with _scan_semaphore:
+            result = run_advanced_scan(progress_callback=progress_cb)
         with adv_lock:
             adv_state["result"]  = result
             adv_state["running"] = False
@@ -536,7 +560,8 @@ def do_breadth_scan():
             breadth_state["total"]    = total
             breadth_state["message"]  = msg
     try:
-        result = run_market_breadth(progress_callback=progress_cb)
+        with _scan_semaphore:
+            result = run_market_breadth(progress_callback=progress_cb)
         with breadth_lock:
             breadth_state["result"]  = result
             breadth_state["running"] = False
@@ -591,7 +616,8 @@ def do_industry_analysis():
             industry_state["total"]    = total
             industry_state["message"]  = msg
     try:
-        result = run_industry_analysis(progress_callback=progress_cb)
+        with _scan_semaphore:
+            result = run_industry_analysis(progress_callback=progress_cb)
         with industry_lock:
             industry_state["result"]  = result
             industry_state["running"] = False
@@ -638,7 +664,8 @@ def do_momentum_scan():
             momentum_state["total"]    = total
             momentum_state["message"]  = msg
     try:
-        result = run_momentum_scan(progress_callback=progress_cb)
+        with _scan_semaphore:
+            result = run_momentum_scan(progress_callback=progress_cb)
         with momentum_lock:
             momentum_state["result"]  = result
             momentum_state["running"] = False
@@ -691,7 +718,8 @@ def do_early_mover_scan():
             early_mover_state["total"]    = total
             early_mover_state["message"]  = msg
     try:
-        result = run_early_mover_scan(progress_callback=progress_cb)
+        with _scan_semaphore:
+            result = run_early_mover_scan(progress_callback=progress_cb)
         with early_mover_lock:
             early_mover_state["result"]  = result
             early_mover_state["running"] = False
@@ -744,7 +772,8 @@ def do_volume_scan():
             vol_state["total"]    = total
             vol_state["message"]  = msg
     try:
-        result = run_volume_scan(progress_callback=progress_cb)
+        with _scan_semaphore:
+            result = run_volume_scan(progress_callback=progress_cb)
         with vol_lock:
             vol_state["result"]  = result
             vol_state["running"] = False
@@ -799,7 +828,8 @@ def do_mbo_scan(min_base_years: int):
             mbo_state["total"]    = total
             mbo_state["message"]  = msg
     try:
-        result = run_multiyear_scan(min_base_years=min_base_years,
+        with _scan_semaphore:
+            result = run_multiyear_scan(min_base_years=min_base_years,
                                     progress_callback=progress_cb)
         with mbo_lock:
             mbo_state["result"]  = result
@@ -907,7 +937,8 @@ def do_edge_engine():
             edge_state["total"]    = total
             edge_state["message"]  = msg
     try:
-        result = run_edge_engine(progress_callback=progress_cb)
+        with _scan_semaphore:
+            result = run_edge_engine(progress_callback=progress_cb)
         with edge_lock:
             edge_state["result"]  = result
             edge_state["running"] = False
@@ -979,7 +1010,8 @@ def do_trend_scan():
             trend_state["total"]    = total
             trend_state["message"]  = msg
     try:
-        result = run_trending_scan(progress_callback=progress_cb)
+        with _scan_semaphore:
+            result = run_trending_scan(progress_callback=progress_cb)
         with trend_lock:
             trend_state["result"]  = result
             trend_state["running"] = False
@@ -1210,6 +1242,28 @@ def stage_lookup(symbol):
         return jsonify({"error": str(e), "symbol": symbol.upper()}), 500
 
 
+@app.route("/api/metrics/status")
+def metrics_status():
+    """O1: introspection on the materialised stock_metrics table — when it
+    was last built, how many rows, stage distribution."""
+    try:
+        from stock_metrics import status
+        return jsonify(status())
+    except Exception as e:
+        return jsonify({"error": str(e), "built": False}), 500
+
+
+@app.route("/api/metrics/refresh", methods=["POST"])
+def metrics_refresh():
+    """O1: force-rebuild the stock_metrics table. Normally triggered
+    automatically by the bhavcopy auto-refresh handler."""
+    try:
+        from stock_metrics import refresh
+        return jsonify(refresh())
+    except Exception as e:
+        return jsonify({"error": str(e), "built": 0}), 500
+
+
 @app.route("/api/fii-dii")
 def fii_dii_flow():
     """
@@ -1426,7 +1480,8 @@ if EARLY_GROWTH_AVAILABLE:
                 early_growth_state["total"]    = total
                 early_growth_state["message"]  = msg
         try:
-            result = run_early_growth_scan(progress_callback=_pcb)
+            with _scan_semaphore:
+                result = run_early_growth_scan(progress_callback=_pcb)
             with early_growth_lock:
                 early_growth_state["result"]  = result
                 early_growth_state["running"] = False
@@ -1467,7 +1522,8 @@ if MONSTER_AVAILABLE:
                 monster_state["total"]    = total
                 monster_state["message"]  = msg
         try:
-            result = run_monster_growth_scan(progress_callback=_pcb)
+            with _scan_semaphore:
+                result = run_monster_growth_scan(progress_callback=_pcb)
             with monster_lock:
                 monster_state["result"]  = result
                 monster_state["running"] = False
@@ -1528,7 +1584,8 @@ if VVV_AVAILABLE:
                 vvv_state["total"]    = total
                 vvv_state["message"]  = msg
         try:
-            result = run_vvv_scan(progress_callback=_pcb)
+            with _scan_semaphore:
+                result = run_vvv_scan(progress_callback=_pcb)
             with vvv_lock:
                 vvv_state["result"]  = result
                 vvv_state["running"] = False
@@ -1648,6 +1705,17 @@ def _bhavcopy_scheduler():
                 except Exception as _se:
                     print(f"[bhavcopy_scheduler] stage_log populate failed: {_se}",
                           flush=True)
+                # Rebuild materialised stock_metrics table — pre-computed
+                # MA/ATR/RSI/ADX/stage/rs_rank/ADTV indexed by symbol.
+                try:
+                    from stock_metrics import refresh as _stock_metrics_refresh
+                    _smr = _stock_metrics_refresh()
+                    print(f"[bhavcopy_scheduler] stock_metrics rebuilt: "
+                          f"{_smr.get('built', 0)} rows, skipped={_smr.get('skipped', 0)}",
+                          flush=True)
+                except Exception as _me:
+                    print(f"[bhavcopy_scheduler] stock_metrics refresh failed: {_me}",
+                          flush=True)
                 # Bust ALL remaining scanner caches that have their own _cache dict.
                 # Without this, 8 scanner tabs serve yesterday's prices for up to
                 # their TTL window after a new bhavcopy lands.
@@ -1674,6 +1742,45 @@ def _bhavcopy_scheduler():
                             _mod._cache["ts"]   = 0
                     except Exception:
                         pass
+
+                # ── O2 — Pre-warm scans in background so users never hit a
+                # cold cache. Runs SEQUENTIALLY (not parallel) to avoid the
+                # OOM-on-parallel-scans issue. Breadth runs first because the
+                # header trend pill depends on it. Slow scans (mbo at ~2 min
+                # cold) go last so they don't block the others.
+                def _prewarm_scans():
+                    print("[bhavcopy_scheduler] pre-warming scan caches...", flush=True)
+                    _scans_to_warm = [
+                        ("breadth",      "market_breadth",         "run_market_breadth"),
+                        ("trending",     "trending",               "run_trending_scan"),
+                        ("sector",       "sector_analysis",        "run_sector_analysis"),
+                        ("industry",     "industry_groups",        "run_industry_analysis"),
+                        ("edge",         "edge_engine",            "run_edge_engine"),
+                        ("breakout",     "breakout_scanner",       "run_breakout_scan"),
+                        ("momentum",     "momentum_scanner",       "run_momentum_scan"),
+                        ("volume",       "volume_scanner",         "run_volume_scan"),
+                        ("early_mover",  "early_mover_scanner",    "run_early_mover_scan"),
+                        ("advanced",     "advanced_scanner",       "run_advanced_scan"),
+                        ("institutional","institutional_scanner",  "run_institutional_scan"),
+                        ("monster",      "monster_growth",         "run_monster_growth_scan"),
+                        ("early_growth", "early_growth",           "run_early_growth_scan"),
+                        ("vvv",          "minervini_vvv",          "run_vvv_scan"),
+                        ("mbo",          "multiyear_breakout",     "run_multiyear_scan"),   # slowest — last
+                    ]
+                    for label, mod_name, fn_name in _scans_to_warm:
+                        try:
+                            _t0 = _time.time()
+                            _mod = __import__(mod_name)
+                            _fn  = getattr(_mod, fn_name, None)
+                            if _fn is None:
+                                continue
+                            _fn()   # synchronous — fills _cache as side-effect
+                            print(f"[prewarm] {label}: {(_time.time()-_t0):.1f}s",
+                                  flush=True)
+                        except Exception as _pe:
+                            print(f"[prewarm] {label} FAILED: {_pe}", flush=True)
+
+                threading.Thread(target=_prewarm_scans, daemon=True).start()
         except Exception as e:
             print(f"[bhavcopy_scheduler] error: {e}", flush=True)
 

@@ -136,8 +136,11 @@ def _metrics(symbol: str, df: pd.DataFrame) -> dict | None:
 
         cur = float(close.iloc[-1])
 
-        # ADTV filter
-        adtv_cr = float((df["Close"] * df["Volume"]).iloc[-20:].mean()) / 1e7
+        # ADTV filter — align Close + Volume on common index before multiply.
+        _cv = df[["Close", "Volume"]].dropna()
+        if len(_cv) < 20:
+            return None
+        adtv_cr = float((_cv["Close"] * _cv["Volume"]).iloc[-20:].mean()) / 1e7
         if adtv_cr < MIN_ADTV_CR:
             return None
 

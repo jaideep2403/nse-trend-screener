@@ -226,18 +226,21 @@ def _distribution_days(nifty: pd.DataFrame | pd.Series) -> int:
 
 def _label_for_score(score: int | float) -> tuple[str, str]:
     """Map composite score (0-15 with rebalanced inputs) to label + class.
-    P0-5 FIX: rescaled for max=15 (added granularity to breadth inputs so
-    72% above MA50 doesn't score the same as 60%).
+
+    Labels are deliberately decisive single words / short phrases so a new
+    user can act on them without reading a glossary. Previous labels used
+    hedge words ("Caution", "Mixed", "Correction Risk") that read more
+    like analyst opinion than market state.
     """
     if score >= 12:
-        return "Bull Market", "pos"
+        return "Bull Market", "pos"      # broad uptrend with confirmation
     if score >= 9:
-        return "Uptrend (Caution)", "neutral"
+        return "Uptrend",     "pos"      # uptrend, some weakness underneath
     if score >= 5:
-        return "Mixed (Correction Risk)", "neutral"
+        return "Sideways",    "neutral"  # range-bound — no clear direction
     if score >= 2:
-        return "Correction", "neg"
-    return "Bear Market", "neg"
+        return "Correction",  "neg"      # market under pressure
+    return "Bear Market",     "neg"      # broad-based selling
 
 
 def _market_timing_signal(breadth: dict, dist_days: int, nifty_stage: int,
@@ -505,12 +508,12 @@ def _backtest_thresholds(stocks: dict, nifty: pd.Series, lookback_days: int = 60
 
     # Bucket on the same scale used for live scoring. Historical max is 11
     # (the two live-only inputs — volume confirmation and sector Stage-2
-    # breadth — aren't computed retrospectively), and live max is 15. The
-    # thresholds below mirror _label_for_score() so a backtest result of "8"
-    # is read the same way the live header reads "8".
+    # breadth — aren't computed retrospectively), and live max is 15. Labels
+    # mirror _label_for_score() so the backtest row "Sideways (5-8)" reads
+    # the same way as the live header "Sideways".
     def _bucket(s):
         if s >= 9: return "Bull (9+)"
-        if s >= 5: return "Caution (5-8)"
+        if s >= 5: return "Sideways (5-8)"
         if s >= 2: return "Correction (2-4)"
         return "Bear (0-1)"
 
@@ -528,7 +531,13 @@ def _backtest_thresholds(stocks: dict, nifty: pd.Series, lookback_days: int = 60
             "avg_20d":     round(np.mean([g["r20"] for g in group]), 2),
             "win_rate_10d": round(sum(1 for g in group if g["r10"] > 0) / len(group) * 100, 1),
         })
-    out.sort(key=lambda x: -["Bull (8-10)", "Caution (5-7)", "Correction (3-4)", "Bear (0-2)"].index(x["bucket"]))
+    # Sort buckets best-regime first. Labels must match _bucket() exactly —
+    # they were updated to the 0-15 scale (Bull 9+, Caution 5-8, Correction 2-4,
+    # Bear 0-1) but this sort line still referenced the obsolete 0-10 labels,
+    # raising ValueError ('Bear (0-1) is not in list') and erroring the whole
+    # endpoint.
+    _BUCKET_ORDER = ["Bull (9+)", "Sideways (5-8)", "Correction (2-4)", "Bear (0-1)"]
+    out.sort(key=lambda x: -_BUCKET_ORDER.index(x["bucket"]) if x["bucket"] in _BUCKET_ORDER else 1)
     return {"by_bucket": out, "total_samples": len(samples), "lookback_days": lookback_days}
 
 

@@ -177,19 +177,30 @@ def _gather_scanner_hits() -> dict[str, dict]:
     except Exception:
         pass
 
-    # Normalize: consensus_score = scaled to 0-100 based on max raw points
-    # The theoretical max is ~24 (4pts × 6 scanners). In practice top stocks hit 12-16.
+    # Normalize: consensus_score = scaled to 0-100 based on max raw points.
+    # The theoretical max is ~24 (4pts × 6 scanners). In PRACTICE the best
+    # stocks in any market hit 12-16 raw points (= 50-67 normalised), and the
+    # very top scores rarely cross 70. Previous thresholds (60/40/25) labelled
+    # 50%+ of the top-50 leaderboard "WEAK", which is misleading UX — those ARE
+    # the best stocks in the universe, just measured against an unreachable max.
+    # Rebalanced thresholds align labels with the empirical distribution.
     MAX_POSSIBLE = 24.0
     for sym, rec in hits.items():
         rec["consensus_score"] = round(min(100.0, rec["raw_points"] / MAX_POSSIBLE * 100), 1)
-        # Top tier label
-        s = rec["consensus_score"]
-        if   s >= 60: rec["tier_label"] = "CONSENSUS BUY"
-        elif s >= 40: rec["tier_label"] = "STRONG CONSENSUS"
-        elif s >= 25: rec["tier_label"] = "EMERGING"
-        else:         rec["tier_label"] = "WEAK"
+        rec["tier_label"] = _consensus_tier_label(rec["consensus_score"])
 
     return hits
+
+
+def _consensus_tier_label(score: float) -> str:
+    """Single source of truth for consensus tier labels — used by both
+    build_consensus() (bulk leaderboard) and appears_in() (per-symbol lookup)
+    so the same stock never shows different badges on different views."""
+    if   score >= 50: return "CONSENSUS BUY"
+    elif score >= 35: return "STRONG CONSENSUS"
+    elif score >= 20: return "EMERGING"
+    elif score >= 10: return "WATCH"
+    else:             return "WEAK"
 
 
 def build_consensus(force: bool = False) -> dict:
@@ -298,10 +309,9 @@ def appears_in(symbol: str) -> dict:
     ) or (2 if (s.get("score") or 0) >= 60 else 0) for s in scans)
     max_possible = 4 * 6
     consensus_score = round(raw_pts / max_possible * 100, 1)
-    if consensus_score >= 60:   tier_label = "CONSENSUS BUY"
-    elif consensus_score >= 40: tier_label = "STRONG"
-    elif consensus_score >= 25: tier_label = "WATCH"
-    else:                       tier_label = "WEAK"
+    # Single source of truth — same labels as build_consensus() so per-symbol
+    # lookups never show a different badge than the leaderboard view.
+    tier_label = _consensus_tier_label(consensus_score)
 
     return {
         "symbol": sym,

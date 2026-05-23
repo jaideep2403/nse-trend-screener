@@ -19,10 +19,26 @@ from analysis_utils import stage_analysis, stage_label
 from industry_groups import INDUSTRY_GROUPS
 
 # ── Symbol → Group lookup ─────────────────────────────────────────────────────
-_SYM_TO_GROUP: dict[str, str] = {}
-for _grp, _syms in INDUSTRY_GROUPS.items():
-    for _s in _syms:
-        _SYM_TO_GROUP[_s] = _grp
+# Use sector_mapper's enriched map (covers all ~750 stocks via the NSE
+# TotalMarket auto-mapper) instead of just the hand-curated INDUSTRY_GROUPS.
+# Previously the latter alone left ~230 stocks (31%) with an empty `group`
+# field — they show up in the universe but Sector filter on this tab couldn't
+# group them. INDUSTRY_GROUPS still wins for stocks present in both maps,
+# preserving the hand-curated fine-grained sub-sectors.
+def _build_sym_to_group() -> dict[str, str]:
+    m: dict[str, str] = {}
+    for _grp, _syms in INDUSTRY_GROUPS.items():
+        for _s in _syms:
+            m[_s] = _grp
+    try:
+        from sector_mapper import get_enriched_sector_map
+        for _s, _sec in get_enriched_sector_map().items():
+            m.setdefault(_s, _sec)
+    except Exception:
+        pass   # sector_mapper is LOCAL-ONLY; absence is OK
+    return m
+
+_SYM_TO_GROUP: dict[str, str] = _build_sym_to_group()
 
 # ── Config ────────────────────────────────────────────────────────────────────
 MIN_BARS    = 130    # need at least 6M of history (≈130 trading days)

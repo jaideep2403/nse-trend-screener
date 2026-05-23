@@ -1,23 +1,27 @@
 """
-FII / DII / Promoter / MF shareholding data per stock (NSE corporate-info API).
+FII / DII / Promoter / MF shareholding data per stock.
 
-P0-3: prior implementation never existed — `/api/holders` returned {signal:"unknown"}.
-NSE's corp-info shareholding endpoint requires 2-step cookie seeding:
-  1. GET https://www.nseindia.com                  (sets ak_bmsc cookie)
-  2. GET https://www.nseindia.com/api/marketStatus (sets bm_sv, _abck — required)
-  3. GET https://www.nseindia.com/api/corp-info?symbol=X&corpType=shareholdings_patterns
+CURRENT STATE (audited 2026-05-23): NSE's `/api/corp-info?corpType=
+shareholdings_patterns` endpoint returns HTTP 404 for all requests, even
+with the 2-step cookie seeding that previously worked. NSE has either
+retired or rotated this endpoint behind their Akamai anti-bot wall.
+Every data endpoint on nseindia.com beyond marketStatus is gated; even
+`/api/quote-equity` returns `{"data":[], "msg":"no data found"}`.
 
-Field name variations across NSE responses (defensive parsing):
-  - FII:      totFIIHldg | fii  | ForeignInstitutions
-  - DII:      totDIIHldg | dii  | DomesticInstitutions
-  - MF:       totMFHldg  | mf   | MutualFunds
-  - Promoter: totPromoterHldg | promoter
+Strategy:
+  • PRIMARY  → MFI-based "Smart Money Signal" derived from local bhavcopy
+                OHLCV (Money Flow Index 14-bar). Always works, no network.
+  • OPTIONAL → NSE corp-info as a SECONDARY enrichment, attempted only if
+                NSE_HOLDERS_ENABLED env var is set. Returns gracefully on
+                failure so the MFI primary signal still surfaces.
 
-Fallback when NSE is rate-limited: derive a "Smart Money Signal" from MFI
-on local bhavcopy data (MFI > 60 = accumulation, < 40 = distribution).
+UI behaviour: the /api/holders endpoint always returns a `signal` and `label`
+that is safe to render. When NSE eventually exposes corp-info again, set
+NSE_HOLDERS_ENABLED=1 and the response gains true fii_pct / dii_pct fields.
 """
 from __future__ import annotations
 
+import os as _os
 import time
 import threading
 from typing import Optional
@@ -125,36 +129,45 @@ def _fetch_holders_nse(symbol: str) -> Optional[dict]:
         return None
 
 
-def _fallback_smart_money_signal(symbol: str) -> dict:
+def _smart_money_signal(symbol: str) -> dict:
     """
-    When NSE shareholding API fails, derive a smart-money proxy from MFI on
-    local bhavcopy data. MFI > 60 = accumulation (buying), MFI < 40 = distribution.
+    PRIMARY smart-money signal — derived from MFI on local bhavcopy.
+    MFI > 60 = institutional accumulation (price up on volume).
+    MFI < 40 = institutional distribution (price down on volume).
+
+    Renamed from `_fallback_smart_money_signal` because it is now the
+    primary path: NSE corp-info shareholding is no longer accessible.
     """
     try:
         from industry_groups import _get_stocks
         stocks = _get_stocks()
         df = stocks.get(symbol)
         if df is None or df.empty or len(df) < 30:
-            return {"signal": "unknown", "source": "no_data"}
+            return {"signal": "unknown", "source": "no_data",
+                    "label": "Insufficient history"}
 
         from sector_analysis import _mfi
         mfi_v = _mfi(df, period=14)
 
         if mfi_v >= 60:
-            sig, label = "accumulation", f"Smart Money Accumulating (MFI {mfi_v:.0f})"
+            sig, label = "accumulation", f"Smart-money accumulating (MFI {mfi_v:.0f})"
         elif mfi_v <= 40:
-            sig, label = "distribution", f"Smart Money Distributing (MFI {mfi_v:.0f})"
+            sig, label = "distribution", f"Smart-money distributing (MFI {mfi_v:.0f})"
         else:
-            sig, label = "neutral", f"Mixed (MFI {mfi_v:.0f})"
+            sig, label = "neutral", f"Mixed flow (MFI {mfi_v:.0f})"
 
         return {
             "signal":   sig,
             "label":    label,
             "mfi":      mfi_v,
-            "source":   "MFI_proxy",
+            "source":   "mfi",
         }
-    except Exception:
-        return {"signal": "unknown", "source": "error"}
+    except Exception as e:
+        return {"signal": "unknown", "source": "error", "label": f"Error: {e}"}
+
+
+# Back-compat alias for any external caller still using the old name.
+_fallback_smart_money_signal = _smart_money_signal
 
 
 def fetch_holders_for_symbol(symbol: str) -> dict:
@@ -172,7 +185,11 @@ def fetch_holders_for_symbol(symbol: str) -> dict:
         if cached and (time.time() - cached.get("ts", 0)) < _CACHE_TTL:
             return cached["data"]
 
-    nse_data = _fetch_holders_nse(symbol)
+    # NSE corp-info is OFF by default — it returns 404 for every symbol since
+    # NSE rotated their anti-bot wall. Enable via env when/if NSE comes back.
+    nse_data = None
+    if _os.getenv("NSE_HOLDERS_ENABLED", "").lower() in ("1", "true", "yes"):
+        nse_data = _fetch_holders_nse(symbol)
     if nse_data:
         nse_data["symbol"] = symbol
         # Pair the % data with a clean signal label
@@ -198,8 +215,8 @@ def fetch_holders_for_symbol(symbol: str) -> dict:
             nse_data["label"]  = "Holdings stable"
         out = nse_data
     else:
-        # Fallback to MFI-based smart money signal
-        out = _fallback_smart_money_signal(symbol)
+        # Primary path — MFI-based smart-money signal from local bhavcopy.
+        out = _smart_money_signal(symbol)
         out["symbol"] = symbol
 
     with _cache_lock:

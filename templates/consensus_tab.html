@@ -97,8 +97,9 @@
           <th style="width:170px; text-align:center" title="Cross-scan Final Setup Score 0–100">Final Setup Score</th>
           <th style="width:80px; text-align:center" title="# of scanners that flagged this stock">Scanners</th>
           <th style="width:170px">Tier</th>
+          <th style="width:180px" title="Click any cell to load real-time MFI-based smart-money signal">Smart Money</th>
           <th>Scanners + Tiers</th>
-          <th style="width:280px">Why this score</th>
+          <th style="width:240px">Why this score</th>
         </tr>
       </thead>
       <tbody id="cnBody"></tbody>
@@ -183,7 +184,7 @@
       var body = document.getElementById('cnBody');
       body.innerHTML = '';
       if (top.length === 0) {
-        body.innerHTML = '<tr><td colspan="7" style="text-align:center; padding:30px; color:var(--text2)">No stocks match this filter.</td></tr>';
+        body.innerHTML = '<tr><td colspan="8" style="text-align:center; padding:30px; color:var(--text2)">No stocks match this filter.</td></tr>';
         return;
       }
 
@@ -202,6 +203,7 @@
         var why = (r.scans || []).map(function(s){ return s.why || ''; }).filter(function(x){return x;}).join(' · ');
 
         var tr = document.createElement('tr');
+        var holderCellId = 'cnHld-' + r.symbol;
         tr.innerHTML =
           '<td style="color:var(--text2); font-weight:600">' + (i + 1) + '</td>' +
           '<td><strong style="color:var(--gold2); font-size:14px">' + r.symbol + '</strong></td>' +
@@ -211,10 +213,40 @@
           '</td>' +
           '<td style="text-align:center"><strong style="color:' + col + '; font-size:14px">' + sc + '×</strong></td>' +
           '<td><span class="cn-tier ' + _tierClass(tier) + '">' + tier + '</span></td>' +
+          '<td id="' + holderCellId + '" style="cursor:pointer;font-size:11px;color:var(--text2)" ' +
+              'onclick="cnLoadHolders(\'' + r.symbol + '\',\'' + holderCellId + '\')" ' +
+              'title="Click to load real-time MFI smart-money signal">' +
+              '<span style="opacity:0.6">▶ load</span>' +
+          '</td>' +
           '<td>' + scannerChips + '</td>' +
           '<td style="color:var(--text2); font-size:11px; line-height:1.5">' + (why.slice(0, 120) || '—') + '</td>';
         body.appendChild(tr);
       });
     }
+
+    // Lazy-load the per-symbol Smart Money signal from /api/holders.
+    // MFI proxy is primary (NSE corp-info has been 404 since 2026-05). Returns
+    // a small colored chip: green=accumulation, amber=neutral, red=distribution.
+    window.cnLoadHolders = function(sym, cellId) {
+      var cell = document.getElementById(cellId);
+      if (!cell) return;
+      cell.innerHTML = '<span style="opacity:0.6">…</span>';
+      fetch('/api/holders?symbol=' + encodeURIComponent(sym))
+        .then(function(r) { return r.json(); })
+        .then(function(d) {
+          var sig   = d.signal || 'unknown';
+          var label = d.label  || '—';
+          var color = '#94a3b8';
+          if (sig === 'accumulation' || sig === 'fii_buying'  || sig === 'dii_buying')  color = 'var(--green2)';
+          else if (sig === 'distribution' || sig === 'fii_selling' || sig === 'dii_selling') color = '#ef4444';
+          else if (sig === 'neutral' || sig === 'stable')      color = 'var(--gold2)';
+          cell.style.color = color;
+          cell.innerHTML = '<span style="font-weight:600">' + label + '</span>' +
+                           (d.source === 'mfi' ? '' : ' <span style="opacity:0.5;font-size:9px">' + (d.source || '') + '</span>');
+        })
+        .catch(function() {
+          cell.innerHTML = '<span style="color:#ef4444">err</span>';
+        });
+    };
   })();
 </script>

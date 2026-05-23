@@ -470,7 +470,11 @@ def compute_setup_score(symbol: str, df: pd.DataFrame, regime: dict,
         return None
 
     # Liquidity — compute ADTV for reporting only (no gate: Nifty500 universe is already large-cap)
-    adtv_cr = float((df["Close"] * df["Volume"]).iloc[-20:].mean()) / 1e7
+    # Align Close + Volume on a common non-NaN index before multiplying so
+    # mis-aligned dropna() of the two columns doesn't pair wrong rows on
+    # days when either column has a single missing value.
+    _cv = df[["Close", "Volume"]].dropna()
+    adtv_cr = float((_cv["Close"] * _cv["Volume"]).iloc[-20:].mean()) / 1e7 if len(_cv) >= 20 else 0.0
 
     # ── TECHNICAL (0-100) ─────────────────────────────────────────────────────
     # Returns, RS, base quality, MA alignment, volume profile

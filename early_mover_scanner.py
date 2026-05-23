@@ -232,12 +232,17 @@ def _stock_metrics(symbol: str, df: pd.DataFrame) -> dict | None:
         if r3m > MAX_3M_RET or r3m < MIN_3M_RET:
             return None
 
-        # ADTV — recent vs historical baseline (60–180 days ago)
-        turnover     = df["Close"] * df["Volume"]
+        # ADTV — recent vs historical baseline (60–180 days ago).
+        # Align Close + Volume on common non-NaN index before multiplying so a
+        # single mismatched dropna day doesn't silently pair wrong rows.
+        _cv = df[["Close", "Volume"]].dropna()
+        if len(_cv) < 20:
+            return None
+        turnover     = _cv["Close"] * _cv["Volume"]
         adtv_recent  = float(turnover.iloc[-20:].mean()) / 1e7
         if adtv_recent < MIN_ADTV_CR:
             return None
-        adtv_hist    = float(turnover.iloc[-180:-60].mean()) / 1e7 if len(close) >= 180 else adtv_recent
+        adtv_hist    = float(turnover.iloc[-180:-60].mean()) / 1e7 if len(turnover) >= 180 else adtv_recent
         adtv_growth  = round(adtv_recent / adtv_hist, 2) if adtv_hist > 0.01 else 1.0
 
         # Volume expansion — recent 20d vs 200d baseline
