@@ -145,7 +145,7 @@
   <div id="vvvStatsRow" style="display:flex; gap:10px; flex-wrap:wrap; margin-bottom:14px;"></div>
 
   <!-- Filters -->
-  <div style="display:flex; align-items:center; gap:10px; margin-bottom:14px; flex-wrap:wrap;">
+  <div style="display:flex; align-items:center; gap:10px; margin-bottom:8px; flex-wrap:wrap;">
     <span style="font-size:11px; color:var(--text2); text-transform:uppercase; font-weight:700; letter-spacing:0.4px;">Tier:</span>
     <button id="vvvF-all"    class="cn-pill cn-pill-on" onclick="vvvFilter('all')">All</button>
     <button id="vvvF-ideal"  class="cn-pill"            onclick="vvvFilter('ideal')">🏆 Ideal</button>
@@ -156,27 +156,69 @@
     <button id="vvvP-ep"  class="cn-pill"            onclick="vvvFilterPattern('Episodic Pivot')">EP</button>
     <button id="vvvP-pp"  class="cn-pill"            onclick="vvvFilterPattern('Pocket Pivot')">PP</button>
   </div>
+  <!-- MFI flow filter + sort (volume-weighted institutional flow) -->
+  <div style="display:flex; align-items:center; gap:10px; margin-bottom:14px; flex-wrap:wrap;">
+    <span style="font-size:11px; color:var(--text2); text-transform:uppercase; font-weight:700; letter-spacing:0.4px;"
+          title="Money Flow Index — volume-weighted RSI. Surfaces stocks with real institutional buying behind the VVV setup, not just thin-volume technical patterns.">
+      💰 MFI Flow:
+    </span>
+    <button id="vvvM-all"     class="cn-pill cn-pill-on" onclick="vvvFilterMfi('all')">All</button>
+    <button id="vvvM-strong"  class="cn-pill"            onclick="vvvFilterMfi('strong_accum')" title="MFI ≥ 80 — institutional buying spike">🟢 Strong Accum (≥80)</button>
+    <button id="vvvM-accum"   class="cn-pill"            onclick="vvvFilterMfi('accum')"        title="MFI 65-79 — steady accumulation">🟢 Accum (65-79)</button>
+    <button id="vvvM-neutral" class="cn-pill"            onclick="vvvFilterMfi('neutral')"      title="MFI 40-64 — mixed flow">⚪ Neutral (40-64)</button>
+    <button id="vvvM-dist"    class="cn-pill"            onclick="vvvFilterMfi('dist')"         title="MFI ≤ 39 — selling pressure (skip these even if pattern looks valid)">🔴 Distribution (≤39)</button>
+    <span style="font-size:11px; color:var(--text2); text-transform:uppercase; font-weight:700; letter-spacing:0.4px; margin-left:18px;">Sort:</span>
+    <button id="vvvS-score"   class="cn-pill cn-pill-on" onclick="vvvSort('score')">Setup Score</button>
+    <button id="vvvS-mfi-hi"  class="cn-pill"            onclick="vvvSort('mfi_desc')">MFI ↓ (high first)</button>
+    <button id="vvvS-mfi-lo"  class="cn-pill"            onclick="vvvSort('mfi_asc')">MFI ↑ (low first)</button>
+  </div>
 
   <!-- Results table -->
+  <style>
+    /* Sortable column headers — click to toggle sort */
+    #vvvTable th.vvv-sortable {
+      cursor: pointer;
+      user-select: none;
+      transition: background 0.12s, color 0.12s;
+      position: relative;
+    }
+    #vvvTable th.vvv-sortable:hover { background: rgba(168,85,247,0.10); color: #c084fc; }
+    #vvvTable th.vvv-sort-active {
+      background: rgba(168,85,247,0.15);
+      color: #c084fc !important;
+    }
+    #vvvTable th.vvv-sortable::after {
+      content: " ↕";
+      opacity: 0.25;
+      font-size: 10px;
+      margin-left: 2px;
+    }
+    #vvvTable th.vvv-sort-active.vvv-sort-asc::after  { content: " ▲"; opacity: 1; font-size: 9px; }
+    #vvvTable th.vvv-sort-active.vvv-sort-desc::after { content: " ▼"; opacity: 1; font-size: 9px; }
+  </style>
   <div style="background:var(--card); border:1px solid var(--border); border-radius:10px; overflow:auto;">
     <table id="vvvTable">
       <thead>
         <tr>
           <th style="width:40px">#</th>
-          <th style="width:130px">Symbol</th>
-          <th style="width:80px; text-align:center">Score</th>
-          <th style="width:110px">Tier</th>
-          <th style="width:110px">Pattern</th>
-          <th style="width:60px; text-align:center" title="Trend Template score / 8">TT</th>
-          <th style="width:60px; text-align:center" title="RS rank 1-99 vs universe">RS</th>
-          <th style="width:90px; text-align:right">Price ₹</th>
-          <th style="width:90px; text-align:right" title="Recommended buy level">Entry</th>
-          <th style="width:90px; text-align:right" title="Tight stop near 10-EMA or base-low">Stop</th>
-          <th style="width:90px; text-align:right" title="3R target = entry + 3×risk">Target</th>
-          <th style="width:80px; text-align:right">Risk %</th>
-          <th style="width:80px; text-align:right">R:R</th>
-          <th style="width:90px; text-align:right" title="Average daily turnover ₹Cr">ADTV</th>
-          <th style="width:90px; text-align:center" title="Cross-scan Final Setup Score">Consensus</th>
+          <th class="vvv-sortable" data-sort="symbol"      style="width:130px">Symbol</th>
+          <th class="vvv-sortable" data-sort="score"       style="width:80px; text-align:center">Score</th>
+          <th class="vvv-sortable" data-sort="tier"        style="width:110px">Tier</th>
+          <th class="vvv-sortable" data-sort="pattern"     style="width:110px">Pattern</th>
+          <th class="vvv-sortable" data-sort="tt_score"    style="width:60px; text-align:center" title="Trend Template score / 8">TT</th>
+          <th class="vvv-sortable" data-sort="rs_rank"     style="width:60px; text-align:center" title="RS rank 1-99 vs universe">RS</th>
+          <th class="vvv-sortable" data-sort="price"       style="width:90px; text-align:right">Price ₹</th>
+          <th class="vvv-sortable" data-sort="entry"       style="width:90px; text-align:right" title="Recommended buy level">Entry</th>
+          <th class="vvv-sortable" data-sort="stop"        style="width:90px; text-align:right" title="Tight stop near 10-EMA or base-low">Stop</th>
+          <th class="vvv-sortable" data-sort="target"      style="width:90px; text-align:right" title="3R target = entry + 3×risk">Target</th>
+          <th class="vvv-sortable" data-sort="risk_pct"    style="width:80px; text-align:right">Risk %</th>
+          <th class="vvv-sortable" data-sort="rr_ratio"    style="width:80px; text-align:right">R:R</th>
+          <th class="vvv-sortable" data-sort="adtv_cr"     style="width:90px; text-align:right" title="Average daily turnover ₹Cr">ADTV</th>
+          <th class="vvv-sortable" data-sort="mfi"         style="width:140px; text-align:center"
+              title="Money Flow Index (14-bar). Volume-weighted; ≥80 = strong institutional buying, ≤25 = strong distribution. A high-MFI VVV setup has real money behind it.">
+            💰 MFI Flow
+          </th>
+          <th class="vvv-sortable" data-sort="consensus_score" style="width:90px; text-align:center" title="Cross-scan Final Setup Score">Consensus</th>
         </tr>
       </thead>
       <tbody id="vvvBody"></tbody>
@@ -200,7 +242,22 @@
     var _vvvData = null;
     var _vvvTier = 'all';
     var _vvvPattern = 'all';
+    var _vvvMfi  = 'all';        // 'all' | 'strong_accum' | 'accum' | 'neutral' | 'dist'
+    // Sort state — column name + direction. Click any header to toggle.
+    var _vvvSort = { col: 'score', dir: 'desc' };
     var _vvvPoll = null;
+
+    // Which fields are numeric? Used to decide initial sort direction and
+    // comparator. Everything else is string (alphabetical).
+    var _VVV_NUMERIC = {
+      score:1, tt_score:1, rs_rank:1, price:1, entry:1, stop:1,
+      target:1, risk_pct:1, rr_ratio:1, adtv_cr:1, mfi:1, consensus_score:1
+    };
+    // Tier rank — for sorting Tier column meaningfully (highest tier first).
+    var _VVV_TIER_RANK = {
+      '🏆 IDEAL': 5, '✅ STRONG': 4, '👀 WATCH': 3,
+      '📋 TRACK': 2, '🌅 EARLY WATCH': 2, '🌅 EARLY TRACK': 1
+    };
 
     function _scoreColor(s) {
       if (s >= 85) return '#c084fc';
@@ -235,6 +292,26 @@
       var bg  = cs >= 60 ? 'rgba(16,185,129,.15)' : cs >= 40 ? 'rgba(59,130,246,.15)' : cs >= 25 ? 'rgba(245,158,11,.15)' : 'rgba(120,120,120,.10)';
       return '<span style="display:inline-block; padding:2px 8px; border-radius:10px; background:' + bg +
              '; color:' + col + '; font-weight:700; font-size:11px">' + cs.toFixed(0) + ' · ' + sc + '×</span>';
+    }
+
+    // MFI Flow cell — colored chip + numeric value + label. Tells the user
+    // at a glance whether the VVV setup has real institutional buying behind it.
+    function _mfiCell(r) {
+      var m = (r.mfi == null) ? 50 : r.mfi;
+      var lbl = r.mfi_label || (m >= 80 ? 'Strong Accum' :
+                                m >= 65 ? 'Accumulation' :
+                                m >= 40 ? 'Neutral' :
+                                m >= 25 ? 'Distribution' : 'Strong Dist');
+      var col, bg;
+      if (m >= 80)      { col = 'var(--green2)'; bg = 'rgba(16,185,129,.25)'; }
+      else if (m >= 65) { col = 'var(--green2)'; bg = 'rgba(16,185,129,.15)'; }
+      else if (m >= 40) { col = 'var(--text2)';  bg = 'rgba(120,120,120,.10)'; }
+      else if (m >= 25) { col = '#fb923c';       bg = 'rgba(251,146,60,.15)'; }
+      else              { col = 'var(--red2)';   bg = 'rgba(239,68,68,.20)'; }
+      return '<span style="display:inline-flex; flex-direction:column; align-items:center; min-width:120px; padding:3px 8px; border-radius:8px; background:' + bg + '; color:' + col + '; line-height:1.1; font-weight:600">' +
+             '<span style="font-family:var(--mono); font-size:13px">' + m.toFixed(0) + '</span>' +
+             '<span style="font-size:9px; text-transform:uppercase; letter-spacing:0.4px; opacity:0.9">' + lbl + '</span>' +
+             '</span>';
     }
 
     window.vvvStartScan = function(force) {
@@ -308,8 +385,88 @@
       vvvRender();
     };
 
+    window.vvvFilterMfi = function(m) {
+      _vvvMfi = m;
+      var mids = {
+        'all':          'vvvM-all',
+        'strong_accum': 'vvvM-strong',
+        'accum':        'vvvM-accum',
+        'neutral':      'vvvM-neutral',
+        'dist':         'vvvM-dist'
+      };
+      Object.keys(mids).forEach(function(k){
+        var el = document.getElementById(mids[k]);
+        if (el) el.classList.toggle('cn-pill-on', k === m);
+      });
+      vvvRender();
+    };
+
+    // Sort entry-point used by the pill shortcuts above the table.
+    // Maps the pill mode → column + direction so the column-header click
+    // path and the pill path share the same state.
+    window.vvvSort = function(mode) {
+      var map = {
+        'score':    { col: 'score', dir: 'desc' },
+        'mfi_desc': { col: 'mfi',   dir: 'desc' },
+        'mfi_asc':  { col: 'mfi',   dir: 'asc'  }
+      };
+      _vvvSort = map[mode] || { col: 'score', dir: 'desc' };
+      // Update pill highlight
+      var sids = {'score':'vvvS-score', 'mfi_desc':'vvvS-mfi-hi', 'mfi_asc':'vvvS-mfi-lo'};
+      Object.keys(sids).forEach(function(k){
+        var el = document.getElementById(sids[k]);
+        if (el) el.classList.toggle('cn-pill-on', k === mode);
+      });
+      _vvvUpdateHeaderIndicator();
+      vvvRender();
+    };
+
+    // Column-header click handler — toggle sort on that column.
+    window.vvvSortBy = function(col) {
+      if (_vvvSort.col === col) {
+        // Same column clicked → flip direction
+        _vvvSort.dir = (_vvvSort.dir === 'desc') ? 'asc' : 'desc';
+      } else {
+        // New column → numeric default desc (big-first), string default asc
+        _vvvSort = { col: col, dir: _VVV_NUMERIC[col] ? 'desc' : 'asc' };
+      }
+      // Clear pill highlights (column header takes over visual state)
+      ['vvvS-score','vvvS-mfi-hi','vvvS-mfi-lo'].forEach(function(id){
+        var el = document.getElementById(id);
+        if (el) el.classList.remove('cn-pill-on');
+      });
+      _vvvUpdateHeaderIndicator();
+      vvvRender();
+    };
+
+    // Apply visual marker (▲▼) on the active column header
+    function _vvvUpdateHeaderIndicator() {
+      var ths = document.querySelectorAll('#vvvTable th.vvv-sortable');
+      ths.forEach(function(th) {
+        th.classList.remove('vvv-sort-active', 'vvv-sort-asc', 'vvv-sort-desc');
+        if (th.getAttribute('data-sort') === _vvvSort.col) {
+          th.classList.add('vvv-sort-active', 'vvv-sort-' + _vvvSort.dir);
+        }
+      });
+    }
+
+    // Wire header clicks once on first paint
+    function _vvvAttachHeaderClicks() {
+      var ths = document.querySelectorAll('#vvvTable th.vvv-sortable');
+      ths.forEach(function(th) {
+        if (th._wired) return;
+        th._wired = true;
+        th.addEventListener('click', function() {
+          var col = th.getAttribute('data-sort');
+          if (col) window.vvvSortBy(col);
+        });
+      });
+    }
+
     function vvvRender() {
       if (!_vvvData) return;
+      _vvvAttachHeaderClicks();
+      _vvvUpdateHeaderIndicator();
       var d = _vvvData;
       var all = d.results || [];
 
@@ -329,6 +486,46 @@
       if (_vvvTier === 'ideal')  rows = rows.filter(function(r){ return r.tier && r.tier.indexOf('🏆') >= 0; });
       if (_vvvTier === 'strong') rows = rows.filter(function(r){ return r.tier && (r.tier.indexOf('🏆') >= 0 || r.tier.indexOf('✅') >= 0); });
       if (_vvvPattern !== 'all') rows = rows.filter(function(r){ return r.pattern === _vvvPattern; });
+
+      // MFI flow filter — surfaces VVV setups with institutional buying behind them.
+      if (_vvvMfi !== 'all') {
+        rows = rows.filter(function(r){
+          var m = (r.mfi == null) ? 50 : r.mfi;
+          if (_vvvMfi === 'strong_accum') return m >= 80;
+          if (_vvvMfi === 'accum')        return m >= 65 && m < 80;
+          if (_vvvMfi === 'neutral')      return m >= 40 && m < 65;
+          if (_vvvMfi === 'dist')         return m <  40;
+          return true;
+        });
+      }
+
+      // Sort — _vvvSort is { col, dir }. Numeric cols sort numerically,
+      // tier uses the tier-rank table, everything else falls back to string.
+      (function _sortRows() {
+        var col = _vvvSort.col;
+        var asc = _vvvSort.dir === 'asc' ? 1 : -1;
+        if (col === 'tier') {
+          rows.sort(function(a, b) {
+            var ra = _VVV_TIER_RANK[a.tier] || 0;
+            var rb = _VVV_TIER_RANK[b.tier] || 0;
+            return (ra - rb) * (asc); // asc means worst-first; desc best-first
+          });
+        } else if (_VVV_NUMERIC[col]) {
+          rows.sort(function(a, b) {
+            var va = a[col]; var vb = b[col];
+            if (va == null) va = -Infinity;
+            if (vb == null) vb = -Infinity;
+            return (va - vb) * asc;
+          });
+        } else {
+          // String sort
+          rows.sort(function(a, b) {
+            var va = (a[col] || '').toString();
+            var vb = (b[col] || '').toString();
+            return va.localeCompare(vb) * asc;
+          });
+        }
+      })();
 
       document.getElementById('vvvCount').textContent = rows.length + ' of ' + all.length + ' qualified';
 
@@ -364,6 +561,7 @@
           '<td style="text-align:right; font-family:var(--mono); color:var(--red2)">' + r.risk_pct + '%</td>' +
           '<td style="text-align:right; font-family:var(--mono); font-weight:700; color:var(--green2)">' + r.rr_ratio + '×</td>' +
           '<td style="text-align:right; font-family:var(--mono); color:var(--text2)">₹' + r.adtv_cr + ' Cr</td>' +
+          '<td style="text-align:center">' + _mfiCell(r) + '</td>' +
           '<td style="text-align:center">' + _consensusBadge(r) + '</td>';
         body.appendChild(tr);
       });

@@ -472,6 +472,31 @@ def _analyze_one(symbol: str, df: pd.DataFrame, nifty: pd.Series,
         r1m = round((cur / _safe(c.iloc[-21]) - 1) * 100, 2) if len(c) >= 21 else None
         r3m = round((cur / _safe(c.iloc[-63]) - 1) * 100, 2) if len(c) >= 63 else None
 
+        # ── Money Flow Index (14-bar) — institutional flow proxy ─────────────
+        # MFI weights typical-price by VOLUME so it doesn't trigger on small-vol
+        # price wiggles — that's why it's a much better "smart money" signal
+        # than plain RSI. Used here to surface which VVV setups have actual
+        # institutional money behind them vs ones that are technically valid
+        # but volume-thin.
+        # Bands:
+        #   ≥80  Strong Accumulation (often pre-pivot or pivot day)
+        #   65-79 Accumulation
+        #   40-64 Neutral / mixed flow
+        #   25-39 Distribution
+        #   ≤25  Strong Distribution (selling pressure)
+        try:
+            from sector_analysis import _mfi
+            mfi_v = _mfi(df, period=14)
+        except Exception:
+            mfi_v = 50.0
+        if mfi_v is None:
+            mfi_v = 50.0
+        if   mfi_v >= 80: mfi_label = "Strong Accum"
+        elif mfi_v >= 65: mfi_label = "Accumulation"
+        elif mfi_v >= 40: mfi_label = "Neutral"
+        elif mfi_v >= 25: mfi_label = "Distribution"
+        else:             mfi_label = "Strong Dist"
+
         return {
             "symbol":       symbol,
             "score":        int(score),
@@ -506,6 +531,9 @@ def _analyze_one(symbol: str, df: pd.DataFrame, nifty: pd.Series,
             "atr_pct":      _atr_pct(df),
             "r1m":          r1m,
             "r3m":          r3m,
+            # Institutional flow
+            "mfi":          round(float(mfi_v), 1),
+            "mfi_label":    mfi_label,
         }
     except Exception:
         return None
