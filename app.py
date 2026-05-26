@@ -1148,14 +1148,43 @@ def bhavcopy_status():
         status = "stale"
         label  = f"Last trading day: {trading_date_str} · fetched {fetched_time_str} · {days_old}d old"
 
+    # Expose scheduler diagnostics so the UI / debugging can see WHY a stale
+    # status persists (throttle, repeated NSE failures, session reset, etc.).
+    from data_fetcher import _refresh_state
+    sched_diag = {
+        "last_attempt_msg":     _refresh_state.get("last_attempt_msg", ""),
+        "consecutive_failures": _refresh_state.get("consecutive_failures", 0),
+        "since_last_check_sec": int(time.time() - _refresh_state.get("last_checked", 0))
+                                if _refresh_state.get("last_checked") else None,
+        "since_last_success_sec": int(time.time() - _refresh_state.get("last_success_ts", 0))
+                                if _refresh_state.get("last_success_ts") else None,
+    }
+
     return jsonify({
         "latest_date":     str(latest),
         "fetched_at_ist":  fetched_ist.strftime("%d-%b-%Y %H:%M:%S IST"),
         "fetched_at_unix": int(mtime),
         "status":          status,       # "today" | "stale" | "no_data"
         "label":           label,
-        "auto_refresh":    "every 5 min until today's data arrives, then every 20 min",
+        "auto_refresh":    "every 5 min until today's data arrives, then every 20 min (stuck threshold: 4h)",
+        "scheduler":       sched_diag,
     })
+
+
+@app.route("/api/bhavcopy/refresh", methods=["POST"])
+def bhavcopy_refresh():
+    """Manual force-refresh — bypasses the auto-scheduler throttle. Used by
+    the UI "Force Refresh" button so users can recover from a stuck scheduler
+    without having to restart the server."""
+    try:
+        from data_fetcher import auto_refresh_bhavcopy
+        result = auto_refresh_bhavcopy(force=True)
+        # Convert date object to ISO string for JSON
+        if result.get("date") is not None:
+            result["date"] = str(result["date"])
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({"error": str(e), "downloaded": False}), 500
 
 
 @app.route("/api/holders")

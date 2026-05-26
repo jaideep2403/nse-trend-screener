@@ -142,47 +142,115 @@ def _latest_bhavcopy_date() -> date | None:
 import threading as _threading
 
 _refresh_lock  = _threading.Lock()
-_refresh_state = {"last_checked": 0.0, "last_new_date": None}
+# State tracked separately so we can distinguish:
+#   last_checked — when we last attempted (success OR failure)
+#   last_attempt_msg — what happened on the last attempt (visible via /api/bhavcopy/status)
+#   last_success_ts — when we last SUCCESSFULLY downloaded any bhavcopy
+#   consecutive_failures — count since last success (drives session reset + escalation)
+# The pre-fix code only had `last_checked`, which couldn't distinguish "we
+# checked recently and it failed" from "we have fresh data" — the scheduler
+# kept throttling itself even though it had never succeeded for the current day.
+_refresh_state = {
+    "last_checked":         0.0,
+    "last_attempt_msg":     "",
+    "last_success_ts":      0.0,
+    "consecutive_failures": 0,
+    "last_new_date":        None,
+}
 _CHECK_INTERVAL_HAVE    = 1800   # 30 min — once we already have today's file
 _CHECK_INTERVAL_MISSING = 300    # 5 min  — aggressive retry when today's file missing
+_CHECK_INTERVAL_STUCK   = 60     # 1 min  — emergency retry when scheduler appears stuck
+# If we've gone this long without ANY successful download, treat the scheduler as
+# stuck and bypass the throttle. NSE publishes between ~6 PM IST and midnight,
+# so 4 hours of "could not get today's file during a weekday" is well past normal
+# delay and signals a real problem (session expired, NSE format change, etc.).
+_STUCK_THRESHOLD_SECS   = 4 * 3600
 
 
-def auto_refresh_bhavcopy() -> dict:
+def auto_refresh_bhavcopy(force: bool = False) -> dict:
     """
     Proactively try to download today's (or the latest weekday's) bhavcopy.
     Called from the background scheduler — safe to call frequently; internal
     throttling ensures we only hit NSE at most every 5 min when today's data
     is missing (4–9 PM IST window), or every 30 min once already cached.
 
-    Returns {"downloaded": bool, "date": date|None, "already_had": bool}
+    NEW: throttle relaxes automatically if we've gone too long without a
+    successful download. This prevents the scheduler from sitting in a
+    "throttled" state for hours when something has gone wrong (network
+    timeout, NSE format change, requests session expired, etc.).
+
+    Pass force=True to bypass throttle entirely — used by the /api/bhavcopy/
+    refresh endpoint when a user clicks "Force Refresh".
+
+    Returns {"downloaded": bool, "date": date|None, "already_had": bool,
+             "msg": str, "since_success": float}
     """
     now = time.time()
     today = date.today()
-    # Use short interval when today's file is missing, long interval once we have it
-    interval = _CHECK_INTERVAL_HAVE if _bhav_cache_path(today).exists() else _CHECK_INTERVAL_MISSING
-    if now - _refresh_state["last_checked"] < interval:
+
+    # Stuck detection: if we've gone too long without a successful download
+    # during a trading day, ignore the throttle and aggressively retry. This
+    # prevents the scheduler from sitting "throttled" for hours when the
+    # download path is silently broken.
+    since_success = now - _refresh_state["last_success_ts"] if _refresh_state["last_success_ts"] else float("inf")
+    is_stuck = (today.weekday() < 5
+                and not _bhav_cache_path(today).exists()
+                and since_success > _STUCK_THRESHOLD_SECS)
+
+    # Use short interval when today's file is missing, long interval once we
+    # have it, or 1 min "emergency" when stuck.
+    if _bhav_cache_path(today).exists():
+        interval = _CHECK_INTERVAL_HAVE
+    elif is_stuck:
+        interval = _CHECK_INTERVAL_STUCK
+    else:
+        interval = _CHECK_INTERVAL_MISSING
+
+    if not force and (now - _refresh_state["last_checked"] < interval):
         return {"downloaded": False, "date": None, "already_had": True,
-                "msg": "throttled"}
+                "msg": f"throttled (next check in {int(interval - (now - _refresh_state['last_checked']))}s)",
+                "since_success": since_success if since_success != float("inf") else None}
 
     with _refresh_lock:
         # Re-check after acquiring lock (another thread may have just done it)
-        interval2 = _CHECK_INTERVAL_HAVE if _bhav_cache_path(today).exists() else _CHECK_INTERVAL_MISSING
-        if time.time() - _refresh_state["last_checked"] < interval2:
+        if not force and (time.time() - _refresh_state["last_checked"] < interval):
             return {"downloaded": False, "date": None, "already_had": True,
-                    "msg": "throttled"}
+                    "msg": "throttled (lost the race)",
+                    "since_success": since_success if since_success != float("inf") else None}
 
         _refresh_state["last_checked"] = time.time()
         # Only weekdays — NSE doesn't publish on weekends
         if today.weekday() >= 5:
+            _refresh_state["last_attempt_msg"] = "weekend — no bhavcopy"
             return {"downloaded": False, "date": None, "already_had": False,
-                    "msg": "weekend — no bhavcopy"}
+                    "msg": "weekend — no bhavcopy",
+                    "since_success": since_success if since_success != float("inf") else None}
 
-        # Check if we already have today's file
-        if _bhav_cache_path(today).exists():
+        # Check if we already have today's file AND validate it's non-empty.
+        # The bare exists() check could see a partially-written zero-byte file
+        # from a crashed download and incorrectly think we're done.
+        cache_path = _bhav_cache_path(today)
+        if cache_path.exists() and cache_path.stat().st_size > 1024:
+            _refresh_state["last_attempt_msg"] = "already have today"
+            _refresh_state["consecutive_failures"] = 0
+            _refresh_state["last_success_ts"] = now
             return {"downloaded": False, "date": today, "already_had": True,
-                    "msg": "already have today"}
+                    "msg": "already have today",
+                    "since_success": 0}
 
         # Try to fetch today's bhavcopy from NSE (typically published ~6–7 PM IST)
+        # On repeated failures, reset the requests session — NSE's anti-bot wall
+        # sometimes expires the seeded cookies, and a fresh session recovers.
+        if _refresh_state["consecutive_failures"] >= 3:
+            try:
+                global _session
+                _session = None
+                print(f"[bhavcopy] 🔄 Resetting session after "
+                      f"{_refresh_state['consecutive_failures']} failures",
+                      flush=True)
+            except Exception:
+                pass
+
         result = _download_one_day(today)
         if result is not None:
             _refresh_state["last_new_date"] = today
@@ -236,11 +304,31 @@ def auto_refresh_bhavcopy() -> dict:
                         c["ts"] = 0
                 except Exception:
                     pass
+            _refresh_state["last_success_ts"]      = time.time()
+            _refresh_state["consecutive_failures"] = 0
+            _refresh_state["last_attempt_msg"]     = f"downloaded {today}"
             return {"downloaded": True, "date": today, "already_had": False,
-                    "msg": f"downloaded {today}"}
+                    "msg": f"downloaded {today}", "since_success": 0}
         else:
+            # Failure — increment counter so subsequent attempts know to reset
+            # the session. Log every Nth failure for visibility (don't log
+            # every 5-min retry, but do log when the situation gets concerning).
+            _refresh_state["consecutive_failures"] += 1
+            n_fail = _refresh_state["consecutive_failures"]
+            msg = f"not yet published by NSE ({today}) — attempt #{n_fail}"
+            _refresh_state["last_attempt_msg"] = msg
+            # Log on 1st failure (normal — file not yet published) and every
+            # 12th after that (every ~1 hour at 5 min cadence) so the log
+            # contains a heartbeat without being spammy.
+            if n_fail == 1 or n_fail % 12 == 0 or is_stuck:
+                stuck_note = " [STUCK — escalating]" if is_stuck else ""
+                print(f"[bhavcopy] ❌ {msg}{stuck_note} "
+                      f"(since last success: {since_success/3600:.1f}h)",
+                      flush=True)
             return {"downloaded": False, "date": None, "already_had": False,
-                    "msg": f"not yet published by NSE ({today})"}
+                    "msg": msg,
+                    "since_success": since_success if since_success != float("inf") else None,
+                    "consecutive_failures": n_fail}
 
 
 # ── Per-stock pickle helpers (reuse across screener & sector analysis) ─────────
