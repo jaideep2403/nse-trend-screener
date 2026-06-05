@@ -225,13 +225,43 @@
 
   /* ── Sortable table headers ── */
   .th-sort {
-    padding: 9px 12px; text-align: left; font-size: 11px; font-weight: 600;
-    text-transform: uppercase; letter-spacing: .4px; color: var(--text2);
+    padding: 9px 12px; text-align: left; font-size: 11px;
+    font-weight: 800; color: #111;
+    text-transform: uppercase; letter-spacing: .4px;
     border-bottom: 2px solid var(--border); cursor: pointer; white-space: nowrap;
     user-select: none;
   }
   .th-sort:hover { color: var(--accent2); }
   .th-sort.active { color: var(--accent); border-bottom-color: var(--accent); }
+  /* Non-sortable headers in the Trending table (Criteria, Flags) — match
+     the bold dark style of th-sort for visual consistency. */
+  #trendTbody ~ thead th, table thead th:not(.th-sort) {
+    color: #111 !important;
+    font-weight: 800 !important;
+  }
+  /* Trending rows: uniform height + flags-cell rendered as inline-flex
+     INSIDE a normal table cell, so uneven badge counts don't make some
+     rows taller than others. The inner wrapper (.trend-flags) provides the
+     flex layout; the surrounding <td> stays table-cell so the column
+     widths still align. */
+  #trendTbody > tr { height: 42px; }
+  #trendTbody > tr > td {
+    vertical-align: middle;
+    padding-top: 5px !important;
+    padding-bottom: 5px !important;
+  }
+  .trend-flags {
+    display: inline-flex; flex-wrap: nowrap; gap: 4px; align-items: center;
+    overflow: hidden; max-width: 100%;
+  }
+  .trend-flags > span {
+    flex: 0 0 auto;   /* don't shrink — but allow horizontal overflow if too many */
+  }
+  /* Dark mode override — dark backgrounds need light header text */
+  [data-theme="dark"] .th-sort,
+  [data-theme="dark"] table thead th:not(.th-sort) {
+    color: var(--text) !important;
+  }
 
   /* ── Layout ── */
   .container { max-width: 1440px; margin: 0 auto; padding: 18px 28px; }
@@ -547,6 +577,7 @@
   <button class="tab-btn" onclick="showTab('breakout', this)">⚡ Breakout Stocks</button>
   <button class="tab-btn" onclick="showTab('edge', this)">🎯 Edge Engine</button>
   <button class="tab-btn" onclick="showTab('momentum', this)">🚀 Momentum</button>
+  <button class="tab-btn" onclick="showTab('emerging', this)" style="background:rgba(245,158,11,0.10);border-color:rgba(245,158,11,0.4)">🌋 Emerging Leaders</button>
   <button class="tab-btn" onclick="showTab('sector', this)">🔄 Sector Rotation</button>
   <button class="tab-btn" onclick="showTab('volspike', this)">📊 Vol Spike</button>
   <button class="tab-btn" onclick="showTab('breadth', this)">📡 Market Breadth</button>
@@ -1408,6 +1439,17 @@
         </div>
       </div>
     </div>
+    <!-- Tier 2F + workflow presets — single-click filters for the daily playbook -->
+    <div class="card" style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;padding:10px 14px;border-top:1px solid var(--border);margin-top:8px">
+      <span style="font-size:11px;color:var(--gold);text-transform:uppercase;letter-spacing:.4px;font-weight:700;margin-right:6px">Presets:</span>
+      <button id="momPS-all"     class="tf-btn active" onclick="setMomPreset('all')">All</button>
+      <button id="momPS-leaders" class="tf-btn"        onclick="setMomPreset('leaders')" title="Elite tier + drawdown ≤ 15% + Stage 2 confirmed">👑 Pure Leaders</button>
+      <button id="momPS-fresh"   class="tf-btn"        onclick="setMomPreset('fresh')"   title="Entered Elite in last 10 days + Quality ≥ 70">🆕 Fresh Momentum</button>
+      <button id="momPS-rrr"     class="tf-btn"        onclick="setMomPreset('riskadj')" title="Sort by Quality Score (Sharpe-like return/volatility)">⚖️ Risk-Adjusted</button>
+      <button id="momPS-acc"     class="tf-btn"        onclick="setMomPreset('acceleration')" title="Streak ≥ 8 up-weeks + r1m percentile ≥ 80">📈 Acceleration</button>
+      <button id="momPS-ignite"  class="tf-btn"        onclick="setMomPreset('igniting')" title="EARLY signal: fresh 50-bar high (≤5 days) + volume surge (≥1.5×) + rising MA20. Catches breakouts months before the Elite badge. Youngest stocks ranked first.">🌋 Igniting</button>
+      <span id="momPresetMsg" style="font-size:11px;color:var(--text2);margin-left:8px"></span>
+    </div>
   </div>
 
   <!-- Results table -->
@@ -1423,8 +1465,12 @@
             <tr>
               <th onclick="sortMom('rank')"    style="width:40px;cursor:pointer">#<span class="mom-arrow" data-col="rank"></span></th>
               <th onclick="sortMom('symbol')"  style="cursor:pointer;text-align:left">Symbol<span class="mom-arrow" data-col="symbol"></span></th>
-              <th onclick="sortMom('score')"   style="cursor:pointer;text-align:center">Score<span class="mom-arrow" data-col="score"> ▼</span></th>
+              <th onclick="sortMom('score')"   style="cursor:pointer;text-align:center" title="Composite momentum score 0-100 (Tier 1A reweighted: 15/30/25/10/10/10)">Score<span class="mom-arrow" data-col="score"> ▼</span></th>
+              <th onclick="sortMom('quality_score')" style="cursor:pointer;text-align:center" title="Tier 1B: Sharpe-like quality. Return / volatility, percentile-ranked 0-100. Higher = same return with lower risk = higher quality momentum.">⚖️ Quality<span class="mom-arrow" data-col="quality_score"></span></th>
               <th style="text-align:center">Tier</th>
+              <th style="text-align:center" title="Tier 2F: 🆕 fresh ≤10d, 🟢 sweet 10-45d, 🟡 mature 45-90d, 🟠 stale 90d+ since entering current tier">Freshness</th>
+              <th onclick="sortMom('max_dd_6m')" style="cursor:pointer;text-align:right" title="Max drawdown in last 6 months. Elite tier requires ≥ -25%. Smaller = higher quality.">Max DD<span class="mom-arrow" data-col="max_dd_6m"></span></th>
+              <th onclick="sortMom('sharpe_3m')" style="cursor:pointer;text-align:right" title="3M return ÷ annualized volatility. ≥ 2.0 = excellent risk-adjusted momentum.">Sharpe<span class="mom-arrow" data-col="sharpe_3m"></span></th>
               <th onclick="sortMom('price')"   style="cursor:pointer;text-align:right">Price<span class="mom-arrow" data-col="price"></span></th>
               <th onclick="sortMom('r1m')"     style="cursor:pointer;text-align:right">1M%<span class="mom-arrow" data-col="r1m"></span></th>
               <th onclick="sortMom('r3m')"     style="cursor:pointer;text-align:right">3M%<span class="mom-arrow" data-col="r3m"></span></th>
@@ -1449,6 +1495,105 @@
   </div>
 
   <p class="disclaimer">Not financial advice. Momentum is a trailing indicator. For educational purposes only.</p>
+</div>
+</div>
+
+<!-- ══════════════════════════════════════════════════ EMERGING LEADERS TAB -->
+<div id="tab-emerging" class="tab-content">
+<div class="container">
+
+  <!-- Intro card -->
+  <div class="card" style="margin-bottom:14px;padding:16px;border-left:3px solid var(--gold)">
+    <div style="font-size:14px;font-weight:700;margin-bottom:6px">🌋 Emerging Leaders — catch the next MTARTECH / STLTECH early</div>
+    <div style="font-size:12px;color:var(--muted);line-height:1.6">
+      Finds <b>young, explosive leaders at their ignition / first-base breakout</b> — months before they reach the Momentum "Elite" tier.
+      Scans <b>every liquid NSE EQ stock (~1,500, not just the index)</b> so it catches off-index rockets early. Scores <b>relative-strength leadership + fresh-high breakout + follow-through + volume accumulation + youth</b>; works from ~40 bars and does <b>not</b> cap upside.
+      Top tier is filtered for precision: not over-extended, breakout holding, real demand, ETFs &amp; circuit-locked pumps excluded.
+      <br><b style="color:var(--gold)">Watchlist, not a buy list</b> — surfaces candidates early; buy the confirmed follow-through with a stop.
+      Validated point-in-time: would have flagged MTARTECH at ₹1,728 and STLTECH at ₹127.
+    </div>
+  </div>
+
+  <!-- Scan controls -->
+  <div class="card" style="margin-bottom:14px;display:flex;align-items:center;gap:16px;flex-wrap:wrap">
+    <button class="btn-primary" onclick="startEmrgScan()" id="emrgBtn">Run Emerging Leaders Scan</button>
+    <span id="emrgTimestamp" style="font-size:12px;color:var(--muted)"></span>
+    <span id="emrgMeta" style="font-size:12px;color:var(--muted)"></span>
+    <span style="font-size:12px;color:var(--muted);margin-left:auto">Cached 1 hr · Uses bhavcopy, no NSE API calls</span>
+  </div>
+
+  <!-- Progress -->
+  <div id="emrgProgressWrap" style="display:none;margin-bottom:14px">
+    <div style="display:flex;justify-content:space-between;margin-bottom:6px">
+      <span id="emrgProgressLabel" style="font-size:12px;color:var(--muted)">Scanning…</span>
+    </div>
+    <div style="background:var(--border);border-radius:4px;height:6px;overflow:hidden">
+      <div id="emrgProgressBar" style="background:var(--gold);height:100%;width:0%;transition:width .3s"></div>
+    </div>
+  </div>
+
+  <!-- Summary tier cards -->
+  <div id="emrgSummary" style="display:none;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:14px">
+    <div class="stat-card"><div class="stat-label">QUALIFIED</div><div class="stat-val" id="emrgN">—</div></div>
+    <div class="stat-card" title="Top tier: score ≥ 72 + RS ≥ 80"><div class="stat-label">🌋 EMERGING LEADERS</div><div class="stat-val" id="emrgLeaders" style="color:var(--gold2)">—</div></div>
+    <div class="stat-card" title="Score ≥ 58 — breaking out on volume"><div class="stat-label">🔥 IGNITING</div><div class="stat-val" id="emrgIgnite" style="color:var(--green2)">—</div></div>
+    <div class="stat-card" title="Younger than ~9 months (< 180 bars)"><div class="stat-label">🐣 YOUNG (&lt;180 bars)</div><div class="stat-val" id="emrgYoung" style="color:var(--accent2)">—</div></div>
+  </div>
+
+  <!-- Filters -->
+  <div id="emrgFiltersWrap" style="display:none">
+    <div class="card" style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;padding:10px 14px">
+      <span style="font-size:11px;color:var(--gold);text-transform:uppercase;letter-spacing:.4px;font-weight:700;margin-right:4px">Tier:</span>
+      <button class="tf-btn active" data-et="ALL"             onclick="setEmrgTier('ALL',this)">All</button>
+      <button class="tf-btn"        data-et="Emerging Leader" onclick="setEmrgTier('Emerging Leader',this)">🌋 Leaders</button>
+      <button class="tf-btn"        data-et="Igniting"        onclick="setEmrgTier('Igniting',this)">🔥 Igniting</button>
+      <button class="tf-btn"        data-et="Watchlist"       onclick="setEmrgTier('Watchlist',this)">👀 Watchlist</button>
+      <span style="width:1px;height:18px;background:var(--border);margin:0 4px"></span>
+      <button id="emrgYoungBtn" class="tf-btn" onclick="toggleEmrgYoung(this)" title="Show only stocks younger than ~9 months (the genuine 'emerging' cohort)">🐣 Young only</button>
+      <input id="emrgSearch" type="text" placeholder="Filter symbol…" oninput="renderEmrgTable()"
+             style="margin-left:auto;width:160px;padding:6px 10px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;color:var(--text);font-family:var(--mono);font-size:12px">
+      <span id="emrgSearchCount" style="font-size:11px;color:var(--text2)"></span>
+    </div>
+  </div>
+
+  <!-- Results -->
+  <div id="emrgResultsWrap" style="display:none">
+    <div class="panel">
+      <div class="panel-header">
+        <h2 id="emrgResultsTitle">Emerging Leaders</h2>
+        <span style="font-size:11px;color:var(--muted)" id="emrgResultsCount"></span>
+      </div>
+      <div style="overflow-x:auto">
+        <table id="emrgTable">
+          <thead>
+            <tr>
+              <th onclick="sortEmrg('rank')"            style="width:40px;cursor:pointer">#<span class="emrg-arrow" data-col="rank"></span></th>
+              <th onclick="sortEmrg('symbol')"          style="cursor:pointer;text-align:left">Symbol<span class="emrg-arrow" data-col="symbol"></span></th>
+              <th onclick="sortEmrg('emergence_score')" style="cursor:pointer;text-align:center" title="Emergence Score 0-100: RS leadership + breakout + volume/accumulation + youth + base tightness">Score<span class="emrg-arrow" data-col="emergence_score"> ▼</span></th>
+              <th style="text-align:center">Tier</th>
+              <th onclick="sortEmrg('rs_rank')"         style="cursor:pointer;text-align:center" title="Cross-sectional relative-strength rank (0-100). 95 = stronger than 95% of the market.">RS<span class="emrg-arrow" data-col="rs_rank"></span></th>
+              <th onclick="sortEmrg('bars_available')"  style="cursor:pointer;text-align:center" title="Bars of history = stock age. Younger = more 'emerging' / asymmetric. 🐣 = under ~9 months.">Age<span class="emrg-arrow" data-col="bars_available"></span></th>
+              <th onclick="sortEmrg('pct_from_high')"   style="cursor:pointer;text-align:right" title="Distance from its highest close. 0% = at new highs.">From High<span class="emrg-arrow" data-col="pct_from_high"></span></th>
+              <th onclick="sortEmrg('vol_ratio')"       style="cursor:pointer;text-align:right" title="Recent 10-day volume vs 50-day baseline. ≥1.5× = surge.">Vol×<span class="emrg-arrow" data-col="vol_ratio"></span></th>
+              <th onclick="sortEmrg('up_vol_ratio')"    style="cursor:pointer;text-align:right" title="Up-day volume ÷ down-day volume over 20 days. >1 = accumulation.">Up/Dn<span class="emrg-arrow" data-col="up_vol_ratio"></span></th>
+              <th onclick="sortEmrg('pocket_pivots')"   style="cursor:pointer;text-align:center" title="Pocket pivots in last 10 days — institutional accumulation footprint.">PP<span class="emrg-arrow" data-col="pocket_pivots"></span></th>
+              <th onclick="sortEmrg('price')"           style="cursor:pointer;text-align:right">Price<span class="emrg-arrow" data-col="price"></span></th>
+              <th onclick="sortEmrg('ret_since_start')" style="cursor:pointer;text-align:right" title="Total return since first bar in our data — how far the move has already run">Move<span class="emrg-arrow" data-col="ret_since_start"></span></th>
+            </tr>
+          </thead>
+          <tbody id="emrgTbody"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <div id="emrgEmpty" class="empty-state">
+    <div class="icon">🌋</div>
+    <p>Click <strong>Run Emerging Leaders Scan</strong> to find young leaders at their breakout.</p>
+    <p style="margin-top:6px;font-size:11px">Reads cached bhavcopy — no new NSE calls · Results cached 1 hour</p>
+  </div>
+
+  <p class="disclaimer">Not financial advice. Early-stage breakouts carry high false-positive rates — this is a watchlist generator. Always confirm follow-through and use a stop.</p>
 </div>
 </div>
 
@@ -2155,12 +2300,36 @@
     </div>
   </div>
 
-  <!-- Backtest Statistics -->
+  <!-- Backtest Statistics — Phase 1 + 3: honest alpha + IS/OOS overfit harness -->
   <div id="edgeBacktestPanel" class="panel" style="display:none">
-    <div class="panel-header"><h2>📈 Backtest Statistics — Historical Signal Performance</h2></div>
+    <div class="panel-header"><h2>📈 Backtest — Alpha vs NIFTYBEES (net of real costs)</h2></div>
     <div id="edgeBacktestBody" style="padding:14px"></div>
     <div style="padding:0 14px 14px;font-size:11px;color:var(--text2)">
-      Walk-forward backtest: 250-day lookback, 30-day max hold, -7% stop, +25% target. Up to 200 signals per type.
+      Survivorship-free universe · chronological event-driven sim · 20-position cap · gap-through stop fills ·
+      liquidity-scaled costs · 800-bar walk-forward · IS/OOS 70/30 split.
+    </div>
+  </div>
+
+  <!-- Score Validation Panel — Phase 2: does Setup Score predict alpha? -->
+  <div id="edgeScoreValPanel" class="panel" style="display:none">
+    <div class="panel-header"><h2>🔬 Score Validation — Does Setup Score Predict Forward Alpha?</h2></div>
+    <div id="edgeScoreValBody" style="padding:14px"></div>
+    <div style="padding:0 14px 14px;font-size:11px;color:var(--text2)">
+      Walk-forward Information Coefficient: at each historical snapshot we score every stock using ONLY data
+      through that date, then measure forward 20-day excess return vs NIFTYBEES. Quintile bucketing across all
+      observations + mean Spearman IC + t-stat. This answers the only question that matters: <em>does a high
+      score actually lead to high alpha, or is the score just dressing up noise?</em>
+    </div>
+  </div>
+
+  <!-- Score Component IC Panel — evidence base for redesigning the score -->
+  <div id="edgeScoreCompPanel" class="panel" style="display:none">
+    <div class="panel-header"><h2>🧪 Score Components — Which Raw Features Actually Predict Alpha?</h2></div>
+    <div id="edgeScoreCompBody" style="padding:14px"></div>
+    <div style="padding:0 14px 14px;font-size:11px;color:var(--text2)">
+      Per-feature walk-forward IC: each candidate input (r3m, r6m, MA alignment, distance from 52W high, etc.)
+      is measured INDIVIDUALLY against forward 20-day excess alpha. Identifies which inputs carry real signal
+      and which are noise — the data-driven basis for choosing what to weight in the composite Setup Score.
     </div>
   </div>
 
@@ -2301,19 +2470,30 @@
         <span id="trendCount" style="font-size:11px;color:var(--text2)"></span>
       </div>
       <!-- Row 2: Criteria filter chips -->
-      <div style="padding:0 0 10px;display:flex;gap:6px;flex-wrap:wrap;align-items:center">
+      <div style="padding:0 0 6px;display:flex;gap:6px;flex-wrap:wrap;align-items:center">
         <span style="font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-right:2px">Criteria:</span>
-        <button onclick="trendToggleCrit(0)"  id="trendC-0"  class="tag" style="cursor:pointer;font-size:11px" title="Price > MA20 & MA50">P&gt;MA20/50</button>
-        <button onclick="trendToggleCrit(1)"  id="trendC-1"  class="tag" style="cursor:pointer;font-size:11px" title="MA20 > MA50 (golden cross)">MA20&gt;MA50</button>
-        <button onclick="trendToggleCrit(2)"  id="trendC-2"  class="tag" style="cursor:pointer;font-size:11px" title="MA50 slope rising (vs 20d ago)">MA50↑</button>
-        <button onclick="trendToggleCrit(3)"  id="trendC-3"  class="tag" style="cursor:pointer;font-size:11px" title="Within 20% of 52-week high">Near 52H</button>
-        <button onclick="trendToggleCrit(4)"  id="trendC-4"  class="tag" style="cursor:pointer;font-size:11px" title="Beating Nifty over 1 month">Beat 1M</button>
-        <button onclick="trendToggleCrit(5)"  id="trendC-5"  class="tag" style="cursor:pointer;font-size:11px" title="Beating Nifty over 3 months">Beat 3M</button>
-        <button onclick="trendToggleCrit(6)"  id="trendC-6"  class="tag" style="cursor:pointer;font-size:11px" title="Volume expanding (5d avg vs 20d avg)">Vol↑</button>
-        <button onclick="trendToggleCrit(7)"  id="trendC-7"  class="tag" style="cursor:pointer;font-size:11px" title="ADX ≥ 25 (trending strongly)">ADX≥25</button>
-        <button onclick="trendToggleCrit(8)"  id="trendC-8"  class="tag" style="cursor:pointer;font-size:11px" title="Higher highs and higher lows pattern">HH/HL</button>
-        <button onclick="trendToggleCrit(9)"  id="trendC-9"  class="tag" style="cursor:pointer;font-size:11px" title="Price > MA200 (long-term uptrend)">P&gt;MA200</button>
+        <button onclick="trendToggleCrit(0)"  id="trendC-0"  class="tag" style="cursor:pointer;font-size:11px" title="Price > MA20 & MA50 (weight 0.5 — redundant with P>MA200)">P&gt;MA20/50</button>
+        <button onclick="trendToggleCrit(1)"  id="trendC-1"  class="tag" style="cursor:pointer;font-size:11px" title="MA20 > MA50 (weight 0.5 — redundant with MA50↑)">MA20&gt;MA50</button>
+        <button onclick="trendToggleCrit(2)"  id="trendC-2"  class="tag" style="cursor:pointer;font-size:11px" title="MA50 slope rising vs 20d ago (weight 1.0)">MA50↑</button>
+        <button onclick="trendToggleCrit(3)"  id="trendC-3"  class="tag" style="cursor:pointer;font-size:11px" title="Within 20% of 52-week high (weight 1.5)">Near 52H</button>
+        <button onclick="trendToggleCrit(4)"  id="trendC-4"  class="tag" style="cursor:pointer;font-size:11px" title="Beating Nifty over 1 month (weight 0.75)">Beat 1M</button>
+        <button onclick="trendToggleCrit(5)"  id="trendC-5"  class="tag" style="cursor:pointer;font-size:11px" title="Beating Nifty over 3 months (weight 2.0 — strongest single signal)">Beat 3M</button>
+        <button onclick="trendToggleCrit(6)"  id="trendC-6"  class="tag" style="cursor:pointer;font-size:11px" title="Accumulation: up-day vol dominates AND delivery rising (weight 0.75; distribution PENALISES score by 0.75)">Accum</button>
+        <button onclick="trendToggleCrit(7)"  id="trendC-7"  class="tag" style="cursor:pointer;font-size:11px" title="ADX ≥ 25 — distinguishes real trends from drift (weight 1.5)">ADX≥25</button>
+        <button onclick="trendToggleCrit(8)"  id="trendC-8"  class="tag" style="cursor:pointer;font-size:11px" title="Higher highs and higher lows over weekly chart (weight 1.5)">HH/HL</button>
+        <button onclick="trendToggleCrit(9)"  id="trendC-9"  class="tag" style="cursor:pointer;font-size:11px" title="Price > MA200 — bedrock long-term filter (weight 1.0)">P&gt;MA200</button>
         <button onclick="trendClearCrit()" id="trendC-clear" style="cursor:pointer;font-size:11px;padding:3px 8px;border-radius:4px;border:1px solid var(--border);background:none;color:var(--muted);display:none">✕ Clear</button>
+      </div>
+      <!-- Row 3: Tier 3I — quick-action presets -->
+      <div style="padding:0 0 10px;display:flex;gap:6px;flex-wrap:wrap;align-items:center;border-top:1px solid var(--border);margin-top:4px;padding-top:8px">
+        <span style="font-size:11px;font-weight:700;color:var(--gold2);text-transform:uppercase;letter-spacing:.5px;margin-right:2px">Presets:</span>
+        <button onclick="trendApplyPreset('all')"           id="trendPS-all"        class="tag" style="cursor:pointer;font-size:11px;background:var(--accent);color:#fff;border-color:var(--accent)">All</button>
+        <button onclick="trendApplyPreset('breakout')"      id="trendPS-breakout"   class="tag" style="cursor:pointer;font-size:11px" title="Score ≥ 8 + new 52W high in last 5 days + volume > 1.5×">🚀 Just Broke Out</button>
+        <button onclick="trendApplyPreset('quiet')"         id="trendPS-quiet"      class="tag" style="cursor:pointer;font-size:11px" title="Score ≥ 9 + at MA20 support + top-15 sector">💪 Quiet Strength</button>
+        <button onclick="trendApplyPreset('institutional')" id="trendPS-inst"       class="tag" style="cursor:pointer;font-size:11px" title="Score ≥ 7 + MFI ≥ 75 + delivery % rising">🏛️ Institutional Stalking</button>
+        <button onclick="trendApplyPreset('leader')"        id="trendPS-leader"     class="tag" style="cursor:pointer;font-size:11px" title="Score 10/10 + sector rank ≤ 5">👑 Leader of Leaders</button>
+        <button onclick="trendApplyPreset('fresh')"         id="trendPS-fresh"      class="tag" style="cursor:pointer;font-size:11px" title="Just transitioned into Stage 2 (last 10 days) + score ≥ 7">🆕 Fresh Movers</button>
+        <span id="trendPresetExplain" style="font-size:11px;color:var(--text2);margin-left:8px"></span>
       </div>
 
       <div style="overflow-x:auto">
@@ -2322,20 +2502,20 @@
             <tr style="background:var(--surface2)">
               <th onclick="trendSort('rank')"          class="th-sort" id="trendTh-rank">#</th>
               <th onclick="trendSort('symbol')"        class="th-sort" id="trendTh-symbol">Symbol</th>
-              <th onclick="trendSort('sector')"        class="th-sort" id="trendTh-sector">Sector</th>
-              <th onclick="trendSort('score')"         class="th-sort" id="trendTh-score">Score</th>
-              <th style="padding:8px 10px;font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.4px;color:var(--text2);border-bottom:2px solid var(--border)" title="10 criteria dots">Criteria</th>
+              <th onclick="trendSort('sector')"        class="th-sort" id="trendTh-sector" title="Sector + tailwind multiplier (Tier 1D)">Sector</th>
+              <th onclick="trendSort('score_with_sector')" class="th-sort" id="trendTh-score" title="Weighted score 0-10 with sector tailwind applied">Score</th>
+              <th style="padding:8px 10px;font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.4px;color:var(--text2);border-bottom:2px solid var(--border)" title="10 criteria dots — colored by weight">Criteria</th>
+              <th onclick="trendSort('mfi')"           class="th-sort" id="trendTh-mfi" title="Money Flow Index 14 — ≥80 strong accumulation, ≤25 strong distribution">💰 MFI</th>
               <th onclick="trendSort('price')"         class="th-sort" id="trendTh-price">Price</th>
               <th onclick="trendSort('pct_from_high')" class="th-sort" id="trendTh-pct_from_high">52W High</th>
               <th onclick="trendSort('adx')"           class="th-sort" id="trendTh-adx" title="ADX trend strength. ≥25 = trending, ≥40 = very strong">ADX</th>
-              <th onclick="trendSort('vol_ratio')"     class="th-sort" id="trendTh-vol_ratio" title="5-day avg vol vs 20-day avg vol">Vol Ratio</th>
               <th onclick="trendSort('r1m')"           class="th-sort" id="trendTh-r1m">1M Ret</th>
               <th onclick="trendSort('r3m')"           class="th-sort" id="trendTh-r3m">3M Ret</th>
-              <th onclick="trendSort('rs_composite')"  class="th-sort" id="trendTh-rs_composite">RS Score</th>
-              <th onclick="trendSort('trend_age')"     class="th-sort" id="trendTh-trend_age" title="Days continuously above MA50">Trend Age</th>
-              <th onclick="trendSort('avg_deliv')"     class="th-sort" id="trendTh-avg_deliv" title="Avg Delivery % (institutional buying signal)">Deliv%</th>
+              <th onclick="trendSort('rs_composite')"  class="th-sort" id="trendTh-rs_composite">RS</th>
+              <th onclick="trendSort('trend_age')"     class="th-sort" id="trendTh-trend_age" title="Days continuously above MA50. Sweet spot: 30-60d (Tier 2G)">Age</th>
+              <th onclick="trendSort('avg_deliv')"     class="th-sort" id="trendTh-avg_deliv" title="Avg Delivery % — institutional buying signal">Deliv%</th>
               <th onclick="trendSort('r_squared')"     class="th-sort" id="trendTh-r_squared" title="R² trend consistency: 1.0 = perfectly linear uptrend">R²</th>
-              <th style="padding:8px 10px;font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.4px;color:var(--text2);border-bottom:2px solid var(--border)">Flags</th>
+              <th style="padding:8px 10px;font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.4px;color:var(--text2);border-bottom:2px solid var(--border)" title="Tier 2H/3K: Stage transition badges + don't-buy warnings">Flags</th>
             </tr>
           </thead>
           <tbody id="trendTbody"></tbody>
@@ -4371,6 +4551,7 @@ let _momTierFilt  = 'ALL';
 let _momStageFilt = 'ALL';
 let _momRsFilt    = 0;
 let _momTrendFilt = 'ALL';
+let _momPreset    = 'all';     // Tier 2F/3I preset: all|leaders|fresh|riskadj|acceleration
 let _momPoll      = null;
 
 function startMomScan() {
@@ -4456,6 +4637,52 @@ function setMomStageFilt(v,el) { _momStageFilt=v; _momActivePill('mst',el); rend
 function setMomRsFilt(v,el)    { _momRsFilt=v;    _momActivePill('mr',el); renderMomTable(); }
 function setMomTrendFilt(v,el) { _momTrendFilt=v; _momActivePill('mtr',el); renderMomTable(); }
 
+// Tier 3I — Presets (workflow shortcuts that combine filters + sort)
+function setMomPreset(name) {
+  _momPreset = name;
+  // Visual active state
+  ['all','leaders','fresh','riskadj','acceleration','igniting'].forEach(k => {
+    const id = k === 'all' ? 'momPS-all'
+            : k === 'leaders' ? 'momPS-leaders'
+            : k === 'fresh' ? 'momPS-fresh'
+            : k === 'riskadj' ? 'momPS-rrr'
+            : k === 'acceleration' ? 'momPS-acc'
+            : 'momPS-ignite';
+    const el = document.getElementById(id);
+    if (el) el.classList.toggle('active', k === name);
+  });
+  // Preset-specific sort defaults
+  if (name === 'riskadj') {
+    _momSortCol = 'quality_score'; _momSortDir = 'desc';
+  } else if (name === 'fresh') {
+    _momSortCol = 'freshness_days_in'; _momSortDir = 'asc'; // smallest days = freshest
+  } else if (name === 'acceleration') {
+    _momSortCol = 'r1m'; _momSortDir = 'desc';
+  } else if (name === 'igniting') {
+    _momSortCol = 'bars_available'; _momSortDir = 'asc'; // youngest stocks first = most asymmetric
+  } else if (name === 'leaders') {
+    _momSortCol = 'score'; _momSortDir = 'desc';
+  }
+  // Sync sort-arrow display
+  document.querySelectorAll('.mom-arrow').forEach(el => {
+    el.textContent = el.getAttribute('data-col') === _momSortCol
+      ? (_momSortDir === 'asc' ? ' ▲' : ' ▼') : '';
+  });
+  // Show a small explainer line so the user understands what changed
+  const msg = document.getElementById('momPresetMsg');
+  if (msg) {
+    msg.textContent = ({
+      all:          '',
+      leaders:      'Elite + DD ≤ 15% + Stage 2 only',
+      fresh:        'Entered Elite in last 10 days + Quality ≥ 70',
+      riskadj:      'Sorted by Quality (Sharpe-like) — return ÷ vol',
+      acceleration: 'Streak ≥ 8 up-weeks + r1m percentile ≥ 80',
+      igniting:     '🌋 Fresh 50-bar high + vol surge + rising MA20 · youngest first · watchlist, not buy-list',
+    })[name] || '';
+  }
+  renderMomTable();
+}
+
 // ── Sort ──────────────────────────────────────────────────────────────────────
 function sortMom(col) {
   if (_momSortCol === col) {
@@ -4483,6 +4710,24 @@ function renderMomTable() {
     if (_momRsFilt > 0 && r.rs_rating < _momRsFilt) return false;
     if (_momTrendFilt === 'ma50'  && !r.above_ma50)  return false;
     if (_momTrendFilt === 'ma200' && !r.above_ma200) return false;
+    // Tier 3I — Preset filters
+    if (_momPreset === 'leaders') {
+      if (r.tier !== 'Elite') return false;
+      if ((r.max_dd_6m ?? -999) < -15) return false;
+      if (r.stage !== 2) return false;
+    } else if (_momPreset === 'fresh') {
+      if (!r.fresh_elite) return false;
+      if ((r.quality_score ?? 0) < 70) return false;
+    } else if (_momPreset === 'acceleration') {
+      if ((r.streak_up ?? 0) < 8) return false;
+      // Build r1m percentile on-the-fly from current dataset for a stable threshold
+      const r1ms = _momData.map(x => x.r1m ?? 0).sort((a,b)=>a-b);
+      const idx = Math.floor(r1ms.length * 0.80);
+      const r1m_p80 = r1ms[idx] ?? 0;
+      if ((r.r1m ?? -999) < r1m_p80) return false;
+    } else if (_momPreset === 'igniting') {
+      if (!r.igniting) return false;
+    }
     return true;
   });
 
@@ -4562,15 +4807,66 @@ function renderMomTable() {
     return `<span class="ps-badge ${cls}">${rs}</span>`;
   };
 
+  // Tier 1B — Quality (Sharpe-like) percentile rank chip
+  const qualityBadge = q => {
+    if (q == null) return `<span style="color:var(--muted);font-size:11px">—</span>`;
+    let bg, col;
+    if (q >= 85)      { bg='rgba(245,158,11,0.15)'; col='var(--gold2)'; }
+    else if (q >= 70) { bg='rgba(16,185,129,0.12)'; col='var(--green2)'; }
+    else if (q >= 50) { bg='rgba(59,130,246,0.10)'; col='var(--accent2)'; }
+    else              { bg='rgba(75,96,128,0.08)';  col='var(--muted)'; }
+    return `<span style="display:inline-flex;align-items:center;justify-content:center;
+              min-width:34px;height:22px;border-radius:5px;font-weight:700;font-size:11px;
+              font-family:var(--mono);background:${bg};color:${col}">${q.toFixed(0)}</span>`;
+  };
+
+  // Tier 2F — Freshness chip (🆕/🟢/🟡/🟠 based on days_in current tier)
+  const freshnessChip = (bucket, days, tier) => {
+    if (!tier || days == null) return `<span style="color:var(--muted);font-size:11px">—</span>`;
+    const cfg = ({
+      fresh:  { icon:'🆕', col:'var(--gold2)',   lbl:'fresh' },
+      sweet:  { icon:'🟢', col:'var(--green2)',  lbl:'sweet' },
+      mature: { icon:'🟡', col:'var(--accent2)', lbl:'mature' },
+      stale:  { icon:'🟠', col:'var(--red2)',    lbl:'stale' },
+    })[bucket] || { icon:'•', col:'var(--muted)', lbl:'?' };
+    return `<span title="${cfg.lbl} — ${days}d in ${tier}"
+              style="display:inline-flex;align-items:center;gap:3px;font-size:11px;
+              color:${cfg.col};font-weight:600;font-family:var(--mono)">
+              ${cfg.icon} ${days}d</span>`;
+  };
+
+  // Tier 1C — Max-drawdown cell (red-to-green gradient by depth)
+  const ddCell = dd => {
+    if (dd == null) return `<span style="color:var(--muted);font-size:11px">—</span>`;
+    const c = dd >= -10 ? 'var(--green2)' : dd >= -20 ? 'var(--accent2)'
+            : dd >= -30 ? 'var(--gold2)'  : 'var(--red2)';
+    return `<span style="color:${c};font-weight:600;font-family:var(--mono);font-size:12px">${dd.toFixed(1)}%</span>`;
+  };
+
+  // Tier 1B — Sharpe ratio cell
+  const sharpeCell = s => {
+    if (s == null) return `<span style="color:var(--muted);font-size:11px">—</span>`;
+    const c = s >= 2.0 ? 'var(--gold2)' : s >= 1.0 ? 'var(--green2)'
+            : s >= 0.5 ? 'var(--accent2)' : 'var(--muted)';
+    return `<span style="color:${c};font-weight:600;font-family:var(--mono);font-size:12px">${s.toFixed(2)}</span>`;
+  };
+
   let html = '';
   rows.forEach((r, i) => {
     const grpHtml = r.group
       ? `<div style="font-size:10px;color:var(--muted);margin-top:1px">${r.group}</div>` : '';
+    // 🌋 Ignition chip — fresh breakout; show days-since + stock age (bars)
+    const igniteChip = r.igniting
+      ? `<span title="Fresh 50-bar high ${r.ignition_days_ago ?? 0}d ago · vol surge · ${r.bars_available ?? '?'} bars old (younger = more asymmetric)" style="font-size:9px;color:var(--gold2);font-weight:700;background:rgba(245,158,11,0.14);padding:0 4px;border-radius:3px">🌋 ${r.ignition_days_ago ?? 0}d</span>`
+      : '';
     const maFlags = [
+      igniteChip,
       r.above_ma50  ? '<span style="font-size:9px;color:var(--green2);font-weight:600">MA50</span>'  : '',
       r.above_ma200 ? '<span style="font-size:9px;color:var(--accent2);font-weight:600">MA200</span>' : '',
     ].filter(Boolean).join(' ');
-    html += `<tr>
+    // Fresh-Elite halo — gold left border to draw the eye to newly-promoted leaders
+    const freshHalo = r.fresh_elite ? 'box-shadow:inset 3px 0 0 var(--gold2);' : '';
+    html += `<tr style="${freshHalo}">
       <td style="color:var(--muted);font-size:11px;font-family:var(--mono);text-align:center">${i+1}</td>
       <td>
         <div style="display:flex;flex-direction:column">
@@ -4580,7 +4876,11 @@ function renderMomTable() {
         </div>
       </td>
       <td style="text-align:center">${scoreBadge(r.score)}</td>
+      <td style="text-align:center">${qualityBadge(r.quality_score)}</td>
       <td style="text-align:center">${tierBadge(r.tier)}</td>
+      <td style="text-align:center">${freshnessChip(r.freshness_bucket, r.freshness_days_in, r.tier)}</td>
+      <td style="text-align:right">${ddCell(r.max_dd_6m)}</td>
+      <td style="text-align:right">${sharpeCell(r.sharpe_3m)}</td>
       <td style="text-align:right;font-family:var(--mono);font-size:12px">₹${r.price.toLocaleString('en-IN',{minimumFractionDigits:2,maximumFractionDigits:2})}</td>
       <td style="text-align:right">${pct(r.r1m)}</td>
       <td style="text-align:right">${pct(r.r3m)}</td>
@@ -4592,8 +4892,214 @@ function renderMomTable() {
       <td style="text-align:right;font-family:var(--mono);font-size:11px;color:var(--muted)">₹${r.adtv_cr.toFixed(1)}Cr</td>
     </tr>`;
   });
-  document.getElementById('momTbody').innerHTML = html || '<tr><td colspan="13" style="text-align:center;color:var(--muted);padding:20px">No stocks match current filters</td></tr>';
+  document.getElementById('momTbody').innerHTML = html || '<tr><td colspan="17" style="text-align:center;color:var(--muted);padding:20px">No stocks match current filters</td></tr>';
 }
+
+// ══════════════════════════════════════════════════════════ EMERGING LEADERS
+let _emrgData     = [];
+let _emrgSortCol  = 'emergence_score';
+let _emrgSortDir  = 'desc';
+let _emrgTier     = 'ALL';
+let _emrgYoung    = false;
+let _emrgPoll     = null;
+
+function startEmrgScan() {
+  document.getElementById('emrgBtn').disabled = true;
+  document.getElementById('emrgEmpty').style.display = 'none';
+  document.getElementById('emrgResultsWrap').style.display = 'none';
+  document.getElementById('emrgFiltersWrap').style.display = 'none';
+  document.getElementById('emrgProgressWrap').style.display = 'block';
+  document.getElementById('emrgProgressLabel').textContent = 'Starting scan…';
+  document.getElementById('emrgProgressBar').style.width = '0%';
+  fetch('/api/emerging/scan', { method: 'POST' })
+    .then(r => r.json())
+    .then(() => { if (_emrgPoll) clearInterval(_emrgPoll); _emrgPoll = setInterval(pollEmrg, 2000); })
+    .catch(() => {
+      document.getElementById('emrgBtn').disabled = false;
+      document.getElementById('emrgProgressWrap').style.display = 'none';
+    });
+}
+
+function pollEmrg() {
+  fetch('/api/emerging/status').then(r => r.json()).then(d => {
+    if (d.running) {
+      document.getElementById('emrgProgressBar').style.width = (d.pct || 0) + '%';
+      document.getElementById('emrgProgressLabel').textContent = d.message || 'Scanning…';
+      return;
+    }
+    clearInterval(_emrgPoll); _emrgPoll = null;
+    document.getElementById('emrgBtn').disabled = false;
+    document.getElementById('emrgProgressWrap').style.display = 'none';
+    if (d.error) {
+      document.getElementById('emrgEmpty').style.display = 'block';
+      document.getElementById('emrgEmpty').innerHTML = `<div class="icon">⚠️</div><p style="color:var(--red)">Error: ${d.error}</p>`;
+      return;
+    }
+    if (d.result && d.result.stocks) {
+      _emrgData = d.result.stocks;
+      const tc = d.result.tier_counts || {};
+      document.getElementById('emrgTimestamp').textContent =
+        d.result.computed_at ? 'Last updated: ' + toIST(d.result.computed_at) : '';
+      if (d.result.computed_at) updateFreshness('emerging', d.result.computed_at);
+      document.getElementById('emrgMeta').textContent =
+        `${d.result.total_qualified} qualified of ${d.result.total_scanned} scanned`;
+      document.getElementById('emrgSummary').style.display = 'grid';
+      document.getElementById('emrgN').textContent       = d.result.total_qualified || 0;
+      document.getElementById('emrgLeaders').textContent = tc['Emerging Leader'] || 0;
+      document.getElementById('emrgIgnite').textContent  = tc['Igniting'] || 0;
+      document.getElementById('emrgYoung').textContent   = _emrgData.filter(s => s.is_young).length;
+      document.getElementById('emrgFiltersWrap').style.display = 'block';
+      document.getElementById('emrgResultsWrap').style.display = 'block';
+      renderEmrgTable();
+    } else {
+      document.getElementById('emrgEmpty').style.display = 'block';
+      document.getElementById('emrgEmpty').innerHTML = `<div class="icon">⏳</div><p>No data yet — try again shortly.</p>`;
+    }
+  }).catch(err => {
+    clearInterval(_emrgPoll); _emrgPoll = null;
+    document.getElementById('emrgBtn').disabled = false;
+    document.getElementById('emrgProgressWrap').style.display = 'none';
+    document.getElementById('emrgEmpty').style.display = 'block';
+    document.getElementById('emrgEmpty').innerHTML = `<div class="icon">⚠️</div><p style="color:var(--red)">Network error: ${err}</p>`;
+  });
+}
+
+function setEmrgTier(v, el) {
+  _emrgTier = v;
+  document.querySelectorAll('[data-et]').forEach(b => b.classList.remove('active'));
+  el.classList.add('active');
+  renderEmrgTable();
+}
+function toggleEmrgYoung(el) {
+  _emrgYoung = !_emrgYoung;
+  el.classList.toggle('active', _emrgYoung);
+  renderEmrgTable();
+}
+function sortEmrg(col) {
+  if (_emrgSortCol === col) _emrgSortDir = _emrgSortDir === 'desc' ? 'asc' : 'desc';
+  else { _emrgSortCol = col; _emrgSortDir = (col === 'symbol') ? 'asc' : 'desc'; }
+  document.querySelectorAll('.emrg-arrow').forEach(a =>
+    a.textContent = a.getAttribute('data-col') === _emrgSortCol ? (_emrgSortDir === 'asc' ? ' ▲' : ' ▼') : '');
+  renderEmrgTable();
+}
+
+function renderEmrgTable() {
+  const q = (document.getElementById('emrgSearch')?.value || '').trim().toUpperCase();
+  let rows = _emrgData.filter(r => {
+    if (q && !r.symbol.includes(q)) return false;
+    if (_emrgTier !== 'ALL' && r.tier !== _emrgTier) return false;
+    if (_emrgYoung && !r.is_young) return false;
+    return true;
+  });
+  rows = rows.slice().sort((a, b) => {
+    let va = a[_emrgSortCol], vb = b[_emrgSortCol];
+    if (typeof va === 'string') { va = va.toLowerCase(); vb = (vb||'').toLowerCase();
+      return _emrgSortDir === 'asc' ? va.localeCompare(vb) : vb.localeCompare(va); }
+    va = va ?? -999; vb = vb ?? -999;
+    return _emrgSortDir === 'asc' ? va - vb : vb - va;
+  });
+
+  const cnt = document.getElementById('emrgSearchCount');
+  if (cnt) cnt.textContent = rows.length !== _emrgData.length ? `${rows.length} of ${_emrgData.length}` : '';
+  document.getElementById('emrgResultsCount').textContent = `${rows.length} stocks`;
+
+  const scoreBadge = s => {
+    let bg, col;
+    if (s >= 72)      { bg='rgba(245,158,11,0.15)'; col='var(--gold2)'; }
+    else if (s >= 58) { bg='rgba(16,185,129,0.12)'; col='var(--green2)'; }
+    else              { bg='rgba(59,130,246,0.10)'; col='var(--accent2)'; }
+    return `<span style="display:inline-flex;align-items:center;justify-content:center;min-width:40px;height:26px;border-radius:6px;font-weight:800;font-size:13px;font-family:var(--mono);background:${bg};color:${col}">${s.toFixed(0)}</span>`;
+  };
+  const tierBadge = t => {
+    const cfg = {
+      'Emerging Leader': { icon:'🌋', bg:'rgba(245,158,11,0.14)', col:'var(--gold2)',  lbl:'LEADER' },
+      'Igniting':        { icon:'🔥', bg:'rgba(16,185,129,0.10)', col:'var(--green2)', lbl:'IGNITING' },
+      'Watchlist':       { icon:'👀', bg:'rgba(59,130,246,0.10)', col:'var(--accent2)',lbl:'WATCH' },
+    }[t] || { icon:'', bg:'', col:'var(--muted)', lbl:t };
+    return `<span style="display:inline-flex;align-items:center;gap:3px;padding:2px 7px;border-radius:4px;font-size:10px;font-weight:700;background:${cfg.bg};color:${cfg.col}">${cfg.icon} ${cfg.lbl}</span>`;
+  };
+  const rsBadge = rs => {
+    const cls = rs >= 80 ? 'ps-great' : rs >= 50 ? 'ps-good' : 'ps-weak';
+    return `<span class="ps-badge ${cls}">${rs.toFixed(0)}</span>`;
+  };
+  const fromHigh = p => {
+    const c = p >= -2 ? 'var(--green2)' : p >= -10 ? 'var(--gold2)' : 'var(--red2)';
+    return `<span style="color:${c};font-family:var(--mono);font-size:12px">${p.toFixed(1)}%</span>`;
+  };
+  const volCell = v => {
+    const c = v >= 1.5 ? 'var(--green2)' : v >= 1.0 ? 'var(--text)' : 'var(--muted)';
+    return `<span style="color:${c};font-family:var(--mono)">${v.toFixed(1)}×</span>`;
+  };
+
+  let html = '';
+  rows.forEach((r, i) => {
+    const sectorHtml = r.sector ? `<div style="font-size:10px;color:var(--muted);margin-top:1px;max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${r.sector}</div>` : '';
+    const reasons = (r.reasons || []).slice(0,3).map(x =>
+      `<span style="font-size:9px;color:var(--gold2);background:rgba(245,158,11,0.10);padding:0 4px;border-radius:3px">${x}</span>`).join(' ');
+    const youthChip = r.is_young ? `<span title="Young stock — ${r.bars_available} bars" style="font-size:9px;color:var(--accent2);font-weight:700">🐣</span>` : '';
+    const move = r.ret_since_start;
+    const moveCol = move >= 0 ? 'var(--green2)' : 'var(--red2)';
+    html += `<tr${r.tier==='Emerging Leader'?' style="box-shadow:inset 3px 0 0 var(--gold2)"':''}>
+      <td style="color:var(--muted);font-size:11px;font-family:var(--mono);text-align:center">${i+1}</td>
+      <td>
+        <div style="display:flex;flex-direction:column">
+          <span style="font-weight:700;font-size:13px;color:var(--white)">${r.symbol} ${youthChip}</span>
+          ${sectorHtml}
+          <div style="display:flex;gap:3px;margin-top:2px;flex-wrap:wrap">${reasons}</div>
+        </div>
+      </td>
+      <td style="text-align:center">${scoreBadge(r.emergence_score)}</td>
+      <td style="text-align:center">${tierBadge(r.tier)}</td>
+      <td style="text-align:center">${rsBadge(r.rs_rank)}</td>
+      <td style="text-align:center;font-family:var(--mono);font-size:12px;color:${r.is_young?'var(--accent2)':'var(--muted)'}">${r.bars_available}</td>
+      <td style="text-align:right">${fromHigh(r.pct_from_high)}</td>
+      <td style="text-align:right">${volCell(r.vol_ratio)}</td>
+      <td style="text-align:right;font-family:var(--mono);font-size:12px;color:${r.up_vol_ratio>=1.5?'var(--green2)':'var(--text)'}">${r.up_vol_ratio.toFixed(1)}×</td>
+      <td style="text-align:center;font-family:var(--mono);font-size:12px;color:${r.pocket_pivots>=2?'var(--green2)':'var(--muted)'}">${r.pocket_pivots}</td>
+      <td style="text-align:right;font-family:var(--mono);font-size:12px">₹${r.price.toLocaleString('en-IN',{minimumFractionDigits:2,maximumFractionDigits:2})}</td>
+      <td style="text-align:right;font-family:var(--mono);font-size:12px;color:${moveCol}">${move>=0?'+':''}${move.toFixed(0)}%</td>
+    </tr>`;
+  });
+  document.getElementById('emrgTbody').innerHTML = html ||
+    '<tr><td colspan="12" style="text-align:center;color:var(--muted);padding:20px">No stocks match current filters</td></tr>';
+
+  // Elite/young count in title
+  const lead = rows.filter(r => r.tier === 'Emerging Leader').length;
+  const yng  = rows.filter(r => r.is_young).length;
+  document.getElementById('emrgResultsTitle').textContent =
+    `Emerging Leaders · 🌋 ${lead} leaders · 🐣 ${yng} young`;
+}
+
+// Auto-load emerging results if already cached when tab opened
+(function hookEmergingTab() {
+  const orig = window.showTab;
+  if (typeof orig !== 'function') return;
+  window.showTab = function(name, btn) {
+    orig(name, btn);
+    if (name === 'emerging' && _emrgData.length === 0 && !_emrgPoll) {
+      fetch('/api/emerging/status').then(r => r.json()).then(d => {
+        if (d.result && d.result.stocks && d.result.stocks.length) {
+          // reuse poll's render path
+          _emrgData = d.result.stocks;
+          const tc = d.result.tier_counts || {};
+          document.getElementById('emrgTimestamp').textContent =
+            d.result.computed_at ? 'Last updated: ' + toIST(d.result.computed_at) : '';
+          document.getElementById('emrgMeta').textContent =
+            `${d.result.total_qualified} qualified of ${d.result.total_scanned} scanned`;
+          document.getElementById('emrgSummary').style.display = 'grid';
+          document.getElementById('emrgN').textContent       = d.result.total_qualified || 0;
+          document.getElementById('emrgLeaders').textContent = tc['Emerging Leader'] || 0;
+          document.getElementById('emrgIgnite').textContent  = tc['Igniting'] || 0;
+          document.getElementById('emrgYoung').textContent   = _emrgData.filter(s => s.is_young).length;
+          document.getElementById('emrgEmpty').style.display = 'none';
+          document.getElementById('emrgFiltersWrap').style.display = 'block';
+          document.getElementById('emrgResultsWrap').style.display = 'block';
+          renderEmrgTable();
+        }
+      }).catch(() => {});
+    }
+  };
+})();
 
 // ── Theme toggle (light mode is default, dark only when user opts in) ─────
 function toggleTheme() {
@@ -5332,9 +5838,12 @@ function pollEdge() {
       if (d.result) {
         _edgeFull = d.result;
         _edgeData = d.result.ranked || [];
+        window._edgeData_full = d.result;   // Phase 6: foundation-tag access for renderEdgeBacktests
         renderEdgeRegime(d.result.regime || {});
         renderEdgeTiers(d.result.tier_counts || {});
         renderEdgeBacktests(d.result.backtests || {});
+        renderScoreValidation(d.result.score_validation || null);
+        renderScoreComponents(d.result.score_components || null);
         renderEdgeTable();
         renderEdgeConcentration(d.result.sector_concentration || []);
         document.getElementById('edgeRegimePanel').style.display        = '';
@@ -5391,7 +5900,7 @@ function renderEdgeRegime(r) {
         ${r.ftd_day ? `<div style="font-size:11px;color:var(--text2)">on ${r.ftd_day}</div>` : ''}
       </div>
       <div style="border-left:1px solid var(--border);padding-left:24px">
-        <div style="font-size:11px;color:var(--text2)">NIFTY PROXY</div>
+        <div style="font-size:11px;color:var(--text2)">${r.bench_source === 'NIFTYBEES' ? 'NIFTY 50 (NIFTYBEES)' : 'NIFTY PROXY'}</div>
         <div style="font-size:18px;font-weight:700">₹${r.nifty_close}</div>
         <div style="font-size:11px;color:${r.nifty_chg >= 0 ? '#22c55e' : '#ef4444'}">${r.nifty_chg >= 0 ? '+' : ''}${r.nifty_chg}%</div>
       </div>
@@ -5415,53 +5924,265 @@ function renderEdgeBacktests(bts) {
     body.innerHTML = '<em style="color:var(--text2)">No backtest data</em>';
     return;
   }
-  body.innerHTML = `
+  // ── Phase 6: foundation banner — shows what the backtest is actually doing
+  const d = (window._edgeData_full || {});
+  const foundation = `
+    <div style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:10px 14px;margin-bottom:14px;font-size:12px;color:var(--text2);display:flex;flex-wrap:wrap;gap:18px">
+      <span><strong style="color:var(--text)">Benchmark:</strong> ${d.bench_symbol || 'NIFTYBEES'} (${d.bench_bars || 0} bars)</span>
+      <span><strong style="color:var(--text)">Universe:</strong> ${d.universe_total || 0} survivorship-free · ${d.universe_curated || 0} curated</span>
+      <span><strong style="color:var(--text)">Lookback:</strong> ${d.bt_lookback_bars || 0} bars (~${((d.bt_lookback_bars||0)/252).toFixed(1)}yr)</span>
+      <span><strong style="color:var(--text)">Capital cap:</strong> ${d.max_concurrent_positions || 20} concurrent positions</span>
+      <span><strong style="color:var(--text)">Costs:</strong> liquidity-scaled (real Indian round-trip)</span>
+    </div>`;
+
+  body.innerHTML = foundation + `
     <table style="width:100%;border-collapse:collapse;font-size:13px">
       <thead><tr style="border-bottom:2px solid var(--border)">
-        <th style="padding:8px 10px;text-align:left">Signal</th>
-        <th style="padding:8px 10px;text-align:right">Trades</th>
-        <th style="padding:8px 10px;text-align:right">Win Rate</th>
-        <th style="padding:8px 10px;text-align:right">Avg Win</th>
-        <th style="padding:8px 10px;text-align:right">Avg Loss</th>
-        <th style="padding:8px 10px;text-align:right">Expectancy</th>
-        <th style="padding:8px 10px;text-align:right">Profit Factor</th>
-        <th style="padding:8px 10px;text-align:right">Avg Hold</th>
-        <th style="padding:8px 10px;text-align:right">Max DD</th>
-        <th style="padding:8px 10px;text-align:right">Final Equity</th>
-        <th style="padding:8px 10px;text-align:right" title="Win rate when only trading in Confirmed Uptrend regime">Regime WR</th>
+        <th style="padding:8px 8px;text-align:left">Signal</th>
+        <th style="padding:8px 8px;text-align:right" title="Trades taken after capital cap (skipped count in parens)">Trades</th>
+        <th style="padding:8px 8px;text-align:right">Win%</th>
+        <th style="padding:8px 8px;text-align:right" title="Avg cost per round-trip (statutory + slippage)">Cost</th>
+        <th style="padding:8px 8px;text-align:right" title="Avg per-trade excess return vs NIFTYBEES (net of costs)">α / trade</th>
+        <th style="padding:8px 8px;text-align:right" title="% of trades that beat the benchmark over the same hold period">% Beat</th>
+        <th style="padding:8px 8px;text-align:right" title="Strategy ending equity (base 100), chronological event-driven sim">Strat</th>
+        <th style="padding:8px 8px;text-align:right" title="What buy-and-hold NIFTYBEES did over the same dates (base 100)">Bench</th>
+        <th style="padding:8px 8px;text-align:right" title="Strategy minus Benchmark — the only number that matters">α (final)</th>
+        <th style="padding:8px 8px;text-align:right" title="REAL chronological max drawdown with 20-position cap">Max DD</th>
+        <th style="padding:8px 8px;text-align:right" title="t-stat of mean per-trade alpha — |t|≥2 is statistically significant">α t-stat</th>
+        <th style="padding:8px 8px;text-align:left" title="In-sample vs Out-of-sample alpha — overfitting check">IS→OOS</th>
       </tr></thead>
       <tbody>
         ${Object.entries(bts).map(([name, s]) => {
           if (s.error) {
-            return `<tr><td colspan="11" style="padding:8px 10px;color:#ef4444">${name}: ${s.error}</td></tr>`;
+            return `<tr><td colspan="12" style="padding:8px 10px;color:#ef4444">${name}: ${s.error}</td></tr>`;
           }
-          const wrColor  = s.win_rate >= 50 ? '#22c55e' : s.win_rate >= 40 ? '#eab308' : '#ef4444';
-          const expColor = s.expectancy > 0 ? '#22c55e' : '#ef4444';
-          const pfColor  = s.profit_factor >= 1.5 ? '#22c55e' : s.profit_factor >= 1.0 ? '#eab308' : '#ef4444';
-          const ddColor  = (s.max_drawdown || 0) <= -20 ? '#ef4444' : (s.max_drawdown || 0) <= -10 ? '#eab308' : '#22c55e';
-          const eqColor  = (s.final_equity || 100) >= 120 ? '#22c55e' : (s.final_equity || 100) >= 100 ? '#eab308' : '#ef4444';
-          const regWR    = s.regime_filtered ? s.regime_filtered.win_rate : null;
-          const regColor = regWR >= 55 ? '#22c55e' : regWR >= 45 ? '#eab308' : '#ef4444';
+          const wrColor    = s.win_rate >= 50 ? '#22c55e' : s.win_rate >= 40 ? '#eab308' : '#ef4444';
+          const ddColor    = (s.max_drawdown || 0) <= -20 ? '#ef4444' : (s.max_drawdown || 0) <= -10 ? '#eab308' : '#22c55e';
+          const aColor     = (s.avg_alpha || 0) > 0 ? '#22c55e' : '#ef4444';
+          const finColor   = (s.final_equity || 100) >= (s.final_bench || 100) ? '#22c55e' : '#ef4444';
+          const fa         = s.final_alpha;
+          const faColor    = fa == null ? 'var(--text2)' : fa >= 0 ? '#22c55e' : '#ef4444';
+          const beatColor  = (s.pct_beat_bench || 0) >= 50 ? '#22c55e' : (s.pct_beat_bench || 0) >= 40 ? '#eab308' : '#ef4444';
+          const tColor     = Math.abs(s.alpha_t_stat || 0) >= 2 ? ((s.avg_alpha||0) > 0 ? '#22c55e' : '#ef4444') : 'var(--text2)';
+          const skipNote   = s.skipped_no_capital ? `<small style="color:var(--text2)"> (${s.skipped_no_capital} skip)</small>` : '';
+          // IS/OOS sub-badges
+          const isOOS  = s.is_oos || {};
+          const is_a   = isOOS.is  ? isOOS.is.avg_alpha  : null;
+          const oos_a  = isOOS.oos ? isOOS.oos.avg_alpha : null;
+          const oosV   = isOOS.verdict || '—';
+          const oosColor = oosV.startsWith('ROBUST') ? '#22c55e'
+                        : oosV.startsWith('DEGRADED') ? '#eab308'
+                        : oosV.startsWith('OVERFIT')  ? '#ef4444' : 'var(--text2)';
           return `<tr style="border-bottom:1px solid var(--border)">
-            <td style="padding:8px 10px"><strong>${name}</strong></td>
-            <td style="padding:8px 10px;text-align:right">${s.trades}</td>
-            <td style="padding:8px 10px;text-align:right;color:${wrColor};font-weight:600">${s.win_rate}%</td>
-            <td style="padding:8px 10px;text-align:right;color:#22c55e">+${s.avg_win}%</td>
-            <td style="padding:8px 10px;text-align:right;color:#ef4444">${s.avg_loss}%</td>
-            <td style="padding:8px 10px;text-align:right;color:${expColor};font-weight:600">${s.expectancy > 0 ? '+' : ''}${s.expectancy}%</td>
-            <td style="padding:8px 10px;text-align:right;color:${pfColor};font-weight:600">${s.profit_factor}</td>
-            <td style="padding:8px 10px;text-align:right">${s.avg_hold}d</td>
-            <td style="padding:8px 10px;text-align:right;color:${ddColor};font-weight:600">${(s.max_drawdown || 0).toFixed(1)}%</td>
-            <td style="padding:8px 10px;text-align:right;color:${eqColor};font-weight:600">${(s.final_equity || 100).toFixed(1)}</td>
-            <td style="padding:8px 10px;text-align:right;color:${regColor}">${regWR != null ? regWR + '%' : '—'}</td>
+            <td style="padding:8px 8px"><strong>${name}</strong></td>
+            <td style="padding:8px 8px;text-align:right">${s.trades}${skipNote}</td>
+            <td style="padding:8px 8px;text-align:right;color:${wrColor};font-weight:600">${s.win_rate}%</td>
+            <td style="padding:8px 8px;text-align:right;color:var(--text2)">${(s.avg_cost || 0).toFixed(2)}%</td>
+            <td style="padding:8px 8px;text-align:right;color:${aColor};font-weight:600">${s.avg_alpha >= 0 ? '+' : ''}${s.avg_alpha}%</td>
+            <td style="padding:8px 8px;text-align:right;color:${beatColor};font-weight:600">${s.pct_beat_bench}%</td>
+            <td style="padding:8px 8px;text-align:right">${(s.final_equity || 100).toFixed(1)}</td>
+            <td style="padding:8px 8px;text-align:right;color:var(--text2)">${s.final_bench != null ? s.final_bench.toFixed(1) : '—'}</td>
+            <td style="padding:8px 8px;text-align:right;color:${faColor};font-weight:700">${fa == null ? '—' : (fa >= 0 ? '+' : '') + fa.toFixed(1)}</td>
+            <td style="padding:8px 8px;text-align:right;color:${ddColor};font-weight:600">${(s.max_drawdown || 0).toFixed(1)}%</td>
+            <td style="padding:8px 8px;text-align:right;color:${tColor};font-weight:600">${(s.alpha_t_stat || 0).toFixed(2)}</td>
+            <td style="padding:8px 8px;font-size:11px;color:${oosColor}">
+              ${is_a != null && oos_a != null
+                ? `<span title="${oosV}">${is_a>=0?'+':''}${is_a}% → ${oos_a>=0?'+':''}${oos_a}%</span>`
+                : '—'}
+            </td>
           </tr>`;
         }).join('')}
       </tbody>
     </table>
-    <div style="margin-top:10px;font-size:12px;color:var(--text2)">
-      <strong>How to read:</strong>
-      Expectancy &gt; 0 = profitable signal · Profit Factor &gt; 1.5 = strong edge ·
-      Win Rate ≥ 45% with avg_win/avg_loss &gt; 2 = high-quality system.
+    <div style="margin-top:12px;font-size:12px;color:var(--text2);line-height:1.6">
+      <strong style="color:var(--text)">How to read:</strong>
+      <strong style="color:#22c55e">α (final) &gt; 0</strong> = strategy beat NIFTYBEES ·
+      <strong>|α t-stat| ≥ 2</strong> = statistically significant ·
+      <strong>IS→OOS ROBUST</strong> = out-of-sample alpha ≥ 50% of in-sample (not overfit).
+      All returns are NET OF COSTS, after the 20-position capital cap.
+    </div>
+
+    <!-- Tier-conditional sub-tables — does filtering by score improve alpha? -->
+    ${Object.entries(bts).filter(([_, s]) => s.by_tier).map(([name, s]) => {
+      const tiers = s.by_tier || {};
+      const tierRows = Object.entries(tiers).map(([tname, t]) => {
+        const aColor = (t.avg_alpha || 0) > 0 ? '#22c55e' : '#ef4444';
+        const faColor = t.final_alpha == null ? 'var(--text2)' : t.final_alpha >= 0 ? '#22c55e' : '#ef4444';
+        const tColor = Math.abs(t.alpha_t_stat || 0) >= 2 ? ((t.avg_alpha || 0) > 0 ? '#22c55e' : '#ef4444') : 'var(--text2)';
+        return `<tr style="border-bottom:1px solid var(--border)">
+          <td style="padding:6px 10px"><strong>${tname}</strong></td>
+          <td style="padding:6px 10px;text-align:right">${t.trades || 0}</td>
+          <td style="padding:6px 10px;text-align:right">${t.win_rate || 0}%</td>
+          <td style="padding:6px 10px;text-align:right;color:${aColor};font-weight:600">${(t.avg_alpha || 0) >= 0 ? '+' : ''}${t.avg_alpha || 0}%</td>
+          <td style="padding:6px 10px;text-align:right">${t.pct_beat_bench || 0}%</td>
+          <td style="padding:6px 10px;text-align:right;color:${faColor};font-weight:700">${t.final_alpha == null ? '—' : ((t.final_alpha>=0?'+':'') + t.final_alpha.toFixed(1))}</td>
+          <td style="padding:6px 10px;text-align:right;color:${tColor};font-weight:600">${(t.alpha_t_stat || 0).toFixed(2)}</td>
+        </tr>`;
+      }).join('');
+      return `
+        <details style="margin-top:14px;padding:10px 14px;background:var(--surface2);border:1px solid var(--border);border-radius:8px">
+          <summary style="cursor:pointer;font-size:13px;color:var(--text);font-weight:600">
+            🎯 Tier-conditional: <strong>${name}</strong> — does score-filtering help?
+          </summary>
+          <table style="width:100%;border-collapse:collapse;font-size:12px;margin-top:10px">
+            <thead><tr style="border-bottom:2px solid var(--border)">
+              <th style="padding:6px 10px;text-align:left">Tier filter</th>
+              <th style="padding:6px 10px;text-align:right">Trades</th>
+              <th style="padding:6px 10px;text-align:right">Win%</th>
+              <th style="padding:6px 10px;text-align:right">α / trade</th>
+              <th style="padding:6px 10px;text-align:right">% Beat</th>
+              <th style="padding:6px 10px;text-align:right">α (final)</th>
+              <th style="padding:6px 10px;text-align:right">α t-stat</th>
+            </tr></thead>
+            <tbody>${tierRows}</tbody>
+          </table>
+          <div style="margin-top:8px;font-size:11px;color:var(--text2)">
+            If <strong>A (≥70)</strong> shows materially higher α than <strong>All</strong> → the score has filtering value
+            even though its stand-alone IC is weak. If alpha is flat or worse → the score isn't helpful as a tier filter.
+          </div>
+        </details>`;
+    }).join('')}
+  `;
+}
+
+// ── NEW: per-component IC table — evidence base for score redesign ─────────
+function renderScoreComponents(sc) {
+  const panel = document.getElementById('edgeScoreCompPanel');
+  const body  = document.getElementById('edgeScoreCompBody');
+  if (!panel || !body) return;
+  if (!sc || sc.error || !sc.components || !sc.components.length) {
+    panel.style.display = 'none';
+    return;
+  }
+  panel.style.display = '';
+  const v = sc.verdict || '—';
+  const vColor = v.startsWith('REDESIGN') ? '#22c55e'
+              : v.startsWith('PARTIAL')   ? '#eab308'
+              : v.startsWith('PAIR')      ? '#3b82f6' : '#ef4444';
+  const bp = sc.best_pair;
+  body.innerHTML = `
+    <div style="display:flex;flex-wrap:wrap;gap:14px;margin-bottom:14px;font-size:13px">
+      <div style="background:var(--surface2);padding:10px 14px;border-radius:8px;border:1px solid var(--border)">
+        <div style="font-size:11px;color:var(--text2)">Verdict</div>
+        <div style="color:${vColor};font-weight:700;margin-top:4px">${v}</div>
+      </div>
+      <div style="background:var(--surface2);padding:10px 14px;border-radius:8px;border:1px solid var(--border)">
+        <div style="font-size:11px;color:var(--text2)">Observations</div>
+        <div style="color:var(--text);font-weight:700;margin-top:4px">${sc.n_obs} across ${sc.snapshots} snapshots · ${sc.fwd_days}d fwd</div>
+      </div>
+      ${bp ? `<div style="background:var(--surface2);padding:10px 14px;border-radius:8px;border:1px solid var(--border)">
+        <div style="font-size:11px;color:var(--text2)">Best 2-component pair</div>
+        <div style="color:${Math.abs(bp.ic)>=0.05?'#22c55e':'#eab308'};font-weight:700;margin-top:4px">${bp.f1} + ${bp.f2}: IC ${bp.ic}</div>
+      </div>` : ''}
+    </div>
+    <table style="width:100%;border-collapse:collapse;font-size:13px">
+      <thead><tr style="border-bottom:2px solid var(--border)">
+        <th style="padding:8px;text-align:left">Component (raw feature)</th>
+        <th style="padding:8px;text-align:right" title="Spearman rank correlation with forward 20-day alpha">IC</th>
+        <th style="padding:8px;text-align:right" title="Bootstrap t-stat — |t|≥2 means statistically significant">t-stat</th>
+        <th style="padding:8px;text-align:right">N obs</th>
+        <th style="padding:8px;text-align:center">Verdict</th>
+      </tr></thead>
+      <tbody>
+        ${sc.components.map(c => {
+          const vClr = c.verdict === 'STRONG'   ? '#22c55e'
+                     : c.verdict === 'MODERATE' ? '#eab308'
+                     : c.verdict === 'WEAK'     ? '#f97316' : '#ef4444';
+          const icColor = Math.abs(c.ic) >= 0.05 ? '#22c55e'
+                        : Math.abs(c.ic) >= 0.03 ? '#eab308' : 'var(--text2)';
+          const tColor  = Math.abs(c.t_stat) >= 2 ? '#22c55e'
+                        : Math.abs(c.t_stat) >= 1.5 ? '#eab308' : 'var(--text2)';
+          return `<tr style="border-bottom:1px solid var(--border)">
+            <td style="padding:8px"><strong>${c.name}</strong></td>
+            <td style="padding:8px;text-align:right;color:${icColor};font-weight:700">${(c.ic>=0?'+':'')}${c.ic}</td>
+            <td style="padding:8px;text-align:right;color:${tColor}">${(c.t_stat>=0?'+':'')}${c.t_stat}</td>
+            <td style="padding:8px;text-align:right;color:var(--text2)">${c.n}</td>
+            <td style="padding:8px;text-align:center"><span style="background:${vClr}22;color:${vClr};padding:2px 10px;border-radius:10px;font-size:11px;font-weight:600">${c.verdict}</span></td>
+          </tr>`;
+        }).join('')}
+      </tbody>
+    </table>
+    <div style="margin-top:10px;font-size:12px;color:var(--text2);line-height:1.6">
+      <strong style="color:var(--text)">How to redesign the score:</strong>
+      keep components rated <strong style="color:#22c55e">STRONG</strong> or
+      <strong style="color:#eab308">MODERATE</strong>; downweight or drop the rest.
+      A 2-component combo can often beat any single feature's IC — check the best-pair callout.
+      Then re-run a scan and see if the composite score's IC rises and quintiles become monotonic.
+    </div>
+  `;
+}
+
+// ── Phase 6: NEW — render walk-forward Score Validation (Phase 2 output) ──
+function renderScoreValidation(sv) {
+  const panel = document.getElementById('edgeScoreValPanel');
+  const body  = document.getElementById('edgeScoreValBody');
+  if (!panel || !body) return;
+  if (!sv || sv.error || !sv.quintiles || !sv.quintiles.length) {
+    panel.style.display = 'none';
+    return;
+  }
+  panel.style.display = '';
+  const v = sv.verdict || '—';
+  const vColor = v.startsWith('STRONG')   ? '#22c55e'
+              : v.startsWith('MODERATE')  ? '#eab308'
+              : v.startsWith('WEAK')      ? '#f97316' : '#ef4444';
+  const ic = sv.ic_mean || 0;
+  const ict = sv.ic_t_stat || 0;
+  const icColor = (Math.abs(ict) >= 2 && ic > 0) ? '#22c55e' : (ic > 0 ? '#eab308' : '#ef4444');
+  const spread = sv.top_minus_bot;
+  const spreadColor = spread == null ? 'var(--text2)' : spread > 0 ? '#22c55e' : '#ef4444';
+  body.innerHTML = `
+    <div style="display:flex;flex-wrap:wrap;gap:14px;margin-bottom:14px;font-size:13px">
+      <div style="background:var(--surface2);padding:10px 14px;border-radius:8px;border:1px solid var(--border)">
+        <div style="font-size:11px;color:var(--text2)">Verdict</div>
+        <div style="color:${vColor};font-weight:700;margin-top:4px">${v}</div>
+      </div>
+      <div style="background:var(--surface2);padding:10px 14px;border-radius:8px;border:1px solid var(--border)">
+        <div style="font-size:11px;color:var(--text2)">IC (mean Spearman ρ)</div>
+        <div style="color:${icColor};font-weight:700;margin-top:4px">${ic.toFixed(3)} <small style="color:var(--text2);font-weight:400">t=${ict.toFixed(2)}</small></div>
+      </div>
+      <div style="background:var(--surface2);padding:10px 14px;border-radius:8px;border:1px solid var(--border)">
+        <div style="font-size:11px;color:var(--text2)">Top Q5 − Bot Q1 alpha spread</div>
+        <div style="color:${spreadColor};font-weight:700;margin-top:4px">${spread == null ? '—' : (spread>=0?'+':'') + spread + '%'}</div>
+      </div>
+      <div style="background:var(--surface2);padding:10px 14px;border-radius:8px;border:1px solid var(--border)">
+        <div style="font-size:11px;color:var(--text2)">Snapshots × Obs</div>
+        <div style="color:var(--text);font-weight:700;margin-top:4px">${sv.snapshots_used}/${sv.snapshots_total} × ${sv.total_obs}</div>
+      </div>
+      <div style="background:var(--surface2);padding:10px 14px;border-radius:8px;border:1px solid var(--border)">
+        <div style="font-size:11px;color:var(--text2)">Monotonic?</div>
+        <div style="color:${sv.monotonic?'#22c55e':'#ef4444'};font-weight:700;margin-top:4px">${sv.monotonic?'YES — score order = alpha order':'NO — quintile alphas non-monotonic'}</div>
+      </div>
+    </div>
+    <table style="width:100%;border-collapse:collapse;font-size:13px">
+      <thead><tr style="border-bottom:2px solid var(--border)">
+        <th style="padding:8px;text-align:left">Quintile</th>
+        <th style="padding:8px;text-align:right">N</th>
+        <th style="padding:8px;text-align:right" title="Mean lightweight score in this bucket">Avg Score</th>
+        <th style="padding:8px;text-align:right" title="Avg forward 20-day raw return">Fwd Ret</th>
+        <th style="padding:8px;text-align:right" title="Avg forward 20-day excess vs NIFTYBEES">Fwd α</th>
+        <th style="padding:8px;text-align:right" title="% of observations with positive alpha">Win%</th>
+      </tr></thead>
+      <tbody>
+        ${sv.quintiles.map(q => {
+          const aColor = q.avg_alpha > 0 ? '#22c55e' : '#ef4444';
+          const wColor = q.win_rate >= 50 ? '#22c55e' : '#ef4444';
+          const label = q.q === 5 ? '🏆 Q5 (top)' : q.q === 1 ? '⬇ Q1 (bot)' : `Q${q.q}`;
+          return `<tr style="border-bottom:1px solid var(--border)">
+            <td style="padding:8px"><strong>${label}</strong></td>
+            <td style="padding:8px;text-align:right">${q.n}</td>
+            <td style="padding:8px;text-align:right">${q.avg_score}</td>
+            <td style="padding:8px;text-align:right">${q.avg_fwd_ret >= 0 ? '+' : ''}${q.avg_fwd_ret}%</td>
+            <td style="padding:8px;text-align:right;color:${aColor};font-weight:700">${q.avg_alpha >= 0 ? '+' : ''}${q.avg_alpha}%</td>
+            <td style="padding:8px;text-align:right;color:${wColor}">${q.win_rate}%</td>
+          </tr>`;
+        }).join('')}
+      </tbody>
+    </table>
+    <div style="margin-top:10px;font-size:12px;color:var(--text2);line-height:1.6">
+      <strong style="color:var(--text)">How to read:</strong>
+      A working score has <strong>Q5 alpha &gt; Q1 alpha</strong>, monotonic quintiles, IC &gt; 0.05, t-stat ≥ 2.
+      If Q5 ≤ Q1 the score is not picking winners — it's just dressing up noise.
     </div>
   `;
 }
@@ -5759,7 +6480,7 @@ function pollFundamentals() {
 let _trendData       = null;
 let _trendPollTimer  = null;
 let _trendScoreMin   = 5;
-let _trendSortCol    = 'score';
+let _trendSortCol    = 'score_with_sector';   // Tier 1D: final-rank score after sector tailwind
 let _trendSortAsc    = false;
 let _trendSpecial    = null;   // 'new_high' | 'pullback' | null
 let _trendCritFilt   = new Set();  // indices 0-9 that must be true
@@ -5967,14 +6688,41 @@ function trendSort(col) {
 }
 
 // ── Main render ─────────────────────────────────────────────────
+// Tier 3I: preset state — applied on top of normal filters.
+let _trendPreset = 'all';
+
+function trendApplyPreset(name) {
+  _trendPreset = name;
+  ['all','breakout','quiet','institutional','leader','fresh'].forEach(k => {
+    const el = document.getElementById('trendPS-' + (k === 'institutional' ? 'inst' : k));
+    if (!el) return;
+    const on = k === name;
+    el.style.cssText += `;background:${on?'var(--accent)':'var(--surface2)'};color:${on?'#fff':'var(--text2)'};border-color:${on?'var(--accent)':'var(--border)'}`;
+  });
+  // Brief explanation under the chips
+  const explain = {
+    'all':           '',
+    'breakout':      'Score ≥ 8 · new 52W high in last 5d · vol > 1.5×',
+    'quiet':         'Score ≥ 9 · at MA20 support · top-15 sector',
+    'institutional': 'Score ≥ 7 · MFI ≥ 75 · delivery rising',
+    'leader':        'Score 10/10 · sector rank ≤ 5',
+    'fresh':         'Fresh Stage 2 entry (≤ 10d) · score ≥ 7',
+  };
+  const elx = document.getElementById('trendPresetExplain');
+  if (elx) elx.textContent = explain[name] || '';
+  trendRender();
+}
+
 function trendRender() {
   if (!_trendData) return;
   const search = (document.getElementById('trendSearch').value || '').toUpperCase().trim();
   const sector = document.getElementById('trendSectorFilter').value;
   const labels = _trendData.criteria_labels || [];
+  const weights = _trendData.criteria_weights || [];
 
   let rows = (_trendData.stocks || []).filter(r => {
-    if (r.score < _trendScoreMin) return false;
+    // Score filter — uses score_int (boolean-count, legacy semantics)
+    if ((r.score_int ?? r.score) < _trendScoreMin) return false;
     if (sector && r.sector !== sector) return false;
     if (search && !r.symbol.includes(search)) return false;
     if (_trendSpecial === 'new_high'  && !r.new_high_flag) return false;
@@ -5983,9 +6731,30 @@ function trendRender() {
       const c = r.criteria || [];
       for (const idx of _trendCritFilt) { if (!c[idx]) return false; }
     }
+    // Tier 3I: preset filters
+    if (_trendPreset === 'breakout') {
+      if ((r.score_int ?? r.score) < 8) return false;
+      if (!r.new_high_flag || (r.new_high_days != null && r.new_high_days > 5)) return false;
+      if (r.vol_ratio == null || r.vol_ratio < 1.5) return false;
+    } else if (_trendPreset === 'quiet') {
+      if ((r.score_int ?? r.score) < 9) return false;
+      if (!r.at_support) return false;
+      if (r.sector_rank == null || r.sector_rank > 15) return false;
+    } else if (_trendPreset === 'institutional') {
+      if ((r.score_int ?? r.score) < 7) return false;
+      if (r.mfi == null || r.mfi < 75) return false;
+      if (r.delivery_trend !== 'Rising') return false;
+    } else if (_trendPreset === 'leader') {
+      if ((r.score_int ?? r.score) < 10) return false;
+      if (r.sector_rank == null || r.sector_rank > 5) return false;
+    } else if (_trendPreset === 'fresh') {
+      if ((r.score_int ?? r.score) < 7) return false;
+      if (!r.fresh_stage2) return false;
+    }
     return true;
   });
 
+  // Default sort: score_with_sector desc (already done server-side, this is for resort)
   rows = [...rows].sort((a, b) => {
     let va = a[_trendSortCol], vb = b[_trendSortCol];
     if (typeof va === 'string') return _trendSortAsc ? va.localeCompare(vb) : vb.localeCompare(va);
@@ -6000,58 +6769,118 @@ function trendRender() {
   const pf  = (v, d=1) => v == null ? '—' : (v >= 0 ? '+' : '') + v.toFixed(d) + '%';
   const num = v  => v  == null ? '—' : v;
 
-  const scoreColor = s =>
-    s === 10 ? '#f59e0b' : s >= 8 ? '#10b981' : s >= 6 ? '#60a5fa' : '#94a3b8';
-
+  // Score color — works for fractional weighted scores
+  const scoreColor = s => s >= 9.5 ? '#f59e0b' : s >= 8 ? '#10b981' : s >= 6 ? '#60a5fa' : '#94a3b8';
   const LABELS = labels.length ? labels : Array.from({length:10},(_,i)=>'C'+(i+1));
 
-  const dots = criteria => criteria.map((v, i) =>
-    `<span title="${LABELS[i]}"
-      style="display:inline-block;width:8px;height:8px;border-radius:50%;
-             background:${v?'#10b981':'#ef4444'};margin:0 1px 0 0"></span>`
-  ).join('');
+  // Weighted criteria dots — size scaled by weight, hover shows weight info
+  const dots = (criteria, c7score) => criteria.map((v, i) => {
+    const w = weights[i] || 1.0;
+    const sz = Math.round(6 + w * 1.5);     // weight 0.5 → 7px, weight 2.0 → 9px
+    let bg = v ? '#10b981' : '#ef4444';
+    // Criterion 7 (accumulation) has a 3-state representation
+    if (i === 6 && c7score != null) {
+      if (c7score > 0)      bg = '#10b981';   // accumulation
+      else if (c7score < 0) bg = '#ef4444';   // distribution — RED with bigger penalty
+      else                  bg = '#94a3b8';   // neutral
+    }
+    return `<span title="${LABELS[i]} (weight ${w})"
+              style="display:inline-block;width:${sz}px;height:${sz}px;border-radius:50%;
+                     background:${bg};margin:0 1px 0 0"></span>`;
+  }).join('');
+
+  // MFI chip — same band coloring as VVV tab
+  const mfiCell = (mfi, label) => {
+    if (mfi == null) return '<span style="color:var(--muted)">—</span>';
+    let col, bg;
+    if (mfi >= 80)      { col = '#10b981';      bg = 'rgba(16,185,129,.20)'; }
+    else if (mfi >= 65) { col = '#22c55e';      bg = 'rgba(34,197,94,.15)'; }
+    else if (mfi >= 40) { col = 'var(--text2)'; bg = 'rgba(120,120,120,.10)'; }
+    else if (mfi >= 25) { col = '#fb923c';      bg = 'rgba(251,146,60,.15)'; }
+    else                { col = '#ef4444';      bg = 'rgba(239,68,68,.20)'; }
+    return `<span title="${label || ''}" style="display:inline-block;padding:2px 8px;border-radius:10px;background:${bg};color:${col};font-family:var(--mono);font-weight:700;font-size:11px">${mfi.toFixed(0)}</span>`;
+  };
+
+  // Tier 2G: Trend age sweet-spot coloring
+  const ageCell = (age, bucket) => {
+    if (age == null || age <= 0) return '<span style="color:var(--muted)">—</span>';
+    let col, bg, icon;
+    if (bucket === 'fresh')       { col = '#10b981'; bg = 'rgba(16,185,129,.20)'; icon = '🆕'; }
+    else if (bucket === 'prime')  { col = '#22c55e'; bg = 'rgba(34,197,94,.10)';  icon = '🟢'; }
+    else if (bucket === 'mature') { col = '#f59e0b'; bg = 'rgba(245,158,11,.10)'; icon = '🟡'; }
+    else if (bucket === 'extended') { col = '#fb923c'; bg = 'rgba(251,146,60,.15)'; icon = '🟠'; }
+    else                          { col = 'var(--muted)'; bg = 'transparent'; icon = ''; }
+    return `<span style="display:inline-block;padding:1px 6px;border-radius:8px;background:${bg};color:${col};font-size:11px;font-family:var(--mono)" title="${bucket || ''} (0-10d fresh, 10-60d prime, 60-180d mature, 180+ extended)">${icon} ${age}d</span>`;
+  };
+
+  // Sector cell — show sector + tailwind multiplier
+  const sectorCell = r => {
+    const sec = r.sector || '—';
+    const tw = r.sector_tailwind ?? 0;
+    const rk = r.sector_rank;
+    let twTxt = '';
+    if (rk != null) {
+      const col = tw >= 0.15 ? '#10b981' : tw >= 0.05 ? '#60a5fa' : 'var(--muted)';
+      twTxt = `<span style="color:${col};font-size:10px;font-family:var(--mono);margin-left:4px" title="Sector rank ${rk}, tailwind +${(tw*100).toFixed(0)}%">#${rk}</span>`;
+    }
+    return `<span style="color:var(--text2);font-size:11px">${sec}</span>${twTxt}`;
+  };
 
   const adxColor = v => v == null ? 'var(--muted)' : v >= 40 ? '#10b981' : v >= 25 ? '#f59e0b' : '#ef4444';
   const r2Color  = v => v == null ? 'var(--muted)' : v >= 0.8 ? '#10b981' : v >= 0.5 ? '#f59e0b' : 'var(--muted)';
 
   const tbody = document.getElementById('trendTbody');
   if (!rows.length) {
-    tbody.innerHTML = '<tr><td colspan="17" style="padding:30px;text-align:center;color:var(--muted)">No stocks match the current filters.</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="16" style="padding:30px;text-align:center;color:var(--muted)">No stocks match the current filters.</td></tr>';
     return;
   }
 
   tbody.innerHTML = rows.map(r => {
-    const flags = [
+    // Tier 2H: Stage 2 fresh-entry badge + existing flags
+    const badges = [
+      r.fresh_stage2 ? `<span style="font-size:10px;padding:2px 6px;border-radius:8px;background:#10b98140;color:#10b981;border:1px solid #10b98199;font-weight:700" title="Just transitioned into Stage 2 in last ${r.stage_log_days_ago}d (from S${r.stage_log_prev})">🆕 Fresh S2</span>` : '',
       r.new_high_flag ? `<span style="font-size:10px;padding:2px 6px;border-radius:8px;background:#10b98122;color:#10b981;border:1px solid #10b98155" title="New 52W high in last ${r.new_high_days} session(s)">🆕 New High</span>` : '',
       r.at_support    ? `<span style="font-size:10px;padding:2px 6px;border-radius:8px;background:#f59e0b22;color:#f59e0b;border:1px solid #f59e0b55" title="Price at MA20 support — potential entry">🎯 Support</span>` : '',
-      r.hh_hl         ? `<span style="font-size:10px;padding:2px 6px;border-radius:8px;background:#60a5fa22;color:#60a5fa;border:1px solid #60a5fa55">HH/HL</span>` : '',
     ].filter(Boolean).join(' ');
 
-    const trendAgeLabel = r.trend_age >= 60 ? `<span style="color:#10b981">${r.trend_age}d</span>`
-                        : r.trend_age >= 20 ? `<span style="color:#f59e0b">${r.trend_age}d</span>`
-                        : `<span style="color:var(--muted)">${r.trend_age}d</span>`;
+    // Tier 3K: inline "don't-buy" warnings
+    const warningHtml = (r.warnings || []).map(w =>
+      `<span style="font-size:10px;padding:2px 6px;border-radius:8px;background:#ef444422;color:#ef4444;border:1px solid #ef444455" title="${w}">${w}</span>`
+    ).join(' ');
+
+    const flagsCell = [badges, warningHtml].filter(Boolean).join(' ');
+
+    // Display the RAW weighted score (0-10) — never exceed 10.
+    // The sector tailwind tilts the RANKING (via score_with_sector used as
+    // sort key) but is NOT shown as a multiplied score number — that would
+    // produce "12.0/10" which is nonsensical UX. Sector rank chip in the
+    // Sector column (e.g. "#1") conveys the tailwind benefit already.
+    const displayScore = Math.min(10, r.score ?? 0);
+    const scoreTitle = r.sector_tailwind
+      ? `Score ${(r.score ?? 0).toFixed(1)}/10 — ranked ${r.sector_rank ? '#' + r.sector_rank : ''} in sector (+${(r.sector_tailwind*100).toFixed(0)}% tailwind applied to sort)`
+      : `Score ${(r.score ?? 0).toFixed(1)}/10`;
 
     return `<tr style="border-bottom:1px solid var(--border)"
         onmouseover="this.style.background='var(--surface2)'"
         onmouseout="this.style.background=''">
       <td style="padding:7px 10px;color:var(--muted);font-family:var(--mono);font-size:11px">#${r.rank}</td>
       <td style="padding:7px 10px;font-weight:700;color:var(--white);white-space:nowrap">${r.symbol}</td>
-      <td style="padding:7px 10px;font-size:11px;color:var(--text2);max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${r.sector}</td>
-      <td style="padding:7px 10px;text-align:center">
-        <span style="font-size:13px;font-weight:800;color:${scoreColor(r.score)}">${r.score}/10</span>
+      <td style="padding:7px 10px;max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${sectorCell(r)}</td>
+      <td style="padding:7px 10px;text-align:center" title="${scoreTitle}">
+        <span style="font-size:14px;font-weight:800;color:${scoreColor(displayScore)};font-family:var(--mono)">${displayScore.toFixed(1)}/10</span>
       </td>
-      <td style="padding:7px 10px">${dots(r.criteria || [])}</td>
+      <td style="padding:7px 10px">${dots(r.criteria || [], r.c7_score)}</td>
+      <td style="padding:7px 10px;text-align:center">${mfiCell(r.mfi, r.mfi_label)}</td>
       <td style="padding:7px 10px;font-family:var(--mono)">₹${r.price}</td>
       <td style="padding:7px 10px;font-family:var(--mono);color:${pc(r.pct_from_high)}">${pf(r.pct_from_high)}</td>
       <td style="padding:7px 10px;font-family:var(--mono);font-weight:700;color:${adxColor(r.adx)}">${num(r.adx)}</td>
-      <td style="padding:7px 10px;font-family:var(--mono);color:${r.vol_ratio!=null&&r.vol_ratio>1?'var(--green)':'var(--muted)'}">${r.vol_ratio != null ? r.vol_ratio + 'x' : '—'}</td>
       <td style="padding:7px 10px;font-family:var(--mono);color:${pc(r.r1m)}">${pf(r.r1m)}</td>
       <td style="padding:7px 10px;font-family:var(--mono);color:${pc(r.r3m)}">${pf(r.r3m)}</td>
       <td style="padding:7px 10px;font-family:var(--mono);font-weight:700;color:${pc(r.rs_composite)}">${pf(r.rs_composite)}</td>
-      <td style="padding:7px 10px;font-family:var(--mono)">${trendAgeLabel}</td>
+      <td style="padding:7px 10px;font-family:var(--mono)">${ageCell(r.trend_age, r.age_bucket)}</td>
       <td style="padding:7px 10px;font-family:var(--mono);color:${r.avg_deliv!=null&&r.avg_deliv>50?'var(--green)':'var(--text2)'}">${r.avg_deliv != null ? r.avg_deliv + '%' : '—'}</td>
       <td style="padding:7px 10px;font-family:var(--mono);color:${r2Color(r.r_squared)}">${r.r_squared != null ? r.r_squared.toFixed(2) : '—'}</td>
-      <td style="padding:7px 10px">${flags}</td>
+      <td style="padding:7px 10px"><div class="trend-flags">${flagsCell || '<span style="color:var(--muted)">—</span>'}</div></td>
     </tr>`;
   }).join('');
 }

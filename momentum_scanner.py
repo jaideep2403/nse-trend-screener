@@ -95,7 +95,16 @@ def _load_all_stocks(progress_callback=None) -> dict[str, pd.DataFrame]:
 # ── Per-stock metric computation ──────────────────────────────────────────────
 
 def _metrics(symbol: str, df: pd.DataFrame) -> dict | None:
-    """Compute all momentum metrics for one stock. Returns None if filtered out."""
+    """Compute all momentum metrics for one stock. Returns None if filtered out.
+
+    NEW (Tier 1B/1C):
+      - vol_ann_pct       — annualised volatility (stdev of daily returns × √252)
+      - sharpe_3m         — risk-adjusted momentum: r3m / vol_ann_pct
+      - max_dd_6m         — biggest peak-to-trough drawdown over last 126 bars
+      - r_squared         — R² of log-price linear regression (trend smoothness)
+      - streak_up_weeks   — number of up-weeks out of last 12
+    """
+    import numpy as np
     try:
         close = df["Close"].dropna()
         vol   = df["Volume"].dropna()
@@ -138,17 +147,117 @@ def _metrics(symbol: str, df: pd.DataFrame) -> dict | None:
         ma200 = float(close.rolling(200).mean().iloc[-1]) if len(close) >= 200 else None
 
         # ── Trend strength: count of last 20 closes above MA50 ────────────────
-        # BUG-032 FIX: renamed from `above_streak` to `above_count` since the
-        # value is a non-contiguous count (sum of booleans), not a streak.
         if ma50 is not None:
             above_count = int((close.iloc[-20:] > close.rolling(50).mean().iloc[-20:]).sum())
         else:
             above_count = 0
-        above_streak = above_count  # kept for backward compatibility with old UI/consumers
+        above_streak = above_count  # kept for backward compatibility
 
         # ── Stage & trend ─────────────────────────────────────────────────────
         stg     = stage_analysis(close)
         stg_lbl = stage_label(stg)
+
+        # ── Tier 1B: annualised volatility (6-month window) ──────────────────
+        # Stdev of daily LOG returns over last 126 bars, scaled by √252.
+        # Log returns avoid the asymmetry of percentage returns at high vol.
+        try:
+            log_ret = np.log(close.iloc[-126:] / close.iloc[-127:-1].values).dropna()
+            vol_ann_pct = float(log_ret.std() * np.sqrt(252) * 100)
+        except Exception:
+            vol_ann_pct = None
+
+        # ── Tier 1B: Sharpe-like quality score (return / volatility) ─────────
+        # Higher is better. r3m / vol_ann_pct gives "return per unit of risk".
+        # A stock with 30% return and 15% vol scores 2.0; same return with 60%
+        # vol scores 0.5. Empirically validated as one of the strongest
+        # momentum-quality enhancers (Asness, Moskowitz, Pedersen 2013).
+        if vol_ann_pct and vol_ann_pct > 1.0:
+            sharpe_3m = round(r3m / vol_ann_pct, 2)
+        else:
+            sharpe_3m = None
+
+        # ── Tier 1C: max drawdown over last 6 months ─────────────────────────
+        # Biggest peak-to-trough decline as a NEGATIVE percentage. A stock at
+        # -10% has shallow DD = high quality momentum; -40% means the move
+        # was preceded by a near-collapse = lower quality.
+        try:
+            s = close.iloc[-126:] if len(close) >= 126 else close
+            running_max = s.cummax()
+            dd_series = (s - running_max) / running_max * 100
+            max_dd_6m = round(float(dd_series.min()), 1)   # most-negative value
+        except Exception:
+            max_dd_6m = None
+
+        # ── Tier 1A: R² of log-price linear regression (trend smoothness) ───
+        # Higher R² = stock compounded smoothly. R² of 0.5+ means a clear
+        # uptrend; below 0.3 is jagged / mean-reverting.
+        try:
+            n = min(66, len(close))
+            y = np.log(close.iloc[-n:].values)
+            x = np.arange(len(y))
+            if np.all(np.isfinite(y)):
+                slope, intercept = np.polyfit(x, y, 1)
+                pred = slope * x + intercept
+                ss_res = float(((y - pred) ** 2).sum())
+                ss_tot = float(((y - y.mean()) ** 2).sum())
+                r_squared = round(max(0.0, min(1.0, 1 - ss_res / ss_tot)), 3) if ss_tot > 0 else None
+            else:
+                r_squared = None
+        except Exception:
+            r_squared = None
+
+        # ── Streak: number of UP weeks out of last 12 ────────────────────────
+        # Persistence signal — sustained momentum beats one-week moonshots.
+        try:
+            if isinstance(close.index, pd.DatetimeIndex):
+                weekly = close.resample("W-FRI").last().dropna()
+                if len(weekly) >= 13:
+                    last_12 = weekly.iloc[-13:]   # 13 closes give 12 weekly changes
+                    streak_up_weeks = int((last_12.diff().dropna() > 0).sum())
+                else:
+                    streak_up_weeks = None
+            else:
+                streak_up_weeks = None
+        except Exception:
+            streak_up_weeks = None
+
+        # ── 🌋 IGNITION: young leader breaking out on volume (EARLY signal) ───
+        # Trailing momentum (r1m/r3m/r6m) only ranks a stock AFTER it has moved.
+        # By the time it's 🔥 Elite, 80-90% of the move is gone. Ignition catches
+        # the START: a fresh multi-week high on expanding volume while the short
+        # trend is rising — the footprint of institutional accumulation. This is
+        # what would have surfaced MTARTECH / STLTECH months before the Elite badge.
+        #   • new 50-bar closing high within the last 5 sessions
+        #   • volume expanding (vol_ratio ≥ 1.5 = 10d avg vs 50d avg)
+        #   • price above a RISING 20-day MA (trend intact, not a dead-cat bounce)
+        # `bars_available` exposes stock age so the UI can rank youngest (= most
+        # asymmetric upside) first. NOTE: the r6m gate above means nothing younger
+        # than ~126 bars reaches here — the very-young IPO phase needs a dedicated
+        # 50-bar scanner, which this intentionally does not replace.
+        bars_available    = len(close)
+        ignition_days_ago = None
+        vol_surge         = bool(vol_ratio >= 1.5)
+        try:
+            ma20_series = close.rolling(20).mean()
+            ma20_now    = float(ma20_series.iloc[-1])
+            ma20_prev   = float(ma20_series.iloc[-11]) if len(close) >= 31 else ma20_now
+            above_rising_ma20 = cur > ma20_now and ma20_now > ma20_prev
+            # Most-recent new-50-bar-high breakout within the last 10 sessions
+            for back in range(0, min(10, len(close) - 51) + 1):
+                idx = len(close) - 1 - back
+                if idx < 50:
+                    break
+                if close.iloc[idx] > float(close.iloc[idx-50:idx].max()):
+                    ignition_days_ago = back
+                    break
+        except Exception:
+            above_rising_ma20 = False
+        igniting = bool(
+            ignition_days_ago is not None
+            and ignition_days_ago <= 5
+            and vol_surge
+            and above_rising_ma20
+        )
 
         return {
             "symbol":         symbol,
@@ -167,8 +276,20 @@ def _metrics(symbol: str, df: pd.DataFrame) -> dict | None:
             "stage":          stg,
             "stage_lbl":      stg_lbl,
             "group":          _SYM_TO_GROUP.get(symbol, ""),
+            # ── NEW: Tier 1A/1B/1C quality metrics ───────────────────────────
+            "vol_ann_pct":    round(vol_ann_pct, 1) if vol_ann_pct is not None else None,
+            "sharpe_3m":      sharpe_3m,
+            "max_dd_6m":      max_dd_6m,
+            "r_squared":      r_squared,
+            "streak_up":      streak_up_weeks,
+            # ── 🌋 Ignition (early-breakout) signal ──────────────────────────
+            "igniting":          igniting,
+            "ignition_days_ago": ignition_days_ago,
+            "vol_surge":         vol_surge,
+            "bars_available":    bars_available,
             # Filled after ranking:
             "score":          0.0,
+            "quality_score":  0.0,
             "rs_rating":      50,
             "tier":           "",
         }
@@ -218,29 +339,62 @@ def run_momentum_scan(progress_callback=None) -> dict:
     df = pd.DataFrame(raw)
 
     def _prank(col: str) -> pd.Series:
+        """Forward percentile rank (higher value → higher rank, 0-100)."""
         return df[col].rank(pct=True) * 100
+
+    def _prank_inv(col: str) -> pd.Series:
+        """Inverted percentile rank (SMALLER value → higher rank, 0-100).
+        Used for max_dd_6m where -10% is BETTER than -40%."""
+        return (1 - df[col].rank(pct=True)) * 100
 
     r1m_rank = _prank("r1m")
     r3m_rank = _prank("r3m")
     r6m_rank = _prank("r6m")
     vol_rank = _prank("vol_ratio")
+    r2_rank  = _prank("r_squared").fillna(50.0)            # smoother = higher rank
+    dd_rank  = _prank_inv("max_dd_6m").fillna(50.0)        # smaller DD = higher rank
 
     # RS Rating = percentile rank of 3M return (matches IBD convention)
     df["rs_rating"] = r3m_rank.round(0).astype(int).clip(1, 99)
 
-    # Composite momentum score
+    # ── Tier 1A: REWEIGHTED composite (was 40/30/20/10, now 15/30/25/10/10/10).
+    # Cuts the 1M noise dominance (40 → 15%), boosts longer-horizon weight
+    # (3M → 30, 6M → 25), and introduces two quality dimensions:
+    #   • R² (trend smoothness)  — 10%
+    #   • Drawdown control       — 10%  (smaller max DD = higher contribution)
     df["score"] = (
-        0.40 * r1m_rank +
+        0.15 * r1m_rank +
         0.30 * r3m_rank +
-        0.20 * r6m_rank +
-        0.10 * vol_rank
+        0.25 * r6m_rank +
+        0.10 * vol_rank +
+        0.10 * r2_rank +
+        0.10 * dd_rank
     ).round(1)
 
-    # ── Tier labels ───────────────────────────────────────────────────────────
+    # ── Tier 1B: Quality (Sharpe-like) score — separate from raw momentum.
+    # Stocks with same return but lower vol get a HIGHER quality score.
+    # Displayed alongside Momentum Score so user sees both axes.
+    if "sharpe_3m" in df.columns:
+        sharpe_clean = df["sharpe_3m"].fillna(df["sharpe_3m"].median() if df["sharpe_3m"].notna().any() else 0)
+        df["quality_score"] = (sharpe_clean.rank(pct=True) * 100).round(1)
+    else:
+        df["quality_score"] = 50.0
+
+    # ── Tier 1C: DRAWDOWN GATE on Elite tier ─────────────────────────────
+    # Elite tier requires max_dd_6m > -25%. Stocks rallying from deep
+    # drawdowns rarely sustain — demote them to Strong even if their raw
+    # momentum percentile is in the top 15%.
+    MAX_DD_FOR_ELITE = -25.0
+
     def _tier(row) -> str:
         s, rs = row["score"], row["rs_rating"]
-        if s >= 85 and rs >= 80:
+        dd = row.get("max_dd_6m")
+        # Elite: top momentum + top RS + decent drawdown control
+        if s >= 85 and rs >= 80 and (dd is None or dd >= MAX_DD_FOR_ELITE):
             return "Elite"
+        # Top momentum + RS but big drawdown: demote to Strong
+        if s >= 85 and rs >= 80:
+            return "Strong"   # demoted from Elite due to DD
         if s >= 70:
             return "Strong"
         if s >= 55:
@@ -252,11 +406,55 @@ def run_momentum_scan(progress_callback=None) -> dict:
     # ── Sort and output ───────────────────────────────────────────────────────
     df = df.sort_values("score", ascending=False).reset_index(drop=True)
 
+    # ── Tier 2F: update momentum_freshness log + attach per-row freshness ────
+    # After tier assignment, push the {symbol: tier} map into the SQLite log
+    # so we know WHEN each stock entered its current tier. Then read back the
+    # per-symbol days_in / bucket and attach to each row for the UI.
+    stocks_list = df.to_dict(orient="records")
+    try:
+        from momentum_freshness import update_all as _fresh_update, get_freshness_map
+        # Update log with today's tier assignments
+        tier_map = {r["symbol"]: r.get("tier") or "" for r in stocks_list}
+        upd = _fresh_update(tier_map)
+        if progress_callback:
+            progress_callback(total_stocks, total_stocks,
+                              f"Freshness log: {upd.get('updated', 0)} updates, "
+                              f"{upd.get('transitioned', 0)} tier transitions")
+        # Bulk fetch freshness data for every result row
+        freshness = get_freshness_map([r["symbol"] for r in stocks_list])
+        for r in stocks_list:
+            f = freshness.get(r["symbol"], {})
+            r["freshness_days_in"] = f.get("days_in")
+            r["freshness_bucket"]  = f.get("bucket")
+            r["freshness_label"]   = f.get("label")
+            r["freshness_since"]   = f.get("since_date")
+            r["freshness_prev"]    = f.get("prev_tier")
+            # Convenience flag: "Fresh Elite" = entered Elite in last 10 days
+            r["fresh_elite"] = bool(
+                r.get("tier") == "Elite"
+                and f.get("days_in") is not None
+                and f.get("days_in") <= 10
+                and f.get("prev_tier") is not None
+                and f.get("prev_tier") != "Elite"
+            )
+    except Exception as _e:
+        # Freshness module not available — set safe defaults
+        for r in stocks_list:
+            r["freshness_days_in"] = None
+            r["freshness_bucket"]  = None
+            r["freshness_label"]   = None
+            r["fresh_elite"]       = False
+
     out = {
-        "stocks":          df.to_dict(orient="records"),
+        "stocks":          stocks_list,
         "computed_at":     int(time.time()),
         "total_scanned":   total_stocks,
         "total_qualified": len(raw),
+        # Tier 1A: expose weights so UI can show them on hover
+        "score_weights":   {"r1m": 0.15, "r3m": 0.30, "r6m": 0.25,
+                            "vol_ratio": 0.10, "r_squared": 0.10, "drawdown": 0.10},
+        # Tier 1C: expose drawdown threshold for UI labelling
+        "max_dd_for_elite": MAX_DD_FOR_ELITE,
     }
     _cache["data"] = out
     _cache["ts"]   = time.time()

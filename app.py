@@ -29,6 +29,8 @@ from advanced_scanner import run_advanced_scan
 from market_breadth import run_market_breadth
 from industry_groups import run_industry_analysis, run_rrg_analysis
 from momentum_scanner import run_momentum_scan
+import emerging_leaders as emerging_leaders_mod
+from emerging_leaders import run_emerging_leaders_scan, invalidate_cache as invalidate_emerging_cache
 from early_mover_scanner import run_early_mover_scan
 from volume_scanner import run_volume_scan
 from edge_engine import run_edge_engine, detect_exit_signals, _load_stocks, invalidate_cache as invalidate_edge_cache
@@ -39,6 +41,32 @@ from fundamentals import (cache_status as fund_cache_status,
                           start_background_scheduler)
 
 app = Flask(__name__)
+
+# ── Safe JSON: convert NaN/Inf → null so responses are valid JSON ─────────────
+# Python's json (and Flask's default provider) emit bare `NaN`/`Infinity` tokens,
+# which are NOT valid JSON — browsers' JSON.parse()/fetch().json() reject them
+# with "Unexpected token 'N'". This bites any scanner that round-trips data
+# through a pandas DataFrame: None values in a numeric column become float NaN
+# (df.to_dict()), then serialize as `NaN`. A single global provider fixes every
+# endpoint at once (momentum, emerging, trending, edge, …) instead of patching
+# each scanner. Cost is one shallow recursive pass per response (negligible).
+import math as _math
+from flask.json.provider import DefaultJSONProvider as _DefaultJSONProvider
+
+def _json_safe(o):
+    if isinstance(o, float):
+        return None if (_math.isnan(o) or _math.isinf(o)) else o
+    if isinstance(o, dict):
+        return {k: _json_safe(v) for k, v in o.items()}
+    if isinstance(o, (list, tuple)):
+        return [_json_safe(v) for v in o]
+    return o
+
+class _SafeJSONProvider(_DefaultJSONProvider):
+    def dumps(self, obj, **kwargs):
+        return super().dumps(_json_safe(obj), **kwargs)
+
+app.json = _SafeJSONProvider(app)
 
 # ── LOCAL-ONLY: Personal Portfolio (gitignored) ───────────────────────────────
 # Gracefully no-op if portfolio.py is missing (e.g. on EC2 deploy from GitHub).
@@ -693,6 +721,67 @@ def start_momentum_scan():
 def momentum_status():
     with momentum_lock:
         s = dict(momentum_state)
+    pct = round(s["progress"] / s["total"] * 100, 1) if s["total"] > 0 else 0
+    return jsonify({
+        "running": s["running"],
+        "pct":     pct,
+        "message": s["message"],
+        "result":  s["result"],
+        "error":   s["error"],
+    })
+
+
+# ── Emerging Leaders scanner state ────────────────────────────────────────────
+emerging_state = {
+    "running": False, "result": None, "error": None,
+    "progress": 0, "total": 0, "message": "", "started_at": None,
+}
+emerging_lock = threading.Lock()
+
+
+def do_emerging_scan():
+    def progress_cb(done, total, msg):
+        with emerging_lock:
+            emerging_state["progress"] = done
+            emerging_state["total"]    = total
+            emerging_state["message"]  = msg
+    try:
+        with _scan_semaphore:
+            result = run_emerging_leaders_scan(progress_callback=progress_cb)
+        with emerging_lock:
+            emerging_state["result"]  = result
+            emerging_state["running"] = False
+    except Exception as e:
+        with emerging_lock:
+            emerging_state["error"]   = str(e)
+            emerging_state["running"] = False
+
+
+@app.route("/api/emerging/scan", methods=["POST"])
+def start_emerging_scan():
+    with emerging_lock:
+        if emerging_state["running"]:
+            return jsonify({"status": "already_running"}), 409
+        emerging_state.update({
+            "running": True, "result": None, "error": None,
+            "progress": 0, "total": 0, "message": "",
+            "started_at": time.time(),
+        })
+    threading.Thread(target=do_emerging_scan, daemon=True).start()
+    return jsonify({"status": "started"})
+
+
+@app.route("/api/emerging/status")
+def emerging_status():
+    with emerging_lock:
+        s = dict(emerging_state)
+    # Fall back to module cache if no in-memory result yet (e.g. pre-warmed)
+    if s["result"] is None and not s["running"]:
+        try:
+            if emerging_leaders_mod._cache.get("data"):
+                s["result"] = emerging_leaders_mod._cache["data"]
+        except Exception:
+            pass
     pct = round(s["progress"] / s["total"] * 100, 1) if s["total"] > 0 else 0
     return jsonify({
         "running": s["running"],
@@ -1753,6 +1842,7 @@ def _bhavcopy_scheduler():
                     "breakout_scanner",
                     "volume_scanner",
                     "momentum_scanner",
+                    "emerging_leaders",
                     "advanced_scanner",
                     "institutional_scanner",
                     "multiyear_breakout",
@@ -1787,6 +1877,7 @@ def _bhavcopy_scheduler():
                         ("edge",         "edge_engine",            "run_edge_engine"),
                         ("breakout",     "breakout_scanner",       "run_breakout_scan"),
                         ("momentum",     "momentum_scanner",       "run_momentum_scan"),
+                        ("emerging",     "emerging_leaders",       "run_emerging_leaders_scan"),
                         ("volume",       "volume_scanner",         "run_volume_scan"),
                         ("early_mover",  "early_mover_scanner",    "run_early_mover_scan"),
                         ("advanced",     "advanced_scanner",       "run_advanced_scan"),
