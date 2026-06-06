@@ -172,11 +172,18 @@ def _lightweight_score(close: pd.Series, vol: pd.Series,
 # ── Cache ─────────────────────────────────────────────────────────────────────
 _cache    = {"data": None, "ts": 0}
 CACHE_TTL = 1800  # 30 min
+# Separate cache for the HEAVY on-demand backtest result (survivorship-free
+# walk-forward). Kept apart from the routine scan so backtests never block or
+# slow the fast regime+ranking path. Backtests change slowly → long TTL.
+_bt_cache    = {"data": None, "ts": 0}
+BT_CACHE_TTL = 6 * 3600  # 6 h
 
 def invalidate_cache():
-    """Force-clear the edge engine cache so the next run always re-scores from scratch."""
+    """Force-clear the edge engine caches so the next run always re-scores from scratch."""
     _cache["data"] = None
     _cache["ts"]   = 0
+    _bt_cache["data"] = None
+    _bt_cache["ts"]   = 0
 
 # ── Symbol → Group lookup ─────────────────────────────────────────────────────
 _SYM_TO_GROUP: dict[str, str] = {}
@@ -1443,13 +1450,99 @@ def _signal_coiled_spring(df: pd.DataFrame, i: int) -> bool:
 # MAIN ENTRY — full edge engine run
 # ──────────────────────────────────────────────────────────────────────────────
 
-def run_edge_engine(progress_callback=None) -> dict:
+def _compute_backtests(stocks, stocks_all, nifty, progress_callback=None):
+    """HEAVY: survivorship-free walk-forward backtests + score validation +
+    per-component IC. Extracted from run_edge_engine so it runs ONLY on the
+    on-demand backtest path, never on the routine scan / pre-warm.
+    Returns (backtests, score_validation, score_components)."""
+    if progress_callback:
+        progress_callback(85, 100,
+                          f"Backtesting + tier-conditional on {len(stocks_all)} symbols…")
+    backtests = {}
+    SUMMARY_KEYS = ["trades", "candidates", "skipped_no_capital",
+                    "win_rate", "avg_alpha", "pct_beat_bench",
+                    "final_equity", "final_bench", "final_alpha",
+                    "max_drawdown", "alpha_t_stat", "expectancy"]
+    def _summary(bt: dict) -> dict:
+        return {k: bt.get(k) for k in SUMMARY_KEYS}
+
+    for name, fn in (("Breakout (20d high + vol)",  _signal_breakout_20d),
+                     ("RS Breakout (52w + r3m)",    _signal_rs_breakout),
+                     ("Volume Accumulation",        _signal_volume_accumulation),
+                     # New non-textbook signals — multi-condition confluence
+                     ("Pivot Pullback (MA50 bounce)", _signal_pivot_pullback),
+                     ("Pocket Pivot (Webster)",       _signal_pocket_pivot),
+                     ("Coiled Spring (VCP)",          _signal_coiled_spring)):
+        try:
+            # ONE candidate generation pass with walk-forward scores attached.
+            # Every variant below (all, B+, A, regime-filtered) just re-runs the
+            # cheap sim on a filtered subset — no re-walking 2700 symbols × 800 bars.
+            cands = _generate_candidates(
+                stocks_all, fn,
+                hold_days=20, stop_pct=-7, target_pct=20,
+                lookback_days=BT_LOOKBACK_BARS, max_signals=5000,
+                bench=_BENCH, compute_wf_score=True,
+            )
+
+            bt_all = _run_sim_and_stats(cands, bench=_BENCH)
+            bt_b   = _run_sim_and_stats(
+                [c for c in cands if (c.get("wf_score") or 0) >= 60],
+                bench=_BENCH,
+            )
+            bt_a   = _run_sim_and_stats(
+                [c for c in cands if (c.get("wf_score") or 0) >= 70],
+                bench=_BENCH,
+            )
+            bt_reg = _run_sim_and_stats(_apply_regime_filter(cands, nifty),
+                                         bench=_BENCH)
+
+            # Tier-conditional summary: does score-filtering improve alpha?
+            bt_all["by_tier"] = {
+                "All":              _summary(bt_all),
+                "B+ (score ≥ 60)":  _summary(bt_b),
+                "A  (score ≥ 70)":  _summary(bt_a),
+            }
+            bt_all["regime_filtered"] = bt_reg
+            backtests[name] = bt_all
+        except Exception as e:
+            backtests[name] = {"error": str(e), "trades": 0}
+
+    # Walk-forward score validation (does Setup Score predict alpha?)
+    if progress_callback:
+        progress_callback(92, 100, "Validating Setup Score (walk-forward IC + quintiles)…")
+    try:
+        score_validation = validate_setup_score(stocks, _BENCH,
+                                                 snapshots=12, fwd_days=20)
+    except Exception as e:
+        score_validation = {"error": str(e)}
+
+    # Per-component IC analysis — which raw features actually predict alpha?
+    if progress_callback:
+        progress_callback(95, 100, "Analyzing score components (per-feature IC)…")
+    try:
+        score_components = analyze_score_components(stocks, _BENCH,
+                                                     snapshots=8, fwd_days=20)
+    except Exception as e:
+        score_components = {"error": str(e)}
+
+    return backtests, score_validation, score_components
+
+
+def run_edge_engine(progress_callback=None, include_backtests=False) -> dict:
     """
-    Run the full edge engine: regime detection, master ranking, backtests.
-    Cached 30 min. Zero NSE API calls.
+    Run the edge engine: regime detection + master ranking (+ optional backtests).
+
+    PERFORMANCE: by default (include_backtests=False) this is the FAST path used
+    by the routine scan and pre-warm — it loads only ~400 days of the curated
+    universe (~176 MB, ~5 s) and skips the heavy walk-forward backtests. The
+    backtests load 1500 days survivorship-free (~700 MB, ~3-5 min) which was
+    swapping the box and slowing EVERY tab; they now run ONLY on the on-demand
+    /api/edge/backtest path (include_backtests=True), cached separately.
     """
-    if _cache["data"] and time.time() - _cache["ts"] < CACHE_TTL:
-        return _cache["data"]
+    cache = _bt_cache if include_backtests else _cache
+    ttl   = BT_CACHE_TTL if include_backtests else CACHE_TTL
+    if cache["data"] and time.time() - cache["ts"] < ttl:
+        return cache["data"]
 
     # Load fundamentals (best-effort, optional)
     fundamentals_map = {}
@@ -1459,13 +1552,14 @@ def run_edge_engine(progress_callback=None) -> dict:
     except Exception:
         pass
 
+    # Fast path loads 400d curated; backtest path needs 1500d survivorship-free.
+    load_days = BT_LOAD_DAYS if include_backtests else 400
     if progress_callback:
         progress_callback(0, 100,
-                          f"Loading bhavcopy ({BT_LOAD_DAYS}d, survivorship-free)…")
-    # SURVIVORSHIP-FREE load: every symbol that ever traded in the window
-    # (incl. delisted/dropped). Also captures real NIFTYBEES into _BENCH.
-    stocks_all = _load_stocks(progress_callback, days=BT_LOAD_DAYS,
-                              survivorship_free=True)
+                          f"Loading bhavcopy ({load_days}d"
+                          f"{', survivorship-free' if include_backtests else ''})…")
+    stocks_all = _load_stocks(progress_callback, days=load_days,
+                              survivorship_free=include_backtests)
     if not stocks_all:
         return {"error": "No bhavcopy data available"}
 
@@ -1533,78 +1627,14 @@ def run_edge_engine(progress_callback=None) -> dict:
 
     ranked.sort(key=lambda x: -x["score"])
 
-    # Backtests run on the SURVIVORSHIP-FREE universe with the REAL NIFTYBEES
-    # benchmark. Numbers are now: net of costs, capital-capped, alpha vs Nifty.
-    if progress_callback:
-        progress_callback(85, 100,
-                          f"Backtesting + tier-conditional on {len(stocks_all)} symbols…")
-    backtests = {}
-    SUMMARY_KEYS = ["trades", "candidates", "skipped_no_capital",
-                    "win_rate", "avg_alpha", "pct_beat_bench",
-                    "final_equity", "final_bench", "final_alpha",
-                    "max_drawdown", "alpha_t_stat", "expectancy"]
-    def _summary(bt: dict) -> dict:
-        return {k: bt.get(k) for k in SUMMARY_KEYS}
-
-    for name, fn in (("Breakout (20d high + vol)",  _signal_breakout_20d),
-                     ("RS Breakout (52w + r3m)",    _signal_rs_breakout),
-                     ("Volume Accumulation",        _signal_volume_accumulation),
-                     # New non-textbook signals — multi-condition confluence
-                     ("Pivot Pullback (MA50 bounce)", _signal_pivot_pullback),
-                     ("Pocket Pivot (Webster)",       _signal_pocket_pivot),
-                     ("Coiled Spring (VCP)",          _signal_coiled_spring)):
-        try:
-            # ONE candidate generation pass with walk-forward scores attached.
-            # Every variant below (all, B+, A, regime-filtered) just re-runs the
-            # cheap sim on a filtered subset — no re-walking 2700 symbols × 800 bars.
-            cands = _generate_candidates(
-                stocks_all, fn,
-                hold_days=20, stop_pct=-7, target_pct=20,
-                lookback_days=BT_LOOKBACK_BARS, max_signals=5000,
-                bench=_BENCH, compute_wf_score=True,
-            )
-
-            bt_all = _run_sim_and_stats(cands, bench=_BENCH)
-            bt_b   = _run_sim_and_stats(
-                [c for c in cands if (c.get("wf_score") or 0) >= 60],
-                bench=_BENCH,
-            )
-            bt_a   = _run_sim_and_stats(
-                [c for c in cands if (c.get("wf_score") or 0) >= 70],
-                bench=_BENCH,
-            )
-            bt_reg = _run_sim_and_stats(_apply_regime_filter(cands, nifty),
-                                         bench=_BENCH)
-
-            # Tier-conditional summary: does score-filtering improve alpha?
-            bt_all["by_tier"] = {
-                "All":              _summary(bt_all),
-                "B+ (score ≥ 60)":  _summary(bt_b),
-                "A  (score ≥ 70)":  _summary(bt_a),
-            }
-            bt_all["regime_filtered"] = bt_reg
-            backtests[name] = bt_all
-        except Exception as e:
-            backtests[name] = {"error": str(e), "trades": 0}
-
-    # Phase 2: walk-forward score validation (does Setup Score predict alpha?)
-    if progress_callback:
-        progress_callback(92, 100, "Validating Setup Score (walk-forward IC + quintiles)…")
-    try:
-        score_validation = validate_setup_score(stocks, _BENCH,
-                                                 snapshots=12, fwd_days=20)
-    except Exception as e:
-        score_validation = {"error": str(e)}
-
-    # Phase 2b: per-component IC analysis — which raw features actually predict
-    # alpha? Evidence for redesigning the composite score's weights.
-    if progress_callback:
-        progress_callback(95, 100, "Analyzing score components (per-feature IC)…")
-    try:
-        score_components = analyze_score_components(stocks, _BENCH,
-                                                     snapshots=8, fwd_days=20)
-    except Exception as e:
-        score_components = {"error": str(e)}
+    # HEAVY backtests/validation run ONLY on the on-demand path. The routine
+    # scan + pre-warm skip them entirely (this is what was swapping the box and
+    # slowing every tab). See _compute_backtests() / run_edge_backtests().
+    if include_backtests:
+        backtests, score_validation, score_components = _compute_backtests(
+            stocks, stocks_all, nifty, progress_callback)
+    else:
+        backtests, score_validation, score_components = {}, None, None
 
     # Tier counts
     tiers = {"A+": 0, "A": 0, "B": 0, "C": 0}
@@ -1650,9 +1680,11 @@ def run_edge_engine(progress_callback=None) -> dict:
         # Hardening: any per-symbol scoring failures (was: 1 bad stock killed scan)
         "score_failures":       score_failures,
         "score_failure_count":  len(score_failures),
+        # Whether the heavy backtests/validation are present in THIS result
+        "backtests_included":   include_backtests,
     }
-    _cache["data"] = out
-    _cache["ts"]   = time.time()
+    cache["data"] = out
+    cache["ts"]   = time.time()
 
     if progress_callback:
         progress_callback(100, 100,

@@ -33,6 +33,7 @@ import emerging_leaders as emerging_leaders_mod
 from emerging_leaders import run_emerging_leaders_scan, invalidate_cache as invalidate_emerging_cache
 from early_mover_scanner import run_early_mover_scan
 from volume_scanner import run_volume_scan
+import edge_engine as edge_engine_mod
 from edge_engine import run_edge_engine, detect_exit_signals, _load_stocks, invalidate_cache as invalidate_edge_cache
 from trending import run_trending_scan
 from header_data import get_market_header
@@ -1042,8 +1043,10 @@ def start_edge_engine():
     with edge_lock:
         if edge_state["running"]:
             return jsonify({"status": "already_running"}), 409
-        # Always force a fresh run — clear 30-min cache so new fundamentals are picked up
-        invalidate_edge_cache()
+        # Force a fresh ROUTINE run (new fundamentals). Do NOT touch the separate
+        # 6h backtest cache — that's heavy and user-triggered, keep it warm.
+        edge_engine_mod._cache["data"] = None
+        edge_engine_mod._cache["ts"]   = 0
         edge_state.update({
             "running": True, "result": None, "error": None,
             "progress": 0, "total": 0, "message": "",
@@ -1057,6 +1060,69 @@ def start_edge_engine():
 def edge_status():
     with edge_lock:
         s = dict(edge_state)
+    pct = round(s["progress"] / s["total"] * 100, 1) if s["total"] > 0 else 0
+    return jsonify({
+        "running": s["running"], "pct": pct, "message": s["message"],
+        "result":  s["result"],  "error": s["error"],
+    })
+
+
+# ── Edge BACKTEST (heavy, on-demand) ──────────────────────────────────────────
+# The survivorship-free walk-forward backtest (~3-5 min, ~700MB) is split off the
+# routine scan so it never blocks/slows the box. Runs only when the user clicks
+# "Run Backtest" on the Edge tab. Result cached 6h in edge_engine._bt_cache.
+edge_bt_state = {
+    "running": False, "result": None, "error": None,
+    "progress": 0, "total": 0, "message": "", "started_at": None,
+}
+edge_bt_lock = threading.Lock()
+
+
+def do_edge_backtest():
+    def progress_cb(done, total, msg):
+        with edge_bt_lock:
+            edge_bt_state["progress"] = done
+            edge_bt_state["total"]    = total
+            edge_bt_state["message"]  = msg
+    try:
+        with _scan_semaphore:
+            result = run_edge_engine(progress_callback=progress_cb,
+                                     include_backtests=True)
+        with edge_bt_lock:
+            edge_bt_state["result"]  = result
+            edge_bt_state["running"] = False
+    except Exception as e:
+        with edge_bt_lock:
+            edge_bt_state["error"]   = str(e)
+            edge_bt_state["running"] = False
+
+
+@app.route("/api/edge/backtest", methods=["POST"])
+def start_edge_backtest():
+    with edge_bt_lock:
+        if edge_bt_state["running"]:
+            return jsonify({"status": "already_running"}), 409
+        edge_bt_state.update({
+            "running": True, "result": None, "error": None,
+            "progress": 0, "total": 0, "message": "Starting backtest…",
+            "started_at": time.time(),
+        })
+    threading.Thread(target=do_edge_backtest, daemon=True).start()
+    return jsonify({"status": "started"})
+
+
+@app.route("/api/edge/backtest/status")
+def edge_backtest_status():
+    with edge_bt_lock:
+        s = dict(edge_bt_state)
+    # Serve cached backtest result if present (survives across sessions for 6h)
+    if s["result"] is None and not s["running"]:
+        try:
+            if edge_engine_mod._bt_cache.get("data") and \
+               edge_engine_mod._bt_cache["data"].get("backtests_included"):
+                s["result"] = edge_engine_mod._bt_cache["data"]
+        except Exception:
+            pass
     pct = round(s["progress"] / s["total"] * 100, 1) if s["total"] > 0 else 0
     return jsonify({
         "running": s["running"], "pct": pct, "message": s["message"],

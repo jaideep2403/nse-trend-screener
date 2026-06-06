@@ -5841,14 +5841,11 @@ function pollEdge() {
         window._edgeData_full = d.result;   // Phase 6: foundation-tag access for renderEdgeBacktests
         renderEdgeRegime(d.result.regime || {});
         renderEdgeTiers(d.result.tier_counts || {});
-        renderEdgeBacktests(d.result.backtests || {});
-        renderScoreValidation(d.result.score_validation || null);
-        renderScoreComponents(d.result.score_components || null);
+        renderEdgeBacktestSection(d.result);
         renderEdgeTable();
         renderEdgeConcentration(d.result.sector_concentration || []);
         document.getElementById('edgeRegimePanel').style.display        = '';
         document.getElementById('edgeRankPanel').style.display          = '';
-        document.getElementById('edgeBacktestPanel').style.display      = '';
         document.getElementById('edgeFiiPanel').style.display           = '';
         document.getElementById('edgeConcentrationPanel').style.display = '';
         document.getElementById('edgeExitPanel').style.display          = '';
@@ -5916,6 +5913,75 @@ function renderEdgeTiers(tc) {
       ${t === 'A+' ? '🏆' : t === 'A' ? '🥇' : t === 'B' ? '🥈' : '🥉'} ${tc[t] || 0} ${t}
     </span>
   `).join('');
+}
+
+// ── On-demand backtest (heavy — decoupled from the routine scan for speed) ────
+let _edgeBtPoll = null;
+
+function renderEdgeBacktestSection(result) {
+  // Routine scan no longer ships backtests (they were swapping the box). If a
+  // result with backtests is present (on-demand run or 6h cache), render it;
+  // otherwise show a "Run Backtest" button + auto-load any cached result.
+  const hasBt = result && result.backtests_included &&
+                result.backtests && Object.keys(result.backtests).length;
+  document.getElementById('edgeBacktestPanel').style.display = '';
+  if (hasBt) {
+    window._edgeData_full = result;
+    renderEdgeBacktests(result.backtests);
+    renderScoreValidation(result.score_validation || null);
+    renderScoreComponents(result.score_components || null);
+    return;
+  }
+  // No backtest yet — show the trigger button, and check the 6h cache.
+  document.getElementById('edgeBacktestBody').innerHTML = `
+    <div style="text-align:center;padding:18px 14px">
+      <button class="btn-primary" id="edgeBtBtn" onclick="startEdgeBacktest()">▶ Run Backtest &amp; Score Validation</button>
+      <div style="font-size:11px;color:var(--text2);margin-top:8px;max-width:620px;margin-left:auto;margin-right:auto;line-height:1.5">
+        Heavy walk-forward backtest on the survivorship-free universe (~3-5 min, alpha vs NIFTYBEES net of costs,
+        IS/OOS overfit harness, per-component IC). Run separately so it never slows the regime + ranking scan.
+        Result is cached 6h.
+      </div>
+      <div id="edgeBtProgress" style="display:none;margin-top:12px">
+        <div id="edgeBtLabel" style="font-size:12px;color:var(--muted);margin-bottom:6px">Starting…</div>
+        <div style="background:var(--border);border-radius:4px;height:6px;overflow:hidden;max-width:480px;margin:0 auto">
+          <div id="edgeBtBar" style="background:var(--accent);height:100%;width:0%;transition:width .3s"></div>
+        </div>
+      </div>
+    </div>`;
+  document.getElementById('edgeScoreValPanel').style.display  = 'none';
+  document.getElementById('edgeScoreCompPanel').style.display = 'none';
+  // Auto-load a cached backtest if one exists (no compute).
+  fetch('/api/edge/backtest/status').then(r => r.json()).then(d => {
+    if (d.result && d.result.backtests_included) renderEdgeBacktestSection(d.result);
+  }).catch(() => {});
+}
+
+function startEdgeBacktest() {
+  const btn = document.getElementById('edgeBtBtn');
+  if (btn) btn.disabled = true;
+  document.getElementById('edgeBtProgress').style.display = 'block';
+  fetch('/api/edge/backtest', { method: 'POST' })
+    .then(r => r.json())
+    .then(() => { if (_edgeBtPoll) clearInterval(_edgeBtPoll); _edgeBtPoll = setInterval(pollEdgeBacktest, 2500); })
+    .catch(() => { if (btn) btn.disabled = false; });
+}
+
+function pollEdgeBacktest() {
+  fetch('/api/edge/backtest/status').then(r => r.json()).then(d => {
+    if (d.running) {
+      const bar = document.getElementById('edgeBtBar'); if (bar) bar.style.width = (d.pct || 0) + '%';
+      const lbl = document.getElementById('edgeBtLabel'); if (lbl) lbl.textContent = d.message || 'Backtesting…';
+      return;
+    }
+    clearInterval(_edgeBtPoll); _edgeBtPoll = null;
+    if (d.error) {
+      const lbl = document.getElementById('edgeBtLabel');
+      if (lbl) { lbl.textContent = 'Error: ' + d.error; lbl.style.color = 'var(--red)'; }
+      const btn = document.getElementById('edgeBtBtn'); if (btn) btn.disabled = false;
+      return;
+    }
+    if (d.result && d.result.backtests_included) renderEdgeBacktestSection(d.result);
+  }).catch(() => { clearInterval(_edgeBtPoll); _edgeBtPoll = null; });
 }
 
 function renderEdgeBacktests(bts) {
