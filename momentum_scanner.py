@@ -45,9 +45,10 @@ MIN_BARS    = 130    # need at least 6M of history (≈130 trading days)
 # TIER-3: MIN_PRICE removed — ADTV filter is the real liquidity gate.
 # A ₹25 stock with ₹5Cr daily turnover (200M shares) is perfectly liquid.
 MIN_ADTV_CR = 0.5    # Minimal liquidity guard only — universe filtered by Nifty500 membership
-# Universe = curated 750 PLUS any LIQUID off-index stock at/above this turnover.
-# Catches recent IPOs not yet in the index (e.g. AEROFLEX) that were invisible.
-UNIVERSE_OFFINDEX_ADTV_CR = 2.0
+# Universe = curated 750 PLUS any HIGHLY-liquid off-index stock at/above this
+# turnover. Keeps actively-traded off-index names (e.g. AEROFLEX) while keeping
+# the universe ~base-size for speed. (₹2Cr nearly doubled it to ~1450 → 2x slow.)
+UNIVERSE_OFFINDEX_ADTV_CR = 50.0
 SCAN_WORKERS = 8
 _cache   = {"data": None, "ts": 0}
 CACHE_TTL = 3600    # 1 hour

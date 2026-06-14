@@ -279,15 +279,16 @@ def _load_stocks(progress_callback=None) -> dict[str, pd.DataFrame]:
         g = _adjust_for_splits(g)   # backward-adjust for stock splits / bonus issues
         if len(g) < 60:
             continue
-        # Curated 750 PLUS any liquid off-index stock (≥₹2Cr ADTV) — recent IPOs
-        # not yet in the index (e.g. AEROFLEX) are now included for Trending /
-        # Industry Groups, not just Emerging Leaders.
+        # Curated 750 PLUS any HIGHLY-liquid off-index stock (≥₹50Cr ADTV) —
+        # keeps actively-traded off-index names (e.g. AEROFLEX) on Trending /
+        # Industry Groups while keeping the universe ~base-size for speed. (Was
+        # ≥₹2Cr, which nearly doubled the universe to ~1450 and halved scan speed.)
         if _universe and sym not in _universe:
             cv   = g[["Close", "Volume"]].dropna() if "Volume" in g.columns else g[["Close"]]
             look = min(20, len(cv))
             adtv = float((cv["Close"].iloc[-look:] * cv["Volume"].iloc[-look:]).mean()) / 1e7 \
                    if (look and "Volume" in g.columns) else 0.0
-            if adtv < 2.0:
+            if adtv < 50.0:
                 continue
         stocks[sym] = g
     return stocks

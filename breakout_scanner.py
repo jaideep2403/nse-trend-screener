@@ -23,9 +23,10 @@ for _grp, _syms in INDUSTRY_GROUPS.items():
 
 MIN_BARS     = 60      # minimum trading days required
 MIN_ADTV_CR  = 0.5    # Minimal liquidity guard only — universe filtered by Nifty500 membership
-# Curated 750 PLUS any liquid off-index stock at/above this turnover (catches
-# recent IPOs not yet in the index, e.g. AEROFLEX).
-UNIVERSE_OFFINDEX_ADTV_CR = 2.0
+# Curated 750 PLUS any HIGHLY-liquid off-index stock at/above this turnover
+# (keeps actively-traded off-index names e.g. AEROFLEX, while keeping the
+# universe ~base-size for speed — ₹2Cr nearly doubled it to ~1450 → 2x slow).
+UNIVERSE_OFFINDEX_ADTV_CR = 50.0
 SCAN_WORKERS = 8
 _cache = {"data": None, "ts": 0}
 CACHE_TTL = 3600       # 1 hour
