@@ -254,7 +254,11 @@ def _load_stocks(progress_callback=None) -> dict[str, pd.DataFrame]:
         _universe = set(get_universe_symbols())
     except Exception:
         _universe = set()
-    dates  = _weekdays_back(300)
+    # 420 calendar days ≈ 290 trading bars. Was 300 (~205 bars), which silently
+    # broke every 252-bar computation downstream: trending's "52W high" was
+    # really a 41-week high, and alpha_engine's 12M return rank was None for
+    # ALL stocks (rank 0.5 neutral across the board).
+    dates  = _weekdays_back(420)
     total  = len(dates)
     frames = []
     for i, dt in enumerate(dates):
@@ -268,15 +272,24 @@ def _load_stocks(progress_callback=None) -> dict[str, pd.DataFrame]:
     combined = pd.concat(frames, ignore_index=True).sort_values("Date")
     stocks: dict[str, pd.DataFrame] = {}
     for sym, grp in combined.groupby("Symbol"):
-        if _universe and sym not in _universe:
-            continue   # restrict to Nifty Total Market 750
         cols = [c for c in ["Open", "High", "Low", "Close", "Volume", "DelivPer"]
                 if c in grp.columns]
         g = grp.set_index("Date")[cols]
         g = g[~g.index.duplicated(keep="last")].sort_index()
         g = _adjust_for_splits(g)   # backward-adjust for stock splits / bonus issues
-        if len(g) >= 60:
-            stocks[sym] = g
+        if len(g) < 60:
+            continue
+        # Curated 750 PLUS any liquid off-index stock (≥₹2Cr ADTV) — recent IPOs
+        # not yet in the index (e.g. AEROFLEX) are now included for Trending /
+        # Industry Groups, not just Emerging Leaders.
+        if _universe and sym not in _universe:
+            cv   = g[["Close", "Volume"]].dropna() if "Volume" in g.columns else g[["Close"]]
+            look = min(20, len(cv))
+            adtv = float((cv["Close"].iloc[-look:] * cv["Volume"].iloc[-look:]).mean()) / 1e7 \
+                   if (look and "Volume" in g.columns) else 0.0
+            if adtv < 2.0:
+                continue
+        stocks[sym] = g
     return stocks
 
 

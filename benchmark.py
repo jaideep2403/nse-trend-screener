@@ -40,23 +40,6 @@ def _clean(s: pd.Series) -> pd.Series:
     return s[~s.index.duplicated(keep="last")].sort_index().astype(float)
 
 
-def extract_benchmark(combined: pd.DataFrame) -> pd.Series | None:
-    """
-    Pull the NIFTYBEES close series out of an ALREADY-loaded combined bhavcopy
-    frame (columns: Symbol, Date, Close, ...). Use this from callers that have
-    already paid the cost of loading every day, so we don't re-read the cache.
-    """
-    if combined is None or getattr(combined, "empty", True) or "Symbol" not in combined:
-        return None
-    for sym in [BENCH_SYMBOL] + FALLBACK_SYMBOLS:
-        sub = combined[combined["Symbol"] == sym]
-        if not sub.empty:
-            s = _clean(sub.set_index("Date")["Close"])
-            if len(s) >= 60:
-                return s
-    return None
-
-
 def get_benchmark(days: int = 1600) -> pd.Series | None:
     """
     Cached NIFTYBEES close series loaded directly from the bhavcopy day cache.
@@ -106,20 +89,6 @@ def benchmark_return(d0, d1, bench: pd.Series | None = None) -> float | None:
         return None
 
 
-def align_to(index, bench: pd.Series | None = None) -> pd.Series | None:
-    """Reindex the benchmark onto an arbitrary DatetimeIndex (forward-filled)."""
-    if bench is None:
-        bench = get_benchmark()
-    if bench is None:
-        return None
-    try:
-        if getattr(index, "tz", None) is not None:
-            index = index.tz_localize(None)
-        return bench.reindex(index, method="ffill")
-    except Exception:
-        return None
-
-
 def benchmark_equity(dates, base: float = 100.0,
                      bench: pd.Series | None = None) -> list[float] | None:
     """
@@ -130,14 +99,18 @@ def benchmark_equity(dates, base: float = 100.0,
         bench = get_benchmark()
     if bench is None or not len(dates):
         return None
+    # BUG-FIX: find the first VALID benchmark value up front. The old loop
+    # padded `base` for dates preceding benchmark history and then normalised
+    # later points to a later `first`, skewing the curve's left edge (and any
+    # strategy-vs-bench comparison anchored there).
+    raw = [bench.asof(pd.Timestamp(d)) for d in dates]
+    first = next((float(v) for v in raw if not pd.isna(v)), None)
+    if first is None or first <= 0:
+        return None
     vals = []
-    first = None
-    for d in dates:
-        v = bench.asof(pd.Timestamp(d))
+    for v in raw:
         if pd.isna(v):
             vals.append(vals[-1] if vals else base)
-            continue
-        if first is None:
-            first = float(v)
-        vals.append(round(float(v) / first * base, 2) if first else base)
+        else:
+            vals.append(round(float(v) / first * base, 2))
     return vals

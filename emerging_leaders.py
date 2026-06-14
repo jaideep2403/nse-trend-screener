@@ -41,6 +41,7 @@ then buy the confirmed follow-through with a stop.
 """
 from __future__ import annotations
 
+import math
 import time
 import numpy as np
 import pandas as pd
@@ -185,11 +186,16 @@ def _raw_metrics(symbol: str, df: pd.DataFrame) -> dict | None:
         else:
             rs_return = ret_since_start
 
-        # ── Price position / distance from high ──────────────────────────────
-        rng_hi = float(close.max()); rng_lo = float(close.min())
+        # ── Price position / distance from 52-WEEK high ──────────────────────
+        # Use a 252-bar (52-week) window, not all-available history — for an
+        # older stock the all-time high/low badly distorts pos_in_range,
+        # pct_from_high and the hard gates. Young stocks (<252 bars) correctly
+        # fall back to their full history (that IS their 52-week range).
+        win = close.iloc[-252:] if n >= 252 else close
+        rng_hi = float(win.max()); rng_lo = float(win.min())
         pos_in_range  = (cur - rng_lo) / (rng_hi - rng_lo) * 100 if rng_hi > rng_lo else 50.0
         pct_from_high = (cur / rng_hi - 1) * 100 if rng_hi > 0 else 0.0
-        days_since_high = int(n - 1 - int(np.argmax(close.values)))
+        days_since_high = int(len(win) - 1 - int(np.argmax(win.values)))
 
         new_high_5d = False
         for back in range(0, min(5, n - 31) + 1):
@@ -305,6 +311,18 @@ def _clamp(x, lo=0.0, hi=1.0):
     return max(lo, min(hi, x))
 
 
+def _denan(rec: dict) -> dict:
+    """pandas' DataFrame round-trip turns None in numeric columns into NaN
+    (e.g. r3m/r6m for stocks too young to have 63/126 bars). NaN is NOT valid
+    JSON — browsers reject it — so restore them to None at the scalar level
+    before the record leaves this module. (Defence-in-depth alongside the
+    app-level SafeJSONProvider.)"""
+    for k, v in rec.items():
+        if isinstance(v, float) and (math.isnan(v) or math.isinf(v)):
+            rec[k] = None
+    return rec
+
+
 def _rank_and_score(raw: list[dict]) -> list[dict]:
     if not raw:
         return []
@@ -394,7 +412,7 @@ def _rank_and_score(raw: list[dict]) -> list[dict]:
         if r["ext_pct"] > MAX_EXT_FOR_LEADER:
             reasons.append(f"extended +{r['ext_pct']:.0f}% > MA50")
         r["reasons"] = reasons[:5]
-        out.append(r)
+        out.append(_denan(r))
 
     out.sort(key=lambda x: -x["emergence_score"])
     return out

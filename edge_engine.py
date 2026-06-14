@@ -17,7 +17,8 @@ import heapq
 import pandas as pd
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from data_fetcher import _weekdays_back, _download_one_day
-from analysis_utils import stage_analysis, stage_label, NIFTY_PROXY_SYMS, equal_weight_index
+from analysis_utils import (stage_analysis, stage_label, NIFTY_PROXY_SYMS,
+                            equal_weight_index, adjust_for_splits)
 from risk_config import (
     POSITION_SIZE_FRAC, BT_COOLDOWN_BARS,
     MAX_CONCURRENT_POSITIONS, BT_LOAD_DAYS, BT_LOOKBACK_BARS,
@@ -326,7 +327,10 @@ def _load_stocks(progress_callback=None, days: int = 400,
         bser.index = pd.to_datetime(bser.index)
         if getattr(bser.index, "tz", None) is not None:
             bser.index = bser.index.tz_localize(None)
-        _BENCH = bser.sort_index().astype(float)
+        bser = bser.sort_index().astype(float)
+        # The ETF can also have face-value splits — adjust like any stock so
+        # benchmark returns never see a fake one-day collapse.
+        _BENCH = adjust_for_splits(pd.DataFrame({"Close": bser}))["Close"]
 
     if not frames:
         return {}
@@ -341,6 +345,11 @@ def _load_stocks(progress_callback=None, days: int = 400,
         if not isinstance(g.index, pd.DatetimeIndex):
             g.index = pd.to_datetime(g.index)
         g = g[~g.index.duplicated(keep="last")].sort_index()
+        # Bhavcopy prices are UNADJUSTED for splits/bonuses. Every other scanner
+        # backward-adjusts; without this the backtester registers a 1:1 bonus as
+        # a real -50% bar (fake STOP exits) and r12m/52W-high/ATR/base detection
+        # are wrong for any stock with a corporate action in the window.
+        g = adjust_for_splits(g)
         if len(g) >= 60:
             stocks[sym] = g
     return stocks
@@ -369,102 +378,39 @@ def _build_nifty_proxy(stocks: dict) -> pd.DataFrame | None:
 
 def detect_market_regime(nifty: pd.DataFrame) -> dict:
     """
-    Distribution Day = Nifty closes ≤ -0.2% on volume HIGHER than prior day.
-    5+ D-Days in last 25 sessions = market under institutional selling.
+    Delegates to the CANONICAL regime module (regime.py) — the same
+    implementation Market Breadth uses, so the two tabs can never disagree.
 
-    Follow-Through Day = on day 4-7 after a recent low, Nifty closes UP ≥ 1.4%
-    on volume higher than prior day. Confirms a new uptrend.
-
-    Returns regime: "Confirmed Uptrend" | "Uptrend Under Pressure" | "Correction"
+    Inputs: real NIFTYBEES close for price (proxy close as fallback) +
+    the proxy basket's summed volume (NIFTYBEES ETF volume does not reflect
+    institutional index activity; true index volume isn't in the bhavcopy).
     """
+    import regime as regime_mod
+
     if nifty is None or len(nifty) < 30:
         return {"regime": "Unknown", "dday_count": 0, "ftd_active": False, "details": []}
 
-    n     = nifty.tail(60).copy()
-    # BUG-016 NOTE / TODO: This uses the synthetic Nifty proxy built from a
-    # basket of large-caps — NOT the official Nifty50 index. The volume series
-    # is therefore stock volume, which approximates institutional activity
-    # but is not the index volume an IBD-style D-day count traditionally uses.
-    # Known limitation: prefer official Nifty volume when available.
-    n["pct_chg"]   = n["Close"].pct_change() * 100
-    n["vol_chg"]   = n["Volume"].pct_change()
-    n["dday"]      = (n["pct_chg"] <= -0.2) & (n["Volume"] > n["Volume"].shift(1))
-
-    last25 = n.tail(25)
-    dday_count = int(last25["dday"].sum())
-
-    # Recent low + Follow-Through Day check
-    recent_low_idx = n["Close"].tail(20).idxmin()
-    days_since_low = (n.index[-1] - recent_low_idx).days if recent_low_idx else 999
-    ftd_active = False
-    ftd_day    = None
-    if 3 <= (n.index.get_loc(recent_low_idx) if recent_low_idx in n.index else -1):
-        # find FTD: day 4-7 after low with +1.4% on rising volume
-        try:
-            low_pos = n.index.get_loc(recent_low_idx)
-            for i in range(low_pos + 4, min(low_pos + 8, len(n))):
-                row = n.iloc[i]
-                # BUG-019 FIX: FTD threshold changed from 1.4% to 1.7% to match market_breadth.py
-                if row["pct_chg"] >= 1.7 and row["Volume"] > n.iloc[i-1]["Volume"]:
-                    ftd_active = True
-                    ftd_day    = n.index[i]
-                    break
-        except Exception:
-            pass
-
-    # Regime classification
-    if dday_count >= 6:
-        regime = "Correction"
-    elif dday_count >= 4:
-        regime = "Uptrend Under Pressure"
-    elif ftd_active and dday_count <= 3:
-        regime = "Confirmed Uptrend"
+    if _BENCH is not None and len(_BENCH) >= 60:
+        price, bench_src = _BENCH, "NIFTYBEES"
     else:
-        regime = "Uptrend Under Pressure" if dday_count >= 3 else "Confirmed Uptrend"
+        price, bench_src = nifty["Close"], "proxy"
+    volume = nifty["Volume"] if "Volume" in nifty.columns else None
 
-    # Action recommendation
-    action_map = {
-        "Confirmed Uptrend":      ("✅ Buy Mode", "Full deployment — buy strongest setups",        "#22c55e"),
-        "Uptrend Under Pressure": ("🟡 Cautious", "Selective — only highest-conviction setups",   "#eab308"),
-        "Correction":             ("🔴 Cash",     "Do not initiate new longs — preserve capital", "#ef4444"),
-        "Unknown":                ("⚪ Unknown",  "Insufficient data",                              "#94a3b8"),
-    }
-    label, advice, color = action_map[regime]
+    r = regime_mod.market_regime(price, volume)
 
-    # Latest 25 sessions detail
-    detail = []
-    for idx, row in last25.iterrows():
-        if row["dday"]:
-            detail.append({
-                "date": idx.strftime("%d-%b"),
-                "pct":  round(row["pct_chg"], 2),
-                "vol_chg_pct": round(row["vol_chg"] * 100, 1),
-            })
-
-    # Phase 5: prefer real NIFTYBEES for the displayed nifty_close / nifty_chg
-    # (D-Day algorithm above still uses the proxy because NIFTYBEES is an ETF
-    # whose volume doesn't reflect underlying institutional Nifty activity).
-    if _BENCH is not None and len(_BENCH) >= 2:
-        bench_close = float(_BENCH.iloc[-1])
-        bench_chg   = float(_BENCH.pct_change().iloc[-1]) * 100
-        bench_src   = "NIFTYBEES"
-    else:
-        bench_close = float(nifty["Close"].iloc[-1])
-        bench_chg   = float(nifty["Close"].pct_change().iloc[-1]) * 100
-        bench_src   = "proxy"
-
+    days_since_low = r["ftd"].get("days_since_trough")
     return {
-        "regime":      regime,
-        "label":       label,
-        "advice":      advice,
-        "color":       color,
-        "dday_count":  dday_count,
-        "ftd_active":  ftd_active,
-        "ftd_day":     ftd_day.strftime("%d-%b-%Y") if ftd_day is not None else None,
-        "days_since_low": days_since_low,
-        "details":     detail,
-        "nifty_close": round(bench_close, 2),
-        "nifty_chg":   round(bench_chg, 2),
+        "regime":      r["regime"],
+        "label":       r["label"],
+        "advice":      r["advice"],
+        "color":       r["color"],
+        "dday_count":  r["dday_count"],
+        "ftd_active":  r["ftd_active"],
+        "ftd_day":     r["ftd_day"],
+        "days_since_low": days_since_low if days_since_low is not None else 999,
+        "details":     r["details"],
+        "nifty_close": round(float(price.iloc[-1]), 2),
+        "nifty_chg":   round(float(price.pct_change().iloc[-1]) * 100, 2),
         "bench_source": bench_src,
     }
 
@@ -668,7 +614,11 @@ def compute_setup_score(symbol: str, df: pd.DataFrame, regime: dict,
 
     close = df["Close"].dropna()
     vol   = df["Volume"].dropna()
-    if len(close) < 126:
+    # Require a full year of history — same gate as _lightweight_score. r12m is
+    # the dominant (0.55-weight) validated feature; the old fallback fabricated
+    # it as r6m*2 for younger stocks, ranking IPOs with a formula the
+    # walk-forward validation never tested.
+    if len(close) < 253:
         return None
 
     cur = float(close.iloc[-1])
@@ -843,9 +793,8 @@ def compute_setup_score(symbol: str, df: pd.DataFrame, regime: dict,
     #   pct_from_high  IC +0.090 t +1.70 MOD     ← closer to 52W high = better
     # Best 2-feature pair (r12m + atr_pct) → IC 0.159.
     # New composite weights mirror these IC ratios: 0.55 / 0.25 / 0.20.
-    r12m_val = ((cur / float(close.iloc[-252])) - 1) * 100 if len(close) >= 253 \
-               else (r6m * 2.0 if r6m else 0.0)  # graceful degrade for IPOs
-    high252 = float(close.iloc[-min(252, len(close)):].max())
+    r12m_val = ((cur / float(close.iloc[-252])) - 1) * 100   # ≥253 bars guaranteed above
+    high252 = float(close.iloc[-252:].max())
     pct_from_high_val = (cur / high252 - 1) * 100 if high252 > 0 else 0.0
 
     evidence_score = round(
@@ -984,8 +933,16 @@ def _generate_candidates(stocks: dict, signal_fn,
         # ordering (otherwise A* names eat every available slot).
         random.Random(42).shuffle(items)
 
+    # Minimum warm-up before the first signal bar: the multi-condition signals
+    # (pivot pullback / pocket pivot / coiled spring) need 200 bars of context.
+    SIGNAL_WARMUP = 200
+
     for symbol, df in items:
-        if _is_etf(symbol) or len(df) < lookback_days + hold_days + 10:
+        # Survivorship: do NOT require the full lookback window. A stock that
+        # delisted mid-window (the exact failure case survivorship-free loading
+        # exists to capture) has a short history — walk whatever bars it has
+        # past the signal warm-up instead of silently dropping it.
+        if _is_etf(symbol) or len(df) < SIGNAL_WARMUP + hold_days + 10:
             continue
 
         # Per-symbol ADTV in ₹Cr for liquidity-scaled cost lookup
@@ -993,7 +950,7 @@ def _generate_candidates(stocks: dict, signal_fn,
         adtv_cr = (float((cv["Close"] * cv["Volume"]).iloc[-60:].mean()) / 1e7
                    if len(cv) >= 20 else None)
 
-        start_idx = len(df) - lookback_days
+        start_idx = max(SIGNAL_WARMUP, len(df) - lookback_days)
         end_idx   = len(df) - hold_days - 1
         cooldown  = 0
         for i in range(start_idx, end_idx):
@@ -1077,7 +1034,11 @@ def _generate_candidates(stocks: dict, signal_fn,
                     "adtv_cr":    round(adtv_cr, 2) if adtv_cr is not None else None,
                     "wf_score":   round(wf_score, 1) if wf_score is not None else None,
                 })
-                cooldown = BT_COOLDOWN_BARS
+                # Cooldown must cover the bars the trade is OPEN plus the
+                # post-exit gap — a flat BT_COOLDOWN_BARS (5) < hold_days (20)
+                # let the same symbol hold overlapping positions, counting one
+                # price move 2-4× and eating multiple capital slots.
+                cooldown = (exit_idx - i) + BT_COOLDOWN_BARS
                 if len(candidates) >= max_signals:
                     break
             except Exception:
@@ -1090,25 +1051,27 @@ def _generate_candidates(stocks: dict, signal_fn,
 
 def _apply_regime_filter(candidates: list[dict],
                           nifty: pd.DataFrame | None) -> list[dict]:
-    """Drop candidates whose entry_date falls in a Correction regime (D-Day ≥ 6)."""
+    """Drop candidates whose entry_date falls in a Correction regime —
+    canonical D-day counting from regime.py (same rules as live)."""
+    import regime as regime_mod
     if not candidates or nifty is None or len(nifty) < 50:
         return candidates
-    def _regime_at(dt):
+    def _in_correction(dt) -> bool:
         try:
             aligned_dt = nifty.index.asof(dt)
             if aligned_dt is None or pd.isna(aligned_dt):
-                return "Unknown"
-            sub = nifty[nifty.index <= aligned_dt].tail(30).copy()
-            if len(sub) < 10:
-                return "Unknown"
-            sub["pct"]  = sub["Close"].pct_change() * 100
-            sub["dday"] = (sub["pct"] <= -0.2) & (sub["Volume"] > sub["Volume"].shift(1))
-            ddays = int(sub.tail(25)["dday"].sum())
-            return "Correction" if ddays >= 6 else \
-                   "Uptrend Under Pressure" if ddays >= 4 else "Confirmed Uptrend"
+                return False
+            if _BENCH is not None and len(_BENCH) >= 60:
+                price = _BENCH[_BENCH.index <= aligned_dt]
+            else:
+                price = nifty["Close"][nifty.index <= aligned_dt]
+            volume = (nifty["Volume"][nifty.index <= aligned_dt]
+                      if "Volume" in nifty.columns else None)
+            ddays, _ = regime_mod.count_distribution_days(price, volume)
+            return ddays >= regime_mod.CORRECTION_DDAYS
         except Exception:
-            return "Unknown"
-    return [c for c in candidates if _regime_at(c["entry_date"]) != "Correction"]
+            return False
+    return [c for c in candidates if not _in_correction(c["entry_date"])]
 
 
 def _run_sim_and_stats(candidates: list[dict],
@@ -1265,38 +1228,6 @@ def _run_sim_and_stats(candidates: list[dict],
         "drawdown_curve":     _downsample(dd_values, 80),
         "bench_equity":       _downsample(bench_eq, 80),
     }
-
-
-def backtest_signal(stocks: dict, signal_fn, hold_days: int = 20,
-                    stop_pct: float = -7.0, target_pct: float = 25.0,
-                    lookback_days: int = 800, max_signals: int = 5000,
-                    nifty: pd.DataFrame | None = None,
-                    regime_filter: bool = False,
-                    bench: pd.Series | None = None,
-                    shuffle: bool = True,
-                    min_tier_score: float | None = None) -> dict:
-    """
-    Public API — backward-compatible thin wrapper over the 3-step pipeline:
-      _generate_candidates → optional regime/tier filters → _run_sim_and_stats.
-
-    Pass min_tier_score=X to keep only candidates where the point-in-time
-    lightweight score ≥ X (e.g. 60 = B+ tier, 70 = A tier).
-    """
-    if bench is None:
-        bench = _BENCH
-    cands = _generate_candidates(
-        stocks, signal_fn,
-        hold_days=hold_days, stop_pct=stop_pct, target_pct=target_pct,
-        lookback_days=lookback_days, max_signals=max_signals,
-        bench=bench, compute_wf_score=(min_tier_score is not None),
-        shuffle=shuffle,
-    )
-    if min_tier_score is not None:
-        cands = [c for c in cands
-                 if c.get("wf_score") is not None and c["wf_score"] >= min_tier_score]
-    if regime_filter:
-        cands = _apply_regime_filter(cands, nifty)
-    return _run_sim_and_stats(cands, bench=bench)
 
 
 # ── Built-in signal functions (for backtesting) ──────────────────────────────
@@ -1842,7 +1773,7 @@ def _all_features(close: pd.Series, vol: pd.Series, df_sub: pd.DataFrame | None,
     if cur < 30:
         return None
 
-    r1m  = (cur / float(close.iloc[-21])  - 1) * 100 if len(close) >= 22  else None
+    r1m  = (cur / float(close.iloc[-21])  - 1) * 100 if len(close) >= 21  else None
     r3m  = (cur / float(close.iloc[-63])  - 1) * 100
     r6m  = (cur / float(close.iloc[-126]) - 1) * 100
     r12m = (cur / float(close.iloc[-252]) - 1) * 100 if len(close) >= 253 else None

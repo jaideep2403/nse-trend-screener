@@ -117,27 +117,6 @@ def _load_bhav(p: Path) -> pd.DataFrame | None:
         return None
 
 
-def _trend_label(change_pct: float | None, adr: float | None) -> tuple[str, str]:
-    """
-    Classify market state from today's % change + adv/decl ratio.
-    Returns (label, color_key).
-    """
-    if change_pct is None or adr is None:
-        return ("—", "muted")
-    # Strong upmove
-    if change_pct >= 0.5 and adr >= 1.5:
-        return ("Strong Upmove", "green")
-    if change_pct >= 0.2 and adr >= 1.0:
-        return ("Upmove", "green")
-    # Correction
-    if change_pct <= -0.5 and adr <= 0.7:
-        return ("Correction", "red")
-    if change_pct <= -0.2 and adr < 1.0:
-        return ("Weakness", "red")
-    # Sideways everything else
-    return ("Sideways", "yellow")
-
-
 def _resolve_trend(change_pct, adr) -> tuple[str, str, str]:
     """
     Return (trend_label, color_key, source). ONLY uses Market Breadth's signal.

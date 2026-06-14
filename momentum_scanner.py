@@ -45,6 +45,9 @@ MIN_BARS    = 130    # need at least 6M of history (≈130 trading days)
 # TIER-3: MIN_PRICE removed — ADTV filter is the real liquidity gate.
 # A ₹25 stock with ₹5Cr daily turnover (200M shares) is perfectly liquid.
 MIN_ADTV_CR = 0.5    # Minimal liquidity guard only — universe filtered by Nifty500 membership
+# Universe = curated 750 PLUS any LIQUID off-index stock at/above this turnover.
+# Catches recent IPOs not yet in the index (e.g. AEROFLEX) that were invisible.
+UNIVERSE_OFFINDEX_ADTV_CR = 2.0
 SCAN_WORKERS = 8
 _cache   = {"data": None, "ts": 0}
 CACHE_TTL = 3600    # 1 hour
@@ -82,13 +85,20 @@ def _load_all_stocks(progress_callback=None) -> dict[str, pd.DataFrame]:
     combined = pd.concat(frames, ignore_index=True).sort_values("Date")
     stocks: dict[str, pd.DataFrame] = {}
     for sym, grp in combined.groupby("Symbol"):
-        if _universe and sym not in _universe:
-            continue
         g = grp.set_index("Date")[["Open", "High", "Low", "Close", "Volume"]]
         g = g[~g.index.duplicated(keep="last")].sort_index()
         g = _adjust_for_splits(g)
-        if len(g) >= MIN_BARS:
-            stocks[sym] = g
+        if len(g) < MIN_BARS:
+            continue
+        # Keep the curated 750 (all current coverage) PLUS any liquid off-index
+        # stock (≥₹2Cr ADTV) so recent IPOs not yet in the index are scanned too.
+        if sym not in _universe:
+            cv   = g[["Close", "Volume"]].dropna()
+            look = min(20, len(cv))
+            adtv = float((cv["Close"].iloc[-look:] * cv["Volume"].iloc[-look:]).mean()) / 1e7 if look else 0.0
+            if adtv < UNIVERSE_OFFINDEX_ADTV_CR:
+                continue
+        stocks[sym] = g
     return stocks
 
 

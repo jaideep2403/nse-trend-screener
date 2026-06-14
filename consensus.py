@@ -45,6 +45,14 @@ _TIER_WEIGHTS = {
     "IDEAL":         4,   # VVV "🏆 IDEAL" (score ≥ 85)
 }
 
+# Theoretical max raw points a symbol can collect across all 7 recorded
+# scanners: tiered scanners (Monster, Alpha, Early Growth, VVV) award up to
+# 4 each = 16; presence-only scanners (Institutional, Edge, Trending) award
+# 2 each = 6 → 22. The old hardcoded 24.0 ("4pts × 6 scanners") and the
+# separate 4*6 in appears_in() were both wrong AND inconsistent with each
+# other, so the leaderboard and per-symbol lookup scored on different scales.
+MAX_RAW_POINTS = 22.0
+
 
 def _read_cache(mod) -> dict:
     """Best-effort read of any scanner's `_cache` dict."""
@@ -161,9 +169,13 @@ def _gather_scanner_hits() -> dict[str, dict]:
     try:
         import trending
         d = _read_cache(trending)
-        # trending scanner stores under "stocks", not "results"
+        # trending scanner stores under "stocks", not "results".
+        # Its score is 0-10 (not 0-100): scale ×10 so the tier-less presence
+        # credit (score ≥ 60 → 2 pts) can actually trigger — previously a 9.5/10
+        # trending leader earned ZERO consensus points.
         for r in (d.get("stocks") or d.get("results") or [])[:30]:
-            _record("Trending", r["symbol"], None, r.get("score", 0), "Trending")
+            _record("Trending", r["symbol"], None, (r.get("score", 0) or 0) * 10,
+                    "Trending")
     except Exception:
         pass
 
@@ -177,16 +189,12 @@ def _gather_scanner_hits() -> dict[str, dict]:
     except Exception:
         pass
 
-    # Normalize: consensus_score = scaled to 0-100 based on max raw points.
-    # The theoretical max is ~24 (4pts × 6 scanners). In PRACTICE the best
-    # stocks in any market hit 12-16 raw points (= 50-67 normalised), and the
-    # very top scores rarely cross 70. Previous thresholds (60/40/25) labelled
-    # 50%+ of the top-50 leaderboard "WEAK", which is misleading UX — those ARE
-    # the best stocks in the universe, just measured against an unreachable max.
-    # Rebalanced thresholds align labels with the empirical distribution.
-    MAX_POSSIBLE = 24.0
+    # Normalize: consensus_score = scaled to 0-100 based on MAX_RAW_POINTS (22).
+    # In PRACTICE the best stocks in any market hit 12-16 raw points
+    # (= 55-73 normalised) and the very top scores rarely cross 75; the tier
+    # thresholds below are calibrated to that empirical distribution.
     for sym, rec in hits.items():
-        rec["consensus_score"] = round(min(100.0, rec["raw_points"] / MAX_POSSIBLE * 100), 1)
+        rec["consensus_score"] = round(min(100.0, rec["raw_points"] / MAX_RAW_POINTS * 100), 1)
         rec["tier_label"] = _consensus_tier_label(rec["consensus_score"])
 
     return hits
@@ -293,7 +301,10 @@ def appears_in(symbol: str) -> dict:
     r = _find("edge_engine",          ["ranked","top_setups","results"])
     if r: _record("Edge Engine", r, why=r.get("setup_label","Quality breakout"))
     r = _find("trending",             ["stocks","results"])
-    if r: _record("Trending", r, why="Trending")
+    if r:
+        # trending score is 0-10 — scale to the 0-100 convention (same as
+        # build_consensus) so presence credit can trigger.
+        _record("Trending", {**r, "score": (r.get("score") or 0) * 10}, why="Trending")
     r = _find("minervini_vvv",        ["results"])
     if r: _record("Minervini VVV", r, why=r.get("pattern","VVV"))
 
@@ -307,8 +318,7 @@ def appears_in(symbol: str) -> dict:
         if (s.get("tier") and "".join(ch for ch in s["tier"].upper() if ch.isascii()).strip())
         else "", 0
     ) or (2 if (s.get("score") or 0) >= 60 else 0) for s in scans)
-    max_possible = 4 * 6
-    consensus_score = round(raw_pts / max_possible * 100, 1)
+    consensus_score = round(min(100.0, raw_pts / MAX_RAW_POINTS * 100), 1)
     # Single source of truth — same labels as build_consensus() so per-symbol
     # lookups never show a different badge than the leaderboard view.
     tier_label = _consensus_tier_label(consensus_score)

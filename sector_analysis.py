@@ -197,7 +197,9 @@ def _stock_metrics(ticker, df, nifty_close):
         ma50    = _safe(cl.rolling(50).mean().iloc[-1])  if len(cl) >= 50  else 0
         ma100   = _safe(cl.rolling(100).mean().iloc[-1]) if len(cl) >= 100 else 0
         ma200   = _safe(cl.rolling(200).mean().iloc[-1]) if len(cl) >= 200 else 0
-        ath     = _safe(cl.max())
+        # 52-week high (252-bar window), not all-loaded-history max — keeps this
+        # consistent with the 252-bar high used in breadth/edge/trending.
+        ath     = _safe((cl.iloc[-252:] if len(cl) >= 252 else cl).max())
         pct_ath = round((price - ath) / ath * 100, 2) if ath else 0
         in_uptrend = (price > ma50 > ma100 > ma200) and ma200 > 0
 

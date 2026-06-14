@@ -125,7 +125,8 @@ def _fetch_holders_nse(symbol: str) -> Optional[dict]:
             "qoq_dii_delta":  (dii_now - dii_prior) if (dii_now is not None and dii_prior is not None) else None,
             "source":         "NSE",
         }
-    except Exception:
+    except Exception as e:
+        print(f"[holders_data] NSE shareholding fetch failed for {symbol}: {e}", flush=True)
         return None
 
 
@@ -222,9 +223,3 @@ def fetch_holders_for_symbol(symbol: str) -> dict:
     with _cache_lock:
         _HOLDER_CACHE[symbol] = {"data": out, "ts": time.time()}
     return out
-
-
-def clear_cache():
-    """Manual cache clear (e.g. for testing)."""
-    with _cache_lock:
-        _HOLDER_CACHE.clear()

@@ -19,8 +19,3 @@ venv/
 .DS_Store
 .git/
 .gitignore
-
-# Unused scripts (not needed in container)
-backtester.py
-bulk_deals.py
-trade_journal.py

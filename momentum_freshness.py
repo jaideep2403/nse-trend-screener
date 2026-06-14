@@ -141,42 +141,6 @@ def update_all(tier_map: dict[str, str], today: str | None = None) -> dict:
     return {"updated": updated, "transitioned": transitioned, "transitions": transitions}
 
 
-def get_freshness(symbol: str) -> dict:
-    """Per-symbol query: how long has it been in the current tier?
-    Returns {symbol, tier, since_date, days_in, prev_tier, bucket, label}."""
-    if not symbol:
-        return {"symbol": symbol, "tier": None, "bucket": None}
-    with _lock:
-        conn = _connect()
-        try:
-            row = conn.execute(
-                "SELECT tier, since_date, prev_tier, bars_in FROM momentum_log WHERE symbol=?",
-                (symbol.upper(),)
-            ).fetchone()
-            if not row:
-                return {"symbol": symbol.upper(), "tier": None,
-                        "bucket": None, "label": "Unknown"}
-            tier, since_date, prev_tier, bars_in = row
-            try:
-                days_in = (datetime.now().date()
-                           - datetime.strptime(since_date, "%Y-%m-%d").date()).days
-            except Exception:
-                days_in = 0
-            bucket = _bucket_for(days_in)
-            return {
-                "symbol":     symbol.upper(),
-                "tier":       tier,
-                "since_date": since_date,
-                "prev_tier":  prev_tier,
-                "bars_in":    bars_in,
-                "days_in":    days_in,
-                "bucket":     bucket,
-                "label":      _label_for(tier, days_in, bucket),
-            }
-        finally:
-            conn.close()
-
-
 def get_freshness_map(symbols: list[str]) -> dict[str, dict]:
     """Bulk lookup — one DB round-trip for many symbols. Used by the scanner
     UI integration to attach freshness info to every result row."""
@@ -208,37 +172,6 @@ def get_freshness_map(symbols: list[str]) -> dict[str, dict]:
                     "bucket":     bucket,
                     "label":      _label_for(tier, days_in, bucket),
                 }
-            return out
-        finally:
-            conn.close()
-
-
-def recent_promotions(into_tier: str, within_days: int = 10) -> list[dict]:
-    """List stocks that JUST entered `into_tier` (e.g. 'Elite') within the
-    last `within_days` calendar days. Most actionable view — these are the
-    fresh momentum picks."""
-    cutoff = (datetime.now() - timedelta(days=within_days)).strftime("%Y-%m-%d")
-    with _lock:
-        conn = _connect()
-        try:
-            rows = conn.execute(
-                "SELECT symbol, tier, since_date, prev_tier "
-                "FROM momentum_log "
-                "WHERE tier=? AND since_date >= ? AND prev_tier IS NOT NULL "
-                "ORDER BY since_date DESC",
-                (into_tier, cutoff),
-            ).fetchall()
-            today_d = datetime.now().date()
-            out = []
-            for sym, tier, since_date, prev_tier in rows:
-                try:
-                    days_in = (today_d - datetime.strptime(since_date, "%Y-%m-%d").date()).days
-                except Exception:
-                    days_in = 0
-                out.append({
-                    "symbol": sym, "tier": tier, "since_date": since_date,
-                    "prev_tier": prev_tier, "days_in": days_in,
-                })
             return out
         finally:
             conn.close()

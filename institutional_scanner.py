@@ -21,6 +21,7 @@ from analysis_utils import (
     trend_template_score, stage_analysis, stage_label,
     is_nr7, is_inside_bar, is_3wt,
     rs_line_new_high, detect_candle_signals, volume_baseline,
+    cross_sectional_rs_rank,
 )
 
 MIN_BARS    = 60
@@ -236,7 +237,8 @@ def _detect_pocket_pivot(df: pd.DataFrame):
 
         t1 = round(entry + risk * 1.5, 2)
         t2 = round(entry + risk * 2.5, 2)
-        t3 = round(max(float(close.max()) * 1.005, entry + risk * 3.5), 2)
+        prior_ath = float(close.iloc[:-1].max()) if len(close) > 1 else float(close.max())
+        t3 = round(max(prior_ath * 1.005, entry + risk * 3.5), 2)
 
         return True, {
             "entry":         entry,
@@ -345,7 +347,8 @@ def _detect_earnings_setup(df: pd.DataFrame):
         base_ht  = post_hi - post_lo
         t1       = round(entry + base_ht, 2)
         t2       = round(entry + 2.0 * risk, 2)
-        t3       = round(max(float(close.max()) * 1.005, entry + 3.0 * risk), 2)
+        prior_ath = float(close.iloc[:-1].max()) if len(close) > 1 else float(close.max())
+        t3       = round(max(prior_ath * 1.005, entry + 3.0 * risk), 2)
 
         return True, {
             "entry":          entry,
@@ -529,11 +532,22 @@ def run_institutional_scan(progress_callback=None) -> dict:
             if r:
                 results.append(r)
 
-    # Compute RS Rating (1–99) from r3m relative rank within universe
+    # Compute RS Rating (1–99) by ranking 3-month return across the ENTIRE
+    # loaded universe — not just the handful that passed the setup filter.
+    # Ranking within `results` (Pattern A) inflated RS: the strongest of ~60
+    # survivors read 99 even if it was only mid-pack market-wide.
     if results:
+        univ_r3m: dict[str, float] = {}
+        for _sym, _df in stocks.items():
+            _cl = _df["Close"].dropna()
+            if len(_cl) >= 63:
+                univ_r3m[_sym] = (float(_cl.iloc[-1]) / float(_cl.iloc[-63]) - 1) * 100
+        univ_rs = cross_sectional_rs_rank(univ_r3m)
+        # Fallback subset rank for any symbol missing from the universe map.
         r3m_s  = pd.Series([r["r3m"] for r in results])
-        rs_arr = (r3m_s.rank(pct=True) * 99).round(0).astype(int).tolist()
-        for r, rs in zip(results, rs_arr):
+        sub_rs = (r3m_s.rank(pct=True) * 99).round(0).astype(int).tolist()
+        for r, sub in zip(results, sub_rs):
+            rs = univ_rs.get(r["symbol"], int(sub))
             r["rs_rating"] = int(rs)
             # Recompute TT with real RS rating
             r["tt_score"], r["tt_met"] = trend_template_score(

@@ -259,10 +259,6 @@ def stage_label(s: int) -> str:
     return {1: "S1 Basing", 2: "S2 ▲", 3: "S3 Top", 4: "S4 ▼"}.get(s, "—")
 
 
-def stage_color(s: int) -> str:
-    return {1: "neutral", 2: "pos", 3: "neg", 4: "neg"}.get(s, "")
-
-
 # ── Compression / Contraction Patterns ───────────────────────────────────────
 
 def is_nr7(df: pd.DataFrame) -> bool:
@@ -491,29 +487,34 @@ def base_count(close: pd.Series) -> int:
 
 def price_vol_character(df: pd.DataFrame) -> str:
     """
-    'Accumulation' = up days on above-avg volume dominate (last 20 sessions).
-    'Distribution' = down days on above-avg volume dominate.
+    'Accumulation' = up days on heavy volume dominate (last 20 sessions).
+    'Distribution' = down days on heavy volume dominate.
     'Neutral'      = mixed.
+
+    BUG-FIX (2026-06-10, FEDERALBNK case):
+    1. Direction is close vs PREVIOUS close (standard A/D convention). The old
+       close-vs-open misread flat block-deal days — a 239M-share block day that
+       closed 0.02% red intraday put 13× volume into the "down" bucket while
+       close-over-close up volume dominated 12:1, flagging a heavily
+       accumulated stock as "Distribution".
+    2. Per-day volume weight is capped at 3× the 20-day MEDIAN so no single
+       block/expiry day can flip the verdict on its own (same outlier
+       rationale as volume_baseline()).
     """
     try:
-        if len(df) < 20:
+        recent = df[["Close", "Volume"]].dropna().iloc[-21:]
+        if len(recent) < 15:
             return "Neutral"
-        recent  = df.iloc[-20:].copy()
-        vol     = recent["Volume"].dropna()
-        close_s = recent["Close"].dropna()
-        open_s  = recent["Open"].dropna()
-        avg_vol = float(vol.mean())
-        if avg_vol <= 0:
+        close = recent["Close"].astype(float)
+        vol   = recent["Volume"].astype(float)
+        chg   = close.diff().iloc[1:]          # up to 20 close-over-close changes
+        v     = vol.iloc[1:]
+        med   = float(v.median())
+        if med <= 0:
             return "Neutral"
-        up_wt = down_wt = 0.0
-        for i in range(len(recent)):
-            try:
-                c = float(close_s.iloc[i]); o = float(open_s.iloc[i])
-                v = float(vol.iloc[i]) / avg_vol
-                if c > o:   up_wt   += v
-                elif c < o: down_wt += v
-            except Exception:
-                continue
+        w = (v / med).clip(upper=3.0)
+        up_wt   = float(w[chg > 0].sum())
+        down_wt = float(w[chg < 0].sum())
         if up_wt > down_wt * 1.3:   return "Accumulation"
         elif down_wt > up_wt * 1.3: return "Distribution"
         return "Neutral"

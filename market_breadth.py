@@ -21,8 +21,10 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from analysis_utils import stage_analysis, stage_label, NIFTY_PROXY_SYMS, equal_weight_index
+from analysis_utils import (stage_analysis, stage_label, NIFTY_PROXY_SYMS,
+                            equal_weight_index, adjust_for_splits)
 from data_fetcher import _weekdays_back, _download_one_day
+import regime as regime_mod
 
 # ── Score history (persisted) for smoothing ────────────────────────────────────
 _DATA_DIR = Path(os.getenv("DATA_DIR", os.path.dirname(__file__) or "."))
@@ -99,6 +101,11 @@ def _load_all_stocks(progress_callback=None) -> dict[str, pd.DataFrame]:
             continue
         g = grp.set_index("Date")[["Open", "High", "Low", "Close", "Volume"]]
         g = g[~g.index.duplicated(keep="last")].sort_index()
+        # BUG-FIX (2026-06-10): bhavcopy is unadjusted — without this a 1:1
+        # bonus registers as a -50% "decline" (wrong A/D + down-volume), and
+        # the stock then sits ~50% below its fake "52W high" for a year,
+        # biasing new-highs/lows, %>MA50 and %>MA200 bearish.
+        g = adjust_for_splits(g)
         if len(g) >= MIN_BARS:
             stocks[sym] = g
     return stocks
@@ -120,11 +127,20 @@ def _build_nifty(stocks: dict) -> pd.Series | None:
 
 # ── Breadth metrics ───────────────────────────────────────────────────────────
 
-def _compute_breadth(stocks: dict) -> dict:
-    """Compute breadth metrics across all stocks (incl. volume confirmation)."""
-    above50 = above200 = new_highs = new_lows = up_today = down_today = total = 0
-    up_volume = 0.0
-    down_volume = 0.0
+def _compute_breadth(stocks: dict, smooth_days: int = 5) -> dict:
+    """Compute breadth metrics across all stocks.
+
+    BUG-FIX (2026-06-10):
+    - A/D and up/down volume are ALSO aggregated per-session for the last
+      `smooth_days` sessions: a single expiry-day distortion used to move the
+      composite score by up to 3 of 15 points. The smoothed ratios are what
+      the score consumes; today's raw values remain for display.
+    - Sentinels removed: a day with zero decliners now yields ratio=None
+      (capped at 10.0 when a numeric is needed), not a magic 9.9.
+    """
+    above50 = above200 = new_highs = new_lows = total = 0
+    # per-DATE aggregates over the recent window: date -> [adv, dec, upvol, dnvol]
+    daily: dict = {}
 
     for sym, df in stocks.items():
         cl = df["Close"].dropna()
@@ -132,7 +148,6 @@ def _compute_breadth(stocks: dict) -> dict:
             continue
         total += 1
         cur = float(cl.iloc[-1])
-        prev = float(cl.iloc[-2]) if len(cl) >= 2 else cur
 
         # MA breadth
         if len(cl) >= 52:
@@ -153,28 +168,49 @@ def _compute_breadth(stocks: dict) -> dict:
         if cur <= lo52 * 1.005:
             new_lows += 1
 
-        # Today's volume — segregate by up vs down close
-        vol_today = 0.0
-        if "Volume" in df.columns:
-            v = df["Volume"].dropna()
-            if len(v):
+        # Per-session A/D + up/down volume for the last `smooth_days`+1 bars
+        v = df["Volume"].dropna() if "Volume" in df.columns else None
+        tail = cl.iloc[-(smooth_days + 1):]
+        chg = tail.diff().iloc[1:]
+        for dt, c in chg.items():
+            rec = daily.setdefault(dt, [0, 0, 0.0, 0.0])
+            vol = 0.0
+            if v is not None and dt in v.index:
                 try:
-                    vol_today = float(v.iloc[-1])
+                    vol = float(v.loc[dt])
                 except Exception:
-                    vol_today = 0.0
+                    vol = 0.0
+            if c > 0:
+                rec[0] += 1; rec[2] += vol
+            elif c < 0:
+                rec[1] += 1; rec[3] += vol
 
-        # Advance/Decline today + volume
-        if cur > prev:
-            up_today += 1
-            up_volume += vol_today
-        elif cur < prev:
-            down_today += 1
-            down_volume += vol_today
+    def _ratio(up, dn, cap=10.0):
+        if dn <= 0:
+            return cap if up > 0 else None
+        return round(min(cap, up / dn), 2)
+
+    # Today = most recent session; smoothed = mean of per-session ratios
+    sessions = sorted(daily.keys())[-smooth_days:]
+    if sessions:
+        last = daily[sessions[-1]]
+        up_today, down_today = last[0], last[1]
+        up_volume, down_volume = last[2], last[3]
+        adr = _ratio(up_today, down_today)
+        vol_ratio = _ratio(up_volume, down_volume)
+        adr_vals = [_ratio(daily[d][0], daily[d][1]) for d in sessions]
+        vr_vals  = [_ratio(daily[d][2], daily[d][3]) for d in sessions]
+        adr_vals = [x for x in adr_vals if x is not None]
+        vr_vals  = [x for x in vr_vals if x is not None]
+        adr_5d = round(float(np.mean(adr_vals)), 2) if adr_vals else None
+        vol_ratio_5d = round(float(np.mean(vr_vals)), 2) if vr_vals else None
+    else:
+        up_today = down_today = 0
+        up_volume = down_volume = 0.0
+        adr = vol_ratio = adr_5d = vol_ratio_5d = None
 
     pct50  = round(above50  / total * 100, 1) if total else 0
     pct200 = round(above200 / total * 100, 1) if total else 0
-    adr    = round(up_today / down_today, 2) if down_today else 9.9
-    vol_ratio = round(up_volume / down_volume, 2) if down_volume else 9.9
 
     return {
         "total_stocks":     total,
@@ -185,43 +221,23 @@ def _compute_breadth(stocks: dict) -> dict:
         "advance":          up_today,
         "decline":          down_today,
         "adv_decl_ratio":   adr,
+        "adv_decl_ratio_5d": adr_5d,                       # smoothed — feeds the score
         "up_volume":        round(up_volume / 1e6, 2),     # millions
         "down_volume":      round(down_volume / 1e6, 2),
-        "up_down_vol_ratio": vol_ratio,                     # > 1 = bullish vol
+        "up_down_vol_ratio": vol_ratio,                    # > 1 = bullish vol
+        "up_down_vol_ratio_5d": vol_ratio_5d,              # smoothed — feeds the score
     }
 
 
-def _distribution_days(nifty: pd.DataFrame | pd.Series) -> int:
-    """
-    Count Nifty distribution days in the last 25 sessions.
-    IBD methodology: index drops ≥0.2% AND volume > prior day's volume.
-    Both conditions must be true — a down day on lighter volume is not distribution.
-
-    If `nifty` is a plain Series (no volume), falls back to price-only counting
-    with a comment noting the approximation.
-    """
-    try:
-        if isinstance(nifty, pd.DataFrame) and "Volume" in nifty.columns:
-            # Full IBD method: price down ≥0.2% AND volume > prior day
-            if len(nifty) < 26:
-                return 0
-            cl = nifty["Close"].iloc[-26:]
-            vol = nifty["Volume"].iloc[-26:]
-            pct_chg = cl.pct_change()
-            vol_up  = vol > vol.shift(1)
-            dist    = ((pct_chg < -0.002) & vol_up).iloc[-25:]
-            return int(dist.sum())
-        else:
-            # nifty is an equal-weighted price series (no volume) — price-only proxy.
-            # BUG-010 FIX: IBD volume check cannot be applied. Use stricter -0.5%
-            # threshold (vs -0.2%) to reduce false positives from the missing volume check.
-            if len(nifty) < 26:
-                return 0
-            pct_chg  = nifty.pct_change().iloc[-25:]
-            down_big = (pct_chg < -0.005).sum()
-            return int(down_big)
-    except Exception:
-        return 0
+# Distribution-day counting and FTD detection now live in regime.py — the
+# canonical module shared with the Edge tab, so the two tabs can never report
+# different D-day counts or regimes. The old local implementation fell back to
+# a price-only count (any -0.5% day = "distribution", no volume condition) on
+# the synthetic proxy — not the IBD method at all.
+#
+# Key time-ordering guard in regime.detect_ftd (reproduced here for auditability):
+#   if trough_loc <= peak_loc:
+#       return out   # no decline-then-rally structure; skip to avoid false FTDs
 
 
 def _label_for_score(score: int | float) -> tuple[str, str]:
@@ -253,7 +269,11 @@ def _market_timing_signal(breadth: dict, dist_days: int, nifty_stage: int,
     p50  = breadth["pct_above_50ma"]
     p200 = breadth["pct_above_200ma"]
     hl_ratio = breadth["new_highs"] / (breadth["new_highs"] + breadth["new_lows"] + 1)
-    vol_ratio = breadth.get("up_down_vol_ratio", 1.0)
+    # Score consumes the 5-day SMOOTHED volume ratio — one distorted session
+    # (expiry, block deals) used to swing the composite by up to 3 points.
+    vol_ratio = breadth.get("up_down_vol_ratio_5d")
+    if vol_ratio is None:
+        vol_ratio = breadth.get("up_down_vol_ratio") or 1.0
 
     score = 0
     # ── Above MA50 % (0–3) — granular: 72% > 60% as it should be ──
@@ -287,7 +307,25 @@ def _market_timing_signal(breadth: dict, dist_days: int, nifty_stage: int,
     if smoothed_score is not None:
         smoothed_status, smoothed_cls = _label_for_score(smoothed_score)
 
+    # ── DEPLOYMENT GATE — evidence-based (breadth_validation.py, 166
+    # walk-forward samples 2024-06 → 2026-05, fwd NIFTYBEES paths):
+    #   score ≥ 12 → calmest forward paths (avg 20d DD -1.8%, only 25%
+    #                of samples saw a >3% drawdown)        → risk_on
+    #   score ≤ 4  → toxic tails (Bear 0-1: avg DD -4.5%, 57% saw >3% DD,
+    #                avg 20d return -2.16%)                → risk_off
+    #   in between → NO measurable edge either way (buckets non-monotonic,
+    #                IC ~0) — gate stays neutral; stock selection decides.
+    # The gate uses the SMOOTHED score so one session can't flip deployment.
+    _gate_score = smoothed_score if smoothed_score is not None else score
+    if _gate_score >= 12:
+        gate = "risk_on"
+    elif _gate_score <= 4:
+        gate = "risk_off"
+    else:
+        gate = "neutral"
+
     return {
+        "gate":             gate,
         "status":           status,
         "score":            score,
         "max":              15,
@@ -394,13 +432,17 @@ def _save_score_history(history: list[dict]) -> None:
         pass
 
 
-def _record_today_score(score: int) -> float:
-    """Append today's score, return 5-day MA across history."""
-    today = date.today().isoformat()
+def _record_today_score(score: int, trading_date: str | None = None) -> float:
+    """Append the score keyed to the BHAVCOPY trading date, return 5-day MA.
+
+    BUG-FIX (2026-06-10): was keyed to wall-clock date.today() — weekend scans
+    created entries for non-trading days and holidays left gaps, so the
+    "5-day MA" was not 5 trading days. Re-scans of the same trading day still
+    replace (idempotent)."""
+    key = trading_date or date.today().isoformat()
     history = _load_score_history()
-    # Replace today's entry if exists, else append
-    history = [h for h in history if h.get("date") != today]
-    history.append({"date": today, "score": int(score)})
+    history = [h for h in history if h.get("date") != key]
+    history.append({"date": key, "score": int(score)})
     history.sort(key=lambda h: h["date"])
     _save_score_history(history)
     last5 = [h["score"] for h in history[-5:]]
@@ -601,68 +643,10 @@ def _new_high_stocks(stocks: dict) -> list[dict]:
 
 # ── Follow-Through Day (IBD) ──────────────────────────────────────────────────
 
-def _follow_through_day(nifty: pd.Series) -> dict:
-    """
-    IBD Follow-Through Day detection.
-    After a market decline (≥8%), a FTD is a Nifty move ≥1.7% on day 4+ of rally.
-    Signals potential new market uptrend beginning.
-    """
-    result = {
-        "rally_attempt": False, "days_since_trough": 0,
-        "trough_to_now_pct": 0.0, "ftd_today": False,
-        "today_chg_pct": 0.0, "ftd_in_window": False,
-    }
-    try:
-        if len(nifty) < 30:
-            return result
-        window     = nifty.iloc[-60:]
-        # BUG-FIX: previous code just took max/min of the window with no temporal
-        # ordering — if Nifty made a new high today after consolidation, the
-        # condition (peak-trough)/peak >= 8% was satisfied even though we're
-        # not in any "rally attempt". The proper IBD FTD requires:
-        #   1. A peak in the past
-        #   2. A trough AFTER that peak
-        #   3. Rally attempt from that trough
-        # So argmax(window) must come BEFORE argmin(window) in time.
-        vals       = window.values
-        peak_loc   = int(vals.argmax())
-        trough_loc = int(vals.argmin())
-        if trough_loc <= peak_loc:
-            # No proper decline-then-rally pattern in the window — no FTD setup.
-            return result
-        # Compute peak/trough from the proper temporal window: peak in first half,
-        # trough in second half. Decline measured from the peak.
-        peak_val   = float(vals[peak_loc])
-        trough_val = float(vals[trough_loc])
-        cur        = float(nifty.iloc[-1])
-        if peak_val <= 0 or (peak_val - trough_val) / peak_val < 0.08:
-            return result
-        if cur <= trough_val * 1.01:
-            return result
-        days_from_trough = len(window) - 1 - trough_loc
-        result["rally_attempt"]      = True
-        result["days_since_trough"]  = days_from_trough
-        result["trough_to_now_pct"]  = round((cur - trough_val) / trough_val * 100, 2)
-        if len(nifty) >= 2 and float(nifty.iloc[-2]) > 0:
-            today_chg = (float(nifty.iloc[-1]) - float(nifty.iloc[-2])) / float(nifty.iloc[-2]) * 100
-            result["today_chg_pct"] = round(today_chg, 2)
-            # BUG-011 FIX: FTD window is strictly Day 4-7 from the trough.
-            # Day 8+ is too late — the window has passed, return False.
-            ftd_in_window = (4 <= days_from_trough <= 7)
-            result["ftd_today"] = (ftd_in_window and today_chg >= 1.7)
-        for i in range(-10, 0):
-            try:
-                prev = float(nifty.iloc[i - 1])
-                if prev <= 0:
-                    continue
-                if (float(nifty.iloc[i]) - prev) / prev * 100 >= 1.7:
-                    result["ftd_in_window"] = True
-                    break
-            except Exception:
-                continue
-    except Exception:
-        pass
-    return result
+# FTD detection now lives in regime.py (canonical, volume-confirmed). The old
+# local version never checked volume (a +1.7% day on FALLING volume is not a
+# follow-through day) and its "ftd_in_window" flag matched any +1.7% day in
+# the last 10 sessions regardless of the day-4-7 rule it claimed to enforce.
 
 
 # ── Main entry ────────────────────────────────────────────────────────────────
@@ -679,23 +663,75 @@ def run_market_breadth(progress_callback=None) -> dict:
     if progress_callback:
         progress_callback(0, 1, "Computing market breadth…")
 
-    nifty       = _build_nifty(stocks)
+    # ── Benchmark: real NIFTYBEES (cap-weighted Nifty 50). The 20-stock
+    # equal-weight proxy is only a fallback — it diverges from the actual
+    # index and silently skewed every Nifty-based signal on this tab.
+    proxy = _build_nifty(stocks)
+    bench = None
+    bench_source = "proxy"
+    try:
+        from benchmark import get_benchmark
+        bench = get_benchmark(days=420)
+        if bench is not None and len(bench) >= 60:
+            bench_source = "NIFTYBEES"
+        else:
+            bench = None
+    except Exception:
+        bench = None
+    nifty = bench if bench is not None else proxy
+
+    # ── Canonical regime (shared with the Edge tab via regime.py):
+    # volume-confirmed D-days + volume-confirmed FTD on the SAME inputs.
+    market_vol = regime_mod.build_market_volume(stocks)
+    regime     = regime_mod.market_regime(nifty, market_vol)
+    dist_days  = regime["dday_count"]
+    # UI-compatible FTD block (ftd_in_window key kept for the existing cards)
+    _f = regime["ftd"]
+    ftd = {
+        "rally_attempt":      _f.get("rally_attempt", False),
+        "days_since_trough":  _f.get("days_since_trough") or 0,
+        "trough_to_now_pct":  _f.get("trough_to_now_pct") or 0.0,
+        "ftd_today":          _f.get("ftd_today", False),
+        "today_chg_pct":      _f.get("today_chg_pct") or 0.0,
+        "ftd_in_window":      _f.get("ftd_active", False),
+        "ftd_day":            _f.get("ftd_day"),
+    }
+
     breadth     = _compute_breadth(stocks)
-    dist_days   = _distribution_days(nifty) if nifty is not None else 0
     nifty_stage = stage_analysis(nifty) if nifty is not None else 0
     sector_b    = _sector_stage2_breadth(stocks)
     sector_pct  = sector_b["pct_stage2"] if sector_b else None
     new_highs_l = _new_high_stocks(stocks)
-    ftd         = _follow_through_day(nifty) if nifty is not None else {}
     vix_proxy   = _realized_vol(nifty) if nifty is not None else None
+
+    # Trading date of the data (staleness guard — score history keys to this)
+    try:
+        from data_fetcher import _latest_bhavcopy_date as _lbd
+        _bd = _lbd()
+        bhavcopy_date = str(_bd) if _bd else None
+    except Exception:
+        bhavcopy_date = None
 
     # Compute timing first WITHOUT smoothed (to get raw score), then record + smooth
     raw_timing  = _market_timing_signal(breadth, dist_days, nifty_stage, sector_pct)
-    smoothed_5d = _record_today_score(raw_timing["score"])
+    smoothed_5d = _record_today_score(raw_timing["score"], bhavcopy_date)
     timing      = _market_timing_signal(breadth, dist_days, nifty_stage, sector_pct, smoothed_5d)
 
-    # Backtest thresholds (heavy — but data is already loaded, so cheap)
-    backtest = _backtest_thresholds(stocks, nifty) if nifty is not None else {"by_bucket": []}
+    # Score-bucket evidence: prefer the offline walk-forward calibration
+    # (breadth_validation.py → .breadth_calibration.json — ~2yr, full
+    # 7-component point-in-time scores). The in-process 60-day mini-backtest
+    # (40 samples, one regime, 0-11 partial scale) is only a fallback.
+    backtest = None
+    try:
+        _calib_path = _DATA_DIR / ".breadth_calibration.json"
+        if _calib_path.exists():
+            backtest = json.loads(_calib_path.read_text())
+            backtest["source"] = "walk-forward calibration"
+    except Exception:
+        backtest = None
+    if backtest is None:
+        backtest = _backtest_thresholds(stocks, nifty) if nifty is not None else {"by_bucket": []}
+        backtest["source"] = "60-day mini-backtest (run breadth_validation.py for the full version)"
 
     # BUG-007 FIX: _breadth_trend() was dead code — now called and included in output
     breadth_trend = _breadth_trend(stocks)
@@ -712,6 +748,11 @@ def run_market_breadth(progress_callback=None) -> dict:
     out = {
         "breadth":       breadth,
         "dist_days":     dist_days,
+        "regime":        {k: regime[k] for k in
+                          ("regime", "label", "advice", "color",
+                           "dday_count", "ftd_active", "ftd_day", "details")},
+        "bench_source":  bench_source,      # "NIFTYBEES" | "proxy"
+        "bhavcopy_date": bhavcopy_date,     # staleness guard
         "nifty_stage":   nifty_stage,
         "nifty_stage_label": stage_label(nifty_stage),
         "nifty_r1m":     nifty_r1m,
@@ -720,10 +761,10 @@ def run_market_breadth(progress_callback=None) -> dict:
         "timing":        timing,
         "ftd":           ftd,
         "new_highs_list": new_highs_l,
-        "sector_breadth": sector_b,        # NEW: sector Stage-2 stats
-        "vix_proxy":      vix_proxy,        # NEW: realized vol as VIX proxy
-        "backtest":       backtest,         # NEW: historical score buckets
-        "breadth_trend":  breadth_trend,   # BUG-007 FIX: weekly % above 50MA sparkline
+        "sector_breadth": sector_b,        # sector Stage-2 stats
+        "vix_proxy":      vix_proxy,        # realized vol (NIFTYBEES-based)
+        "backtest":       backtest,         # walk-forward calibration (or fallback)
+        "breadth_trend":  breadth_trend,   # weekly % above 50MA sparkline
         "computed_at":   int(time.time()),
     }
 

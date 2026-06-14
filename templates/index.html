@@ -72,7 +72,10 @@
   }
   /* But hero cards must be fully opaque — text legibility matters more than aesthetic */
   .mg-hero, .eg-hero, .sl-hero, .cn-hero,
-  .sl-stat-card, .cn-stat-card {
+  .sl-stat-card, .cn-stat-card,
+  /* Market Breadth tab: regime banner + stat cards were washed out by the
+     background image — force them opaque like the other tabs. */
+  #breadthTimingInner, #tab-breadth .stat-card, #tab-breadth .card {
     backdrop-filter: none !important;
     background-color: var(--surface) !important;
   }
@@ -573,6 +576,7 @@
   {% if portfolio_enabled %}<button class="tab-btn" onclick="showTab('portfolio', this)" style="background:rgba(245,158,11,0.10);border-color:rgba(245,158,11,0.4)">📈 My Portfolio</button>{% endif %}
   {% if investgrade_enabled %}<button class="tab-btn" onclick="showTab('investgrade', this)" style="background:rgba(16,185,129,0.10);border-color:rgba(16,185,129,0.4)">💎 Investment Grade</button>{% endif %}
   <button class="tab-btn" onclick="showTab('trending', this)">🔥 Trending Stocks</button>
+  {% if strategy_enabled %}<button class="tab-btn" onclick="showTab('strategy', this)" style="background:rgba(245,158,11,0.12);border-color:rgba(245,158,11,0.6);color:#fbbf24;font-weight:700">⚔️ Strategy</button>{% endif %}
   <button class="tab-btn" onclick="showTab('mbo', this)">🏔️ Multi-Yr Breakout</button>
   <button class="tab-btn" onclick="showTab('breakout', this)">⚡ Breakout Stocks</button>
   <button class="tab-btn" onclick="showTab('edge', this)">🎯 Edge Engine</button>
@@ -591,6 +595,7 @@
   {% if vvv_enabled %}<button class="tab-btn" onclick="showTab('vvv', this);vvvCheckCache()" style="background:rgba(168,85,247,0.12);border-color:rgba(168,85,247,0.6);color:#c084fc;font-weight:700">🎯 Minervini VVV</button>{% endif %}
   <button class="tab-btn" onclick="showTab('consensus', this);consensusLoad()" style="background:rgba(251,191,36,0.12);border-color:rgba(251,191,36,0.6);color:#fbbf24;font-weight:700">🎖️ Consensus Picks</button>
   <button class="tab-btn" onclick="showTab('stage-log', this);stageLogLoad()" style="background:rgba(99,102,241,0.12);border-color:rgba(99,102,241,0.6);color:#a5b4fc;font-weight:700">📊 Stage Transitions</button>
+  <button class="tab-btn" onclick="showTab('pos-size', this)" style="background:rgba(16,185,129,0.12);border-color:rgba(16,185,129,0.5);color:#34d399;font-weight:700">📐 Position Size</button>
 </div>
 
 <!-- ══════════════════════════════════════════════════════════ SCREENER TAB -->
@@ -895,6 +900,14 @@
           <button class="tf-btn" data-bd="AB"  onclick="filterBreakout('bd','AB',this)">A+B</button>
         </div>
       </div>
+      <div>
+        <span style="font-size:11px;color:var(--gold);display:block;margin-bottom:4px;font-weight:700" title="Backtest-validated probability the breakout sustains">FOLLOW-THROUGH</span>
+        <div style="display:flex;gap:6px">
+          <button class="tf-btn active" data-ft="ALL"  onclick="filterBreakout('ft','ALL',this)">All</button>
+          <button class="tf-btn" data-ft="High" onclick="filterBreakout('ft','High',this)" title="Only 🟢 High setups (top ~quintile — 42% historical follow-through vs 32% base)">🟢 High only</button>
+          <button class="tf-btn" data-ft="HM"   onclick="filterBreakout('ft','HM',this)" title="High + Moderate (exclude 🔴 Low — bottom quintile failed ~83%)">High+Mod</button>
+        </div>
+      </div>
       <div style="margin-left:auto;font-size:11px;color:var(--muted)">
         ↑↓ Click any column header to sort
       </div>
@@ -928,6 +941,7 @@
         <th onclick="sortBreakout('t3')" title="Target 3 — 3R or ATH, whichever higher">T3 🎯 <span class="brk-arrow" data-col="t3"></span></th>
         <th onclick="sortBreakout('risk_pct')" title="Risk % from entry to stop loss">Risk% <span class="brk-arrow" data-col="risk_pct"></span></th>
         <th onclick="sortBreakout('rr')" title="Reward-to-Risk ratio (T2 - Entry) / (Entry - SL)">R:R <span class="brk-arrow" data-col="rr"></span></th>
+        <th onclick="sortBreakout('follow_through')" title="Follow-Through Score 0-100 — BACKTEST-VALIDATED probability the breakout sustains vs reverses. From 5,285 historical breakouts: top-quintile setups followed through 42% vs 32% base (bottom 17%). Weights: momentum-into-breakout 40% · RS 35% · volume 17% · close strength 8%. 🟢 High ≥65, 🟡 Mod ≥45, 🔴 Low.">Follow-Thru <span class="brk-arrow" data-col="follow_through"></span></th>
         <th onclick="sortBreakout('tt_score')" title="Minervini Trend Template 0-8">TT <span class="brk-arrow" data-col="tt_score"></span></th>
         <th onclick="sortBreakout('stage')" title="Weinstein Stage">Stage <span class="brk-arrow" data-col="stage"></span></th>
         <th style="cursor:default" title="Candle signal on latest bar">Candle</th>
@@ -1448,6 +1462,7 @@
       <button id="momPS-rrr"     class="tf-btn"        onclick="setMomPreset('riskadj')" title="Sort by Quality Score (Sharpe-like return/volatility)">⚖️ Risk-Adjusted</button>
       <button id="momPS-acc"     class="tf-btn"        onclick="setMomPreset('acceleration')" title="Streak ≥ 8 up-weeks + r1m percentile ≥ 80">📈 Acceleration</button>
       <button id="momPS-ignite"  class="tf-btn"        onclick="setMomPreset('igniting')" title="EARLY signal: fresh 50-bar high (≤5 days) + volume surge (≥1.5×) + rising MA20. Catches breakouts months before the Elite badge. Youngest stocks ranked first.">🌋 Igniting</button>
+      <button id="momPS-brk"     class="tf-btn"        onclick="setMomPreset('breakout')" title="Established LEADERS breaking out: at/near 52-week high (≥90%) + strong relative strength (RS ≥ 80) + real momentum. Catches the PARAS / DATAPATTNS continuation-breakout setup that lands as 'Strong' just below Elite.">🚀 Breakout Leaders</button>
       <span id="momPresetMsg" style="font-size:11px;color:var(--text2);margin-left:8px"></span>
     </div>
   </div>
@@ -1699,23 +1714,26 @@
   <div id="breadthBacktest" style="display:none;margin-bottom:14px">
     <div class="panel">
       <div class="panel-header">
-        <h2>🔬 Threshold Backtest — Past 60 days</h2>
+        <h2>🔬 Score Validation — Walk-Forward</h2>
         <span style="font-size:11px;color:var(--muted)" id="bktMeta"></span>
       </div>
       <div class="panel-body">
         <div style="font-size:12px;color:var(--muted);margin-bottom:10px">
-          For each past day, we computed the breadth score and tracked Nifty's forward 5/10/20-day return.
-          Higher avg returns + higher win rate at higher scores = the threshold logic is working.
+          Point-in-time breadth score vs NIFTYBEES forward returns AND forward drawdowns.
+          Evidence: only the EXTREMES discriminate — score ≤ 4 has toxic tails (risk-off),
+          score ≥ 12 has the calmest paths (risk-on); the middle is noise.
         </div>
         <table style="width:100%;border-collapse:collapse;font-size:13px">
           <thead>
             <tr style="border-bottom:2px solid var(--border)">
               <th style="text-align:left;padding:8px">Score Bucket</th>
               <th style="text-align:right;padding:8px">Days</th>
-              <th style="text-align:right;padding:8px">Avg 5d Return</th>
-              <th style="text-align:right;padding:8px">Avg 10d Return</th>
-              <th style="text-align:right;padding:8px">Avg 20d Return</th>
+              <th style="text-align:right;padding:8px">Avg 5d</th>
+              <th style="text-align:right;padding:8px">Avg 10d</th>
+              <th style="text-align:right;padding:8px">Avg 20d</th>
               <th style="text-align:right;padding:8px">Win % (10d)</th>
+              <th style="text-align:right;padding:8px" title="Average worst drawdown over the next 20 sessions">Avg DD (20d)</th>
+              <th style="text-align:right;padding:8px" title="% of days where the next 20 sessions saw a >3% drawdown">Tail &gt;3%</th>
             </tr>
           </thead>
           <tbody id="bktTbody"></tbody>
@@ -2493,8 +2511,12 @@
         <button onclick="trendApplyPreset('institutional')" id="trendPS-inst"       class="tag" style="cursor:pointer;font-size:11px" title="Score ≥ 7 + MFI ≥ 75 + delivery % rising">🏛️ Institutional Stalking</button>
         <button onclick="trendApplyPreset('leader')"        id="trendPS-leader"     class="tag" style="cursor:pointer;font-size:11px" title="Score 10/10 + sector rank ≤ 5">👑 Leader of Leaders</button>
         <button onclick="trendApplyPreset('fresh')"         id="trendPS-fresh"      class="tag" style="cursor:pointer;font-size:11px" title="Just transitioned into Stage 2 (last 10 days) + score ≥ 7">🆕 Fresh Movers</button>
+        <button onclick="trendApplyPreset('tradeready')"    id="trendPS-tradeready" class="tag" style="cursor:pointer;font-size:11px;border-color:var(--gold2)" title="The evidence-based buy list: score ≥ 7 + Conviction ≥ 60 + liquid (ADTV ≥ ₹3Cr) + NOT extended + a defined entry (pullback or fresh breakout). Auto-sorts by Conviction.">🎯 Trade-Ready</button>
         <span id="trendPresetExplain" style="font-size:11px;color:var(--text2);margin-left:8px"></span>
       </div>
+
+      <!-- v3 evidence loop: honest forward-return scorecard of past picks -->
+      <div id="trendScorecard" style="display:none;margin:0 0 10px;padding:8px 12px;border:1px solid var(--border);border-radius:8px;background:var(--surface2);font-size:11px"></div>
 
       <div style="overflow-x:auto">
         <table style="width:100%;border-collapse:collapse;font-size:12px">
@@ -2503,7 +2525,8 @@
               <th onclick="trendSort('rank')"          class="th-sort" id="trendTh-rank">#</th>
               <th onclick="trendSort('symbol')"        class="th-sort" id="trendTh-symbol">Symbol</th>
               <th onclick="trendSort('sector')"        class="th-sort" id="trendTh-sector" title="Sector + tailwind multiplier (Tier 1D)">Sector</th>
-              <th onclick="trendSort('score_with_sector')" class="th-sort" id="trendTh-score" title="Weighted score 0-10 with sector tailwind applied">Score</th>
+              <th onclick="trendSort('score_with_sector')" class="th-sort" id="trendTh-score" title="Weighted score 0-10 with sector tailwind applied — describes TREND STRUCTURE (the filter), not buy-ranking">Score</th>
+              <th onclick="trendSort('conviction')" class="th-sort" id="trendTh-conviction" title="🎯 Evidence-based buy-ranking (0-100): 50% delivery + 25% low volatility + 25% near 52W high. Walk-forward validated IC +0.083 vs 60d forward alpha (the legacy score measured ~0). Sort by THIS to pick among trending stocks.">🎯 Conviction</th>
               <th style="padding:8px 10px;font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.4px;color:var(--text2);border-bottom:2px solid var(--border)" title="10 criteria dots — colored by weight">Criteria</th>
               <th onclick="trendSort('mfi')"           class="th-sort" id="trendTh-mfi" title="Money Flow Index 14 — ≥80 strong accumulation, ≤25 strong distribution">💰 MFI</th>
               <th onclick="trendSort('price')"         class="th-sort" id="trendTh-price">Price</th>
@@ -2513,7 +2536,9 @@
               <th onclick="trendSort('r3m')"           class="th-sort" id="trendTh-r3m">3M Ret</th>
               <th onclick="trendSort('rs_composite')"  class="th-sort" id="trendTh-rs_composite">RS</th>
               <th onclick="trendSort('trend_age')"     class="th-sort" id="trendTh-trend_age" title="Days continuously above MA50. Sweet spot: 30-60d (Tier 2G)">Age</th>
-              <th onclick="trendSort('avg_deliv')"     class="th-sort" id="trendTh-avg_deliv" title="Avg Delivery % — institutional buying signal">Deliv%</th>
+              <th onclick="trendSort('avg_deliv')"     class="th-sort" id="trendTh-avg_deliv" title="Avg Delivery % — institutional buying signal (strongest validated factor: IC +0.087)">Deliv%</th>
+              <th onclick="trendSort('adtv_cr')"       class="th-sort" id="trendTh-adtv_cr" title="Avg daily traded value ₹Cr (20d) — hover shows realistic round-trip cost. Below ₹3Cr costs eat the edge.">ADTV</th>
+              <th onclick="trendSort('ext_ma50')"      class="th-sort" id="trendTh-entry" title="Entry window: 🟢 pullback to MA20 / 🟢 fresh breakout (not extended) / 🟠 extended >15% above MA50 (wait) / ⚪ in-range">Entry</th>
               <th onclick="trendSort('r_squared')"     class="th-sort" id="trendTh-r_squared" title="R² trend consistency: 1.0 = perfectly linear uptrend">R²</th>
               <th style="padding:8px 10px;font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.4px;color:var(--text2);border-bottom:2px solid var(--border)" title="Tier 2H/3K: Stage transition badges + don't-buy warnings">Flags</th>
             </tr>
@@ -2530,6 +2555,7 @@
 
 <!-- ══ LOCAL-ONLY: Portfolio tab (only rendered when portfolio.py is available) ══ -->
 {% if portfolio_enabled %}{% include 'portfolio_tab.html' ignore missing %}{% endif %}
+{% if strategy_enabled %}{% include 'strategy_tab.html' ignore missing %}{% endif %}
 {% if investgrade_enabled %}{% include 'investment_grade_tab.html' ignore missing %}{% endif %}
 {% if alpha_enabled %}{% include 'alpha_engine_tab.html' ignore missing %}{% endif %}
 {% if monster_enabled %}{% include 'monster_growth_tab.html' ignore missing %}{% endif %}
@@ -2537,6 +2563,160 @@
 {% if vvv_enabled %}{% include 'vvv_tab.html' ignore missing %}{% endif %}
 {% include 'consensus_tab.html' ignore missing %}
 {% include 'stage_log_tab.html' ignore missing %}
+
+<!-- ══════════════════════════════════════════ POSITION SIZE / RISK CALC TAB -->
+<div id="tab-pos-size" class="tab-content">
+<div class="container">
+
+  <div class="logic-box">
+    <strong>📐 Position Size / Risk Calculator</strong> — ATR-based position sizing using Wilder's 14-period ATR.
+    Enter a symbol and your account parameters; the calculator fetches live OHLCV data to compute
+    1×ATR and 1.5×ATR stops, exact share count, capital deployed, and R-multiple targets.
+    <div class="tags">
+      <span class="tag">ATR-14 Stop</span>
+      <span class="tag">Shares to Buy</span>
+      <span class="tag">₹ at Risk</span>
+      <span class="tag">% of Capital</span>
+      <span class="tag">2R / 3R Targets</span>
+    </div>
+  </div>
+
+  <div class="panel">
+    <div class="panel-header">
+      <h2>📐 Position Size Calculator</h2>
+      <span style="font-size:11px;color:var(--muted)">Uses bhavcopy OHLCV · Wilder ATR-14 · 1.5× ATR stop</span>
+    </div>
+    <div style="padding:18px 20px">
+
+      <!-- Input grid -->
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:14px;margin-bottom:18px">
+
+        <div>
+          <label style="display:block;font-size:11px;font-weight:600;color:var(--text2);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px">Symbol (NSE)</label>
+          <input id="posSizeSymbol" type="text" placeholder="e.g. RELIANCE"
+            style="width:100%;background:var(--surface2);border:1px solid var(--border2);border-radius:6px;
+                   padding:9px 12px;color:var(--white);font-family:var(--mono);font-size:13px;font-weight:600;
+                   outline:none;text-transform:uppercase"
+            oninput="this.value=this.value.toUpperCase()"
+            onkeydown="if(event.key==='Enter')posSizeCalc()">
+        </div>
+
+        <div>
+          <label style="display:block;font-size:11px;font-weight:600;color:var(--text2);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px">Account Size (₹)</label>
+          <input id="posSizeCapital" type="number" value="1000000" min="1000" step="10000"
+            style="width:100%;background:var(--surface2);border:1px solid var(--border2);border-radius:6px;
+                   padding:9px 12px;color:var(--white);font-family:var(--mono);font-size:13px;
+                   outline:none"
+            onkeydown="if(event.key==='Enter')posSizeCalc()">
+        </div>
+
+        <div>
+          <label style="display:block;font-size:11px;font-weight:600;color:var(--text2);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px">Risk % per Trade</label>
+          <input id="posSizeRiskPct" type="number" value="1.0" min="0.1" max="10" step="0.1"
+            style="width:100%;background:var(--surface2);border:1px solid var(--border2);border-radius:6px;
+                   padding:9px 12px;color:var(--white);font-family:var(--mono);font-size:13px;
+                   outline:none"
+            onkeydown="if(event.key==='Enter')posSizeCalc()">
+        </div>
+
+        <div style="display:flex;align-items:flex-end">
+          <button id="posSizeBtn" class="btn btn-green" onclick="posSizeCalc()"
+            style="width:100%;padding:10px 0;font-size:13px;font-weight:700">
+            ▶ Calculate
+          </button>
+        </div>
+
+      </div>
+
+      <!-- Error / loading message -->
+      <div id="posSizeMsg" style="display:none;padding:10px 14px;border-radius:6px;font-size:13px;margin-bottom:14px"></div>
+
+      <!-- Results card grid — hidden until first successful call -->
+      <div id="posSizeResults" style="display:none">
+
+        <!-- Header row: symbol + price + ATR -->
+        <div style="display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-bottom:16px;padding-bottom:14px;border-bottom:1px solid var(--border)">
+          <span id="posSizeLabel" style="font-size:20px;font-weight:800;color:var(--white);font-family:var(--mono)"></span>
+          <span id="posSizePriceTag" style="font-size:14px;font-weight:600;color:var(--accent2);font-family:var(--mono)"></span>
+          <span id="posSizeAtrTag" style="font-size:12px;color:var(--muted);font-family:var(--mono)"></span>
+        </div>
+
+        <!-- Stat cards -->
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px;margin-bottom:18px">
+
+          <div style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:14px 16px">
+            <div style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;color:var(--muted);margin-bottom:6px">Shares to Buy</div>
+            <div id="posSizeShares" style="font-size:26px;font-weight:800;color:var(--white);font-family:var(--mono)">—</div>
+          </div>
+
+          <div style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:14px 16px">
+            <div style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;color:var(--muted);margin-bottom:6px">₹ at Risk</div>
+            <div id="posSizeRiskAmt" style="font-size:22px;font-weight:700;color:var(--red2);font-family:var(--mono)">—</div>
+          </div>
+
+          <div style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:14px 16px">
+            <div style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;color:var(--muted);margin-bottom:6px">Position Value</div>
+            <div id="posSizePosVal" style="font-size:22px;font-weight:700;color:var(--accent2);font-family:var(--mono)">—</div>
+          </div>
+
+          <div style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:14px 16px">
+            <div style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;color:var(--muted);margin-bottom:6px">% of Capital</div>
+            <div id="posSizePctCap" style="font-size:26px;font-weight:800;color:var(--gold);font-family:var(--mono)">—</div>
+          </div>
+
+        </div>
+
+        <!-- Stop levels + Targets table -->
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
+
+          <!-- Stops -->
+          <div style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:14px 16px">
+            <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--muted);margin-bottom:10px">Stop Levels</div>
+            <table style="width:100%;border-collapse:collapse;font-size:13px">
+              <tr>
+                <td style="padding:5px 0;color:var(--text2)">1×ATR stop</td>
+                <td style="padding:5px 0;text-align:right;font-family:var(--mono);font-weight:600;color:var(--red2)" id="posSize1Atr">—</td>
+              </tr>
+              <tr>
+                <td style="padding:5px 0;color:var(--text2)">1.5×ATR stop <span style="font-size:10px;color:var(--muted)">(used for sizing)</span></td>
+                <td style="padding:5px 0;text-align:right;font-family:var(--mono);font-weight:700;color:var(--red)" id="posSize1_5Atr">—</td>
+              </tr>
+              <tr>
+                <td style="padding:5px 0;color:var(--text2)">Stop distance</td>
+                <td style="padding:5px 0;text-align:right;font-family:var(--mono);color:var(--text2)" id="posSizeStopDist">—</td>
+              </tr>
+            </table>
+          </div>
+
+          <!-- R-targets -->
+          <div style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:14px 16px">
+            <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--muted);margin-bottom:10px">R-Multiple Targets</div>
+            <table style="width:100%;border-collapse:collapse;font-size:13px">
+              <tr>
+                <td style="padding:5px 0;color:var(--text2)">Entry price</td>
+                <td style="padding:5px 0;text-align:right;font-family:var(--mono);font-weight:600;color:var(--white)" id="posSizeEntryDisp">—</td>
+              </tr>
+              <tr>
+                <td style="padding:5px 0;color:var(--text2)">2R target</td>
+                <td style="padding:5px 0;text-align:right;font-family:var(--mono);font-weight:700;color:var(--green)" id="posSize2R">—</td>
+              </tr>
+              <tr>
+                <td style="padding:5px 0;color:var(--text2)">3R target</td>
+                <td style="padding:5px 0;text-align:right;font-family:var(--mono);font-weight:800;color:var(--green2)" id="posSize3R">—</td>
+              </tr>
+            </table>
+          </div>
+
+        </div>
+      </div><!-- /posSizeResults -->
+
+    </div><!-- /padding -->
+  </div><!-- /panel -->
+
+  <p class="disclaimer">Not financial advice. ATR calculated from bhavcopy OHLCV data. Stop levels are indicative only.</p>
+</div>
+</div>
+<!-- ══════════════════════════════════════ END POSITION SIZE TAB -->
 
 <!-- ══════════════════════════════════════════════════════════ JAVASCRIPT -->
 <script>
@@ -3435,12 +3615,13 @@ let _brkTfFilt  = 'ALL';
 let _brkPtFilt  = 'ALL';
 let _brkPsFilt  = 0;        // min Price Strength
 let _brkBdFilt  = 'ALL';    // Buyer Demand filter
+let _brkFtFilt  = 'ALL';    // Follow-Through tier filter
 let _brkSortCol = null;     // currently sorted column key
 let _brkSortDir = 'desc';   // 'asc' or 'desc'
 let _brkPollId  = null;
 
 // Buyer Demand → numeric for sorting (A=5 best, E=1 worst)
-const _bdNum = { 'A': 5, 'B': 4, 'C': 3, 'D': 2, 'E': 1 };
+const _bdNum = { 'A+': 7, 'A': 6, 'B+': 5, 'B': 4, 'C': 3, 'D': 2, 'E': 1 };
 
 function sortBreakout(col) {
   if (_brkSortCol === col) {
@@ -3534,6 +3715,9 @@ function filterBreakout(type, val, btn) {
   } else if (type === 'bd') {
     _brkBdFilt = val;
     document.querySelectorAll('[data-bd]').forEach(b => b.classList.remove('active'));
+  } else if (type === 'ft') {
+    _brkFtFilt = val;
+    document.querySelectorAll('[data-ft]').forEach(b => b.classList.remove('active'));
   }
   btn.classList.add('active');
   renderBreakoutTable();
@@ -3546,9 +3730,11 @@ function renderBreakoutTable() {
     if (_brkTfFilt !== 'ALL' && !r.timeframes.includes(_brkTfFilt)) return false;
     if (_brkPtFilt !== 'ALL' && !r.patterns.includes(_brkPtFilt)) return false;
     if (_brkPsFilt > 0 && (r.price_str || 0) < _brkPsFilt) return false;
-    if (_brkBdFilt === 'A'  && r.buyer_demand !== 'A') return false;
-    if (_brkBdFilt === 'B'  && r.buyer_demand !== 'B') return false;
-    if (_brkBdFilt === 'AB' && !['A','B'].includes(r.buyer_demand)) return false;
+    if (_brkBdFilt === 'A'  && !['A+','A'].includes(r.buyer_demand)) return false;
+    if (_brkBdFilt === 'B'  && !['B+','B'].includes(r.buyer_demand)) return false;
+    if (_brkBdFilt === 'AB' && !['A+','A','B+','B'].includes(r.buyer_demand)) return false;
+    if (_brkFtFilt === 'High' && r.ft_tier !== 'High') return false;
+    if (_brkFtFilt === 'HM'   && !['High','Moderate'].includes(r.ft_tier)) return false;
     return true;
   });
 
@@ -3636,7 +3822,7 @@ function renderBreakoutTable() {
       </td>
       <td style="font-weight:600;color:var(--white)">${fmt2(r.price)}</td>
       <td style="text-align:center"><span class="ps-badge ${psBadge}">${ps}</span></td>
-      <td style="text-align:center"><span class="bd-badge bd-${bd}">${bd}</span></td>
+      <td style="text-align:center"><span class="bd-badge bd-${bd[0]}">${bd}</span></td>
       <td style="text-align:center;line-height:1.3;font-family:'Inter',sans-serif">
         <span style="font-weight:700;color:${grpColor}">${grpRank > 0 ? grpRank+'/'+grpTotal : '—'}</span>
       </td>
@@ -3649,6 +3835,7 @@ function renderBreakoutTable() {
       <td style="color:#d29922;font-weight:600">${fmt2(r.t3)}</td>
       <td><span class="${riskCls}">${r.risk_pct != null ? r.risk_pct.toFixed(1)+'%' : '—'}</span></td>
       <td><span class="${rrCls}" style="font-weight:700">${r.rr != null ? r.rr.toFixed(1)+'R' : '—'}</span></td>
+      <td>${r.follow_through != null ? `<span style="font-weight:800;color:${r.ft_tier==='High'?'var(--green2)':r.ft_tier==='Moderate'?'var(--gold2)':'var(--muted)'}" title="${r.ft_tier} follow-through probability (backtest-validated)">${r.ft_tier==='High'?'🟢':r.ft_tier==='Moderate'?'🟡':'🔴'} ${r.follow_through}</span>` : '—'}</td>
       <td><span class="${r.tt_score >= 7 ? 'pos' : r.tt_score >= 5 ? 'neutral' : ''}" style="font-weight:700">${r.tt_score != null ? r.tt_score+'/8' : '—'}</span></td>
       <td><span class="${r.stage === 2 ? 'pos' : r.stage >= 3 ? 'neg' : 'neutral'}">${r.stage_label || '—'}</span></td>
       <td style="font-size:10px">${(r.candles||[]).map(c=>`<span class="tf-badge pat-Box" style="font-size:9px;padding:1px 4px">${c}</span>`).join('') || '—'}</td>
@@ -4111,8 +4298,8 @@ function renderBreadth(data) {
   el('brdHL').textContent  = b.new_highs + ' / ' + b.new_lows;
   el('brdHL').className    = 'stat-val ' + (b.new_highs > b.new_lows * 2 ? 'pos' : b.new_highs < b.new_lows ? 'neg' : 'neutral');
   el('brdHLsub').textContent = `H/L ratio: ${(b.new_highs/(b.new_highs+b.new_lows+1)*100).toFixed(0)}%`;
-  el('brdADR').textContent = adr + 'x';
-  el('brdADR').className   = 'stat-val ' + (adr >= 1.5 ? 'pos' : adr >= 1.0 ? 'neutral' : 'neg');
+  el('brdADR').textContent = adr != null ? adr + 'x' : '—';
+  el('brdADR').className   = 'stat-val ' + (adr == null ? 'neutral' : adr >= 1.5 ? 'pos' : adr >= 1.0 ? 'neutral' : 'neg');
   el('brdADRsub').textContent = `${b.advance} up · ${b.decline} down`;
 
   el('brdStage').textContent = data.nifty_stage_label || '—';
@@ -4132,9 +4319,25 @@ function renderBreadth(data) {
   // Update timing detail with smoothed status + vol confirmation
   const sm = t.smoothed_status, smScore = t.smoothed_score;
   const volConf = t.vol_confirmation || '—';
-  detailEl.innerHTML = `Score: <b>${t.score}/${t.max}</b>` +
+  // Deployment gate (validated on walk-forward extremes) + canonical regime
+  const gateMap = {
+    risk_on:  ['🟢 RISK-ON',  'var(--green)', 'Score ≥ 12 — calmest forward paths (validated)'],
+    risk_off: ['🔴 RISK-OFF', 'var(--red)',   'Score ≤ 4 — toxic forward tails (validated)'],
+    neutral:  ['🟡 NEUTRAL',  '#eab308',      'Score 5-11 — no measured market-level edge; selection decides'],
+  };
+  const g = gateMap[t.gate] || gateMap.neutral;
+  const rg = data.regime || {};
+  const benchTag = data.bench_source === 'NIFTYBEES'
+    ? '<span style="color:var(--green)" title="All index signals measured on the real Nifty 50 ETF">NIFTYBEES</span>'
+    : '<span style="color:#fb923c" title="Real benchmark unavailable — proxy in use">proxy</span>';
+  detailEl.innerHTML =
+    `<b style="color:${g[1]}" title="${g[2]}">${g[0]}</b>` +
+    ` · Score: <b>${t.score}/${t.max}</b>` +
     (sm ? ` · Smoothed (5d MA): <b style="color:${colMap[sm]||'var(--text)'}">${sm}</b> (${smScore})` : '') +
-    ` · Vol: <b>${volConf}</b> · ${b.total_stocks} stocks analysed`;
+    (rg.regime ? ` · Regime: <b style="color:${rg.color||'var(--text)'}" title="${rg.advice||''}">${rg.regime}</b> (${rg.dday_count} D-days)` : '') +
+    ` · Vol: <b>${volConf}</b> · ${b.total_stocks} stocks` +
+    (data.bhavcopy_date ? ` · 📅 data as of <b>${data.bhavcopy_date}</b>` : '') +
+    ` · vs ${benchTag}`;
 
   // Up/Down Volume Ratio
   const vr = b.up_down_vol_ratio;
@@ -4171,12 +4374,13 @@ function renderBreadth(data) {
   }
   document.getElementById('breadthEnhanced').style.display = 'grid';
 
-  // ── Backtest table ──
+  // ── Validation table (walk-forward calibration; mini-backtest fallback) ──
   const bt = data.backtest;
   if (bt && bt.by_bucket && bt.by_bucket.length) {
     const tbody = document.getElementById('bktTbody');
-    document.getElementById('bktMeta').textContent =
-      `${bt.total_samples} samples over ${bt.lookback_days} days`;
+    document.getElementById('bktMeta').textContent = bt.window
+      ? `${bt.total_samples} walk-forward samples · ${bt.window} · score IC(20d): ${bt.score_ic_20d}`
+      : `${bt.total_samples} samples over ${bt.lookback_days || 60} days (fallback — run breadth_validation.py)`;
     const colorFor = pct => pct > 0 ? 'var(--green)' : 'var(--red)';
     tbody.innerHTML = bt.by_bucket.map(r => `
       <tr style="border-bottom:1px solid var(--border)">
@@ -4186,6 +4390,8 @@ function renderBreadth(data) {
         <td style="padding:8px;text-align:right;color:${colorFor(r.avg_10d)}">${r.avg_10d > 0 ? '+' : ''}${r.avg_10d}%</td>
         <td style="padding:8px;text-align:right;color:${colorFor(r.avg_20d)}">${r.avg_20d > 0 ? '+' : ''}${r.avg_20d}%</td>
         <td style="padding:8px;text-align:right">${r.win_rate_10d}%</td>
+        <td style="padding:8px;text-align:right;color:${(r.avg_fwd_dd20 ?? 0) <= -3 ? 'var(--red)' : 'var(--text2)'}">${r.avg_fwd_dd20 != null ? r.avg_fwd_dd20 + '%' : '—'}</td>
+        <td style="padding:8px;text-align:right;color:${(r.pct_dd_gt3 ?? 0) >= 40 ? 'var(--red)' : 'var(--text2)'}">${r.pct_dd_gt3 != null ? r.pct_dd_gt3 + '%' : '—'}</td>
       </tr>
     `).join('');
     document.getElementById('breadthBacktest').style.display = 'block';
@@ -4641,13 +4847,14 @@ function setMomTrendFilt(v,el) { _momTrendFilt=v; _momActivePill('mtr',el); rend
 function setMomPreset(name) {
   _momPreset = name;
   // Visual active state
-  ['all','leaders','fresh','riskadj','acceleration','igniting'].forEach(k => {
+  ['all','leaders','fresh','riskadj','acceleration','igniting','breakout'].forEach(k => {
     const id = k === 'all' ? 'momPS-all'
             : k === 'leaders' ? 'momPS-leaders'
             : k === 'fresh' ? 'momPS-fresh'
             : k === 'riskadj' ? 'momPS-rrr'
             : k === 'acceleration' ? 'momPS-acc'
-            : 'momPS-ignite';
+            : k === 'igniting' ? 'momPS-ignite'
+            : 'momPS-brk';
     const el = document.getElementById(id);
     if (el) el.classList.toggle('active', k === name);
   });
@@ -4660,6 +4867,8 @@ function setMomPreset(name) {
     _momSortCol = 'r1m'; _momSortDir = 'desc';
   } else if (name === 'igniting') {
     _momSortCol = 'bars_available'; _momSortDir = 'asc'; // youngest stocks first = most asymmetric
+  } else if (name === 'breakout') {
+    _momSortCol = 'pos_52w'; _momSortDir = 'desc';        // closest to fresh highs first
   } else if (name === 'leaders') {
     _momSortCol = 'score'; _momSortDir = 'desc';
   }
@@ -4678,6 +4887,7 @@ function setMomPreset(name) {
       riskadj:      'Sorted by Quality (Sharpe-like) — return ÷ vol',
       acceleration: 'Streak ≥ 8 up-weeks + r1m percentile ≥ 80',
       igniting:     '🌋 Fresh 50-bar high + vol surge + rising MA20 · youngest first · watchlist, not buy-list',
+      breakout:     '🚀 At/near 52w high (≥90%) + RS ≥ 80 + advancing — established leaders breaking out (e.g. PARAS, DATAPATTNS)',
     })[name] || '';
   }
   renderMomTable();
@@ -4727,6 +4937,14 @@ function renderMomTable() {
       if ((r.r1m ?? -999) < r1m_p80) return false;
     } else if (_momPreset === 'igniting') {
       if (!r.igniting) return false;
+    } else if (_momPreset === 'breakout') {
+      // Established LEADERS breaking out: at/near 52w high + strong RS + advancing.
+      // Catches PARAS/DATAPATTNS-type continuation breakouts that land as "Strong"
+      // just below the Elite cutoff. (any age — unlike the youth-gated Igniting preset)
+      if ((r.pos_52w ?? 0) < 90) return false;
+      if ((r.rs_rating ?? 0) < 80) return false;
+      if ((r.score ?? 0) < 55) return false;
+      if ((r.r1m ?? -999) <= 0) return false;
     }
     return true;
   });
@@ -6597,8 +6815,43 @@ function _trendPoll() {
 
     document.getElementById('trendResults').style.display = '';
     _renderHeatmap();
+    _renderTrendScorecard();
     trendSetFilter('score', 'all');
   });
+}
+
+// ── v3 Scorecard panel — honest forward-return tracking of past picks ──
+function _renderTrendScorecard() {
+  const el = document.getElementById('trendScorecard');
+  if (!el) return;
+  const sc = _trendData && _trendData.scorecard;
+  if (!sc || sc.error) { el.style.display = 'none'; return; }
+  el.style.display = '';
+  const bench = _trendData.bench_source === 'NIFTYBEES'
+    ? '<span style="color:var(--green)" title="Relative strength measured vs the real Nifty 50 ETF">✓ vs real NIFTYBEES</span>'
+    : '<span style="color:#fb923c" title="NIFTYBEES unavailable — using 20-stock proxy">⚠ vs proxy Nifty</span>';
+  let html = `<b style="color:var(--gold2)">📋 Scorecard</b> — tracking ${sc.rows_logged || 0} picks `
+    + `across ${sc.scan_dates || 0} scan day(s)${sc.first_scan ? ` since ${sc.first_scan}` : ''} · `
+    + `${sc.rows_measured || 0} with 20d outcomes measured · ${bench}`;
+  const rows = (sc.by_conviction || []);
+  if (rows.length) {
+    html += `<table style="margin-top:6px;border-collapse:collapse;font-size:11px">`
+      + `<tr style="color:var(--muted)"><td style="padding:1px 14px 1px 0">Bucket</td>`
+      + `<td style="padding:1px 14px 1px 0">n</td><td style="padding:1px 14px 1px 0">Avg 20d ret</td>`
+      + `<td style="padding:1px 14px 1px 0">Avg 20d alpha</td><td>Beat Nifty</td></tr>`
+      + rows.map(b => {
+          const ac = (b.avg_alpha20 ?? 0) >= 0 ? 'var(--green)' : 'var(--red)';
+          return `<tr><td style="padding:1px 14px 1px 0;color:var(--text2)">${b.bucket}</td>`
+            + `<td style="padding:1px 14px 1px 0;font-family:var(--mono)">${b.n}</td>`
+            + `<td style="padding:1px 14px 1px 0;font-family:var(--mono)">${b.avg_fwd20 != null ? b.avg_fwd20 + '%' : '—'}</td>`
+            + `<td style="padding:1px 14px 1px 0;font-family:var(--mono);color:${ac};font-weight:700">${b.avg_alpha20 != null ? (b.avg_alpha20 >= 0 ? '+' : '') + b.avg_alpha20 + '%' : '—'}</td>`
+            + `<td style="font-family:var(--mono)">${b.beat_bench_pct != null ? b.beat_bench_pct + '%' : '—'}</td></tr>`;
+        }).join('')
+      + `</table>`;
+  } else {
+    html += `<div style="margin-top:4px;color:var(--muted)">Outcomes fill in automatically as future trading days arrive (20d horizon needs ~4 weeks of scans). Keep scanning daily — this panel will show whether high-Conviction picks actually beat the market.</div>`;
+  }
+  el.innerHTML = html;
 }
 
 // ── Sector Heatmap ──────────────────────────────────────────────
@@ -6759,12 +7012,14 @@ let _trendPreset = 'all';
 
 function trendApplyPreset(name) {
   _trendPreset = name;
-  ['all','breakout','quiet','institutional','leader','fresh'].forEach(k => {
+  ['all','breakout','quiet','institutional','leader','fresh','tradeready'].forEach(k => {
     const el = document.getElementById('trendPS-' + (k === 'institutional' ? 'inst' : k));
     if (!el) return;
     const on = k === name;
     el.style.cssText += `;background:${on?'var(--accent)':'var(--surface2)'};color:${on?'#fff':'var(--text2)'};border-color:${on?'var(--accent)':'var(--border)'}`;
   });
+  // Trade-Ready auto-sorts by Conviction — the validated buy-ranking
+  if (name === 'tradeready') { _trendSortCol = 'conviction'; _trendSortAsc = false; }
   // Brief explanation under the chips
   const explain = {
     'all':           '',
@@ -6773,6 +7028,7 @@ function trendApplyPreset(name) {
     'institutional': 'Score ≥ 7 · MFI ≥ 75 · delivery rising',
     'leader':        'Score 10/10 · sector rank ≤ 5',
     'fresh':         'Fresh Stage 2 entry (≤ 10d) · score ≥ 7',
+    'tradeready':    '🎯 Score ≥ 7 · Conviction ≥ 60 · ADTV ≥ ₹3Cr · not extended · defined entry — sorted by Conviction',
   };
   const elx = document.getElementById('trendPresetExplain');
   if (elx) elx.textContent = explain[name] || '';
@@ -6816,6 +7072,18 @@ function trendRender() {
     } else if (_trendPreset === 'fresh') {
       if ((r.score_int ?? r.score) < 7) return false;
       if (!r.fresh_stage2) return false;
+    } else if (_trendPreset === 'tradeready') {
+      // 🎯 Evidence-based buy list — every gate is individually validated:
+      // conviction (walk-forward IC +0.083), liquidity (cost model),
+      // anti-extension (IC -0.028). NOTE: the pv_character "Distribution"
+      // veto was REMOVED 2026-06-10 — walk-forward IC of that flag is ~0 to
+      // negative (it never predicted alpha), and delivery % inside Conviction
+      // already carries the validated institutional-accumulation signal.
+      if ((r.score_int ?? r.score) < 7) return false;
+      if (r.conviction == null || r.conviction < 60) return false;
+      if (r.adtv_cr == null || r.adtv_cr < 3) return false;
+      if (r.ext_ma50 != null && r.ext_ma50 > 15) return false;
+      if (!['pullback', 'fresh_breakout'].includes(r.entry_window)) return false;
     }
     return true;
   });
@@ -6895,9 +7163,41 @@ function trendRender() {
   const adxColor = v => v == null ? 'var(--muted)' : v >= 40 ? '#10b981' : v >= 25 ? '#f59e0b' : '#ef4444';
   const r2Color  = v => v == null ? 'var(--muted)' : v >= 0.8 ? '#10b981' : v >= 0.5 ? '#f59e0b' : 'var(--muted)';
 
+  // 🎯 Conviction chip (v3 evidence-based buy-ranking, 0-100)
+  const convCell = v => {
+    if (v == null) return '<span style="color:var(--muted)">—</span>';
+    let col, bg;
+    if (v >= 75)      { col = '#f59e0b'; bg = 'rgba(245,158,11,.18)'; }
+    else if (v >= 60) { col = '#10b981'; bg = 'rgba(16,185,129,.16)'; }
+    else if (v >= 40) { col = '#60a5fa'; bg = 'rgba(96,165,250,.12)'; }
+    else              { col = 'var(--text2)'; bg = 'rgba(120,120,120,.10)'; }
+    return `<span style="display:inline-block;padding:2px 9px;border-radius:10px;background:${bg};color:${col};font-family:var(--mono);font-weight:800;font-size:12px" title="Conviction ${v.toFixed(0)}/100 — 50% delivery + 25% low-vol + 25% near 52W high (walk-forward validated)">${v.toFixed(0)}</span>`;
+  };
+
+  // ADTV + round-trip cost cell
+  const adtvCell = r => {
+    if (r.adtv_cr == null) return '<span style="color:var(--muted)">—</span>';
+    const col = r.adtv_cr >= 10 ? 'var(--green)' : r.adtv_cr >= 3 ? 'var(--text2)' : '#ef4444';
+    const cost = r.cost_pct != null ? ` · round-trip cost ≈ ${r.cost_pct}%` : '';
+    return `<span style="color:${col};font-family:var(--mono);font-size:11px" title="₹${r.adtv_cr}Cr avg daily turnover${cost}">₹${r.adtv_cr}Cr</span>`;
+  };
+
+  // Entry-window chip
+  const entryCell = r => {
+    const map = {
+      'pullback':       ['🟢 Pullback',  '#10b981', 'At MA20 support in an uptrend — defined-risk entry'],
+      'fresh_breakout': ['🟢 Breakout',  '#10b981', 'New 52W high within 5d, ≤15% above MA50 — buyable breakout'],
+      'extended':       ['🟠 Extended',  '#fb923c', 'More than 15% above MA50 — chasing; wait for a pullback'],
+      'in_range':       ['⚪ In-range',  '#94a3b8', 'No defined entry edge right now'],
+    };
+    const m = map[r.entry_window] || map['in_range'];
+    const ext = r.ext_ma50 != null ? ` (MA50 ${r.ext_ma50 >= 0 ? '+' : ''}${r.ext_ma50}%)` : '';
+    return `<span style="font-size:10px;padding:2px 6px;border-radius:8px;color:${m[1]};border:1px solid ${m[1]}55;background:${m[1]}18" title="${m[2]}${ext}">${m[0]}</span>`;
+  };
+
   const tbody = document.getElementById('trendTbody');
   if (!rows.length) {
-    tbody.innerHTML = '<tr><td colspan="16" style="padding:30px;text-align:center;color:var(--muted)">No stocks match the current filters.</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="19" style="padding:30px;text-align:center;color:var(--muted)">No stocks match the current filters.</td></tr>';
     return;
   }
 
@@ -6935,6 +7235,7 @@ function trendRender() {
       <td style="padding:7px 10px;text-align:center" title="${scoreTitle}">
         <span style="font-size:14px;font-weight:800;color:${scoreColor(displayScore)};font-family:var(--mono)">${displayScore.toFixed(1)}/10</span>
       </td>
+      <td style="padding:7px 10px;text-align:center">${convCell(r.conviction)}</td>
       <td style="padding:7px 10px">${dots(r.criteria || [], r.c7_score)}</td>
       <td style="padding:7px 10px;text-align:center">${mfiCell(r.mfi, r.mfi_label)}</td>
       <td style="padding:7px 10px;font-family:var(--mono)">₹${r.price}</td>
@@ -6945,12 +7246,107 @@ function trendRender() {
       <td style="padding:7px 10px;font-family:var(--mono);font-weight:700;color:${pc(r.rs_composite)}">${pf(r.rs_composite)}</td>
       <td style="padding:7px 10px;font-family:var(--mono)">${ageCell(r.trend_age, r.age_bucket)}</td>
       <td style="padding:7px 10px;font-family:var(--mono);color:${r.avg_deliv!=null&&r.avg_deliv>50?'var(--green)':'var(--text2)'}">${r.avg_deliv != null ? r.avg_deliv + '%' : '—'}</td>
+      <td style="padding:7px 10px">${adtvCell(r)}</td>
+      <td style="padding:7px 10px">${entryCell(r)}</td>
       <td style="padding:7px 10px;font-family:var(--mono);color:${r2Color(r.r_squared)}">${r.r_squared != null ? r.r_squared.toFixed(2) : '—'}</td>
       <td style="padding:7px 10px"><div class="trend-flags">${flagsCell || '<span style="color:var(--muted)">—</span>'}</div></td>
     </tr>`;
   }).join('');
 }
 
+
+// ── Position Size / Risk Calculator ────────────────────────────────────────
+function posSizeCalc() {
+  const symbol  = (document.getElementById('posSizeSymbol').value || '').trim().toUpperCase();
+  const capital = parseFloat(document.getElementById('posSizeCapital').value) || 1000000;
+  const riskPct = parseFloat(document.getElementById('posSizeRiskPct').value) || 1.0;
+
+  const msgEl  = document.getElementById('posSizeMsg');
+  const resEl  = document.getElementById('posSizeResults');
+  const btn    = document.getElementById('posSizeBtn');
+
+  if (!symbol) {
+    posSizeShowMsg('Please enter a symbol (e.g. RELIANCE)', 'warn');
+    return;
+  }
+
+  btn.disabled  = true;
+  btn.textContent = '⏳ Loading…';
+  resEl.style.display = 'none';
+  posSizeShowMsg('Fetching ATR data from bhavcopy…', 'info');
+
+  const url = `/api/position-size?symbol=${encodeURIComponent(symbol)}&capital=${capital}&risk_pct=${riskPct}`;
+  fetch(url)
+    .then(r => r.json())
+    .then(d => {
+      btn.disabled = false;
+      btn.textContent = '▶ Calculate';
+      if (d.error) {
+        posSizeShowMsg('Error: ' + d.error, 'error');
+        return;
+      }
+      msgEl.style.display = 'none';
+      posSizeRender(d);
+    })
+    .catch(err => {
+      btn.disabled = false;
+      btn.textContent = '▶ Calculate';
+      posSizeShowMsg('Request failed: ' + err.message, 'error');
+    });
+}
+
+function posSizeShowMsg(text, type) {
+  const el = document.getElementById('posSizeMsg');
+  const colors = {
+    info:  { bg: 'rgba(59,130,246,0.12)', border: 'rgba(59,130,246,0.4)',  color: '#93c5fd' },
+    warn:  { bg: 'rgba(245,158,11,0.12)', border: 'rgba(245,158,11,0.4)',  color: '#fbbf24' },
+    error: { bg: 'rgba(239,68,68,0.12)',  border: 'rgba(239,68,68,0.4)',   color: '#f87171' },
+  };
+  const c = colors[type] || colors.info;
+  el.style.cssText = `display:block;padding:10px 14px;border-radius:6px;font-size:13px;margin-bottom:14px;
+    background:${c.bg};border:1px solid ${c.border};color:${c.color}`;
+  el.textContent = text;
+}
+
+function posSizeFmt(n) {
+  // Format Indian rupee numbers with commas (e.g. 10,00,000)
+  if (n == null || isNaN(n)) return '—';
+  const s = Math.round(n).toString();
+  if (s.length <= 3) return '₹' + s;
+  const last3 = s.slice(-3);
+  const rest   = s.slice(0, -3);
+  return '₹' + rest.replace(/\B(?=(\d{2})+(?!\d))/g, ',') + ',' + last3;
+}
+
+function posSizeRender(d) {
+  const resEl = document.getElementById('posSizeResults');
+
+  // Header
+  document.getElementById('posSizeLabel').textContent     = d.symbol;
+  document.getElementById('posSizePriceTag').textContent  = `₹${d.price}`;
+  document.getElementById('posSizeAtrTag').textContent    = `ATR-14: ₹${d.atr14} (${d.atr_pct}%)`;
+
+  // Stat cards
+  document.getElementById('posSizeShares').textContent   = (d.shares || 0).toLocaleString('en-IN');
+  document.getElementById('posSizeRiskAmt').textContent  = posSizeFmt(d.risk_amount);
+  document.getElementById('posSizePosVal').textContent   = posSizeFmt(d.position_value);
+  document.getElementById('posSizePctCap').textContent   = (d.position_pct_of_capital ?? '—') + '%';
+
+  // Stops
+  document.getElementById('posSize1Atr').textContent     = `₹${d.stop_1atr}`;
+  document.getElementById('posSize1_5Atr').textContent   = `₹${d.stop_1_5atr}`;
+  const stopDist = d.price && d.stop_1_5atr
+    ? (d.price - d.stop_1_5atr).toFixed(2) + ` (${((d.price - d.stop_1_5atr) / d.price * 100).toFixed(1)}%)`
+    : '—';
+  document.getElementById('posSizeStopDist').textContent = stopDist;
+
+  // R-targets
+  document.getElementById('posSizeEntryDisp').textContent = `₹${d.price}`;
+  document.getElementById('posSize2R').textContent        = `₹${d.target_2r}`;
+  document.getElementById('posSize3R').textContent        = `₹${d.target_3r}`;
+
+  resEl.style.display = 'block';
+}
 
 
 </script>

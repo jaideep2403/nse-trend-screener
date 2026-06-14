@@ -313,6 +313,81 @@ def test_stage_analysis_short_series_returns_0():
     assert_eq("stage_short_series_is_0", s, 0)
 
 
+def test_pvc_block_day_cannot_veto_accumulation():
+    """FEDERALBNK regression (2026-06-10): 19 up days on normal volume + ONE
+    13× volume day that closed flat/red intraday must NOT flag Distribution.
+    Direction must be close-over-PREV-close and volume weight outlier-capped."""
+    from analysis_utils import price_vol_character
+    n = 25
+    idx = pd.date_range("2026-01-01", periods=n, freq="B")
+    close = pd.Series(100 + np.arange(n) * 0.5, index=idx)   # steady up-closes
+    opens = close - 0.2                                      # green candles
+    vol = pd.Series(1e6, index=idx)
+    # one massive block day: 13× volume, closes a hair below its open
+    # but still ABOVE the previous close (flat block-deal day)
+    block = n - 5
+    vol.iloc[block] = 13e6
+    opens.iloc[block] = close.iloc[block] + 0.05             # red intraday candle
+    df = pd.DataFrame({"Open": opens, "Close": close, "Volume": vol})
+    assert_eq("pvc_block_day_no_false_distribution",
+              price_vol_character(df), "Accumulation")
+
+
+def test_regime_dday_requires_volume_confirmation():
+    """Canonical D-day: a -0.5% day on FALLING volume must NOT count;
+    the same drop on RISING volume must count."""
+    import regime as regime_mod
+    n = 40
+    idx = pd.date_range("2026-01-01", periods=n, freq="B")
+    px = pd.Series(100.0, index=idx)
+    vol = pd.Series(1e6, index=idx)
+    # three confirmed D-days (drop + volume up), two unconfirmed (drop + volume down)
+    for i, vol_up in [(20, True), (24, True), (28, True), (31, False), (34, False)]:
+        px.iloc[i:] = px.iloc[i:] * 0.994          # -0.6% that day onwards
+        vol.iloc[i] = 2e6 if vol_up else 0.5e6
+    count, detail = regime_mod.count_distribution_days(px, vol)
+    assert_eq("regime_dday_volume_confirmed_count", count, 3)
+
+
+def test_regime_ftd_needs_volume_and_window():
+    """FTD: +2% on day 5 of rally on RISING volume → active; same gain on
+    falling volume → NOT active (unconfirmed FTD is not an FTD)."""
+    import regime as regime_mod
+    n = 70
+    idx = pd.date_range("2026-01-01", periods=n, freq="B")
+    px = pd.Series(100.0, index=idx)
+    px.iloc[30:50] = np.linspace(100, 90, 20)     # ~10% decline to trough at bar 49
+    px.iloc[50:54] = [90.5, 91.0, 91.3, 91.5]     # rally days 1-4
+    px.iloc[54] = 91.5 * 1.02                     # day 5: +2% — the FTD candidate
+    px.iloc[55:] = px.iloc[54]
+    vol_up = pd.Series(1e6, index=idx); vol_up.iloc[54] = 2e6
+    vol_dn = pd.Series(1e6, index=idx); vol_dn.iloc[54] = 0.4e6
+    r_up = regime_mod.detect_ftd(px, vol_up)
+    r_dn = regime_mod.detect_ftd(px, vol_dn)
+    assert_eq("regime_ftd_on_rising_volume", r_up["ftd_active"], True)
+    assert_eq("regime_ftd_rejected_on_falling_volume", r_dn["ftd_active"], False)
+
+
+def test_regime_classification_thresholds():
+    import regime as regime_mod
+    assert_eq("regime_6_ddays_is_correction", regime_mod.classify_regime(6, False), "Correction")
+    assert_eq("regime_4_ddays_under_pressure", regime_mod.classify_regime(4, False), "Uptrend Under Pressure")
+    assert_eq("regime_ftd_confirms_uptrend", regime_mod.classify_regime(2, True), "Confirmed Uptrend")
+    assert_eq("regime_quiet_tape_uptrend", regime_mod.classify_regime(1, False), "Confirmed Uptrend")
+
+
+def test_pvc_genuine_distribution_still_flagged():
+    """Heavy-volume down closes must still classify as Distribution."""
+    from analysis_utils import price_vol_character
+    n = 25
+    idx = pd.date_range("2026-01-01", periods=n, freq="B")
+    close = pd.Series(100 - np.arange(n) * 0.8, index=idx)   # steady down-closes
+    vol = pd.Series(2e6, index=idx)                          # heavy throughout
+    df = pd.DataFrame({"Open": close + 0.3, "Close": close, "Volume": vol})
+    assert_eq("pvc_genuine_distribution_flagged",
+              price_vol_character(df), "Distribution")
+
+
 # ── Main ──────────────────────────────────────────────────────────────────────
 
 def main():
@@ -332,6 +407,11 @@ def main():
     test_nifty_proxy_has_no_duplicates()
     test_stage_analysis_pure_uptrend_returns_stage_2()
     test_stage_analysis_short_series_returns_0()
+    test_pvc_block_day_cannot_veto_accumulation()
+    test_pvc_genuine_distribution_still_flagged()
+    test_regime_dday_requires_volume_confirmation()
+    test_regime_ftd_needs_volume_and_window()
+    test_regime_classification_thresholds()
 
     if _failures:
         print(f"\n{len(_failures)} TEST(S) FAILED:")

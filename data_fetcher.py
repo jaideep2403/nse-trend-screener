@@ -65,7 +65,8 @@ def _download_one_day(dt: date) -> pd.DataFrame | None:
         try:
             with open(cache, "rb") as f:
                 return pickle.load(f)
-        except Exception:
+        except Exception as e:
+            print(f"[data_fetcher] corrupt bhavcopy cache {cache.name} — deleting and re-downloading: {e}", flush=True)
             cache.unlink(missing_ok=True)
 
     try:
@@ -103,7 +104,8 @@ def _download_one_day(dt: date) -> pd.DataFrame | None:
             pickle.dump(out, f)
         return out
 
-    except Exception:
+    except Exception as e:
+        print(f"[data_fetcher] bhavcopy download/parse failed for {dt}: {e}", flush=True)
         return None
 
 
@@ -367,7 +369,8 @@ def _stock_pkl_load(ticker: str) -> pd.DataFrame | None:
             if pkl_last < latest:
                 return None   # stale — a newer bhavcopy day exists, force rebuild
         return df
-    except Exception:
+    except Exception as e:
+        print(f"[data_fetcher] corrupt stock pkl for {ticker} — forcing rebuild: {e}", flush=True)
         return None
 
 
@@ -375,8 +378,8 @@ def _stock_pkl_save(ticker: str, df: pd.DataFrame):
     try:
         with open(_stock_pkl_path(ticker), "wb") as f:
             pickle.dump(df, f)
-    except Exception:
-        pass
+    except Exception as e:
+        print(f"[data_fetcher] failed to save stock pkl for {ticker}: {e}", flush=True)
 
 
 def _pkl_stats() -> tuple[int, int]:

@@ -17,6 +17,7 @@ from analysis_utils import (
     detect_candle_signals, atr,
     power_trend, base_count, price_vol_character,
     classify_gap, delivery_trend, composite_rank,
+    cross_sectional_rs_rank,
 )
 
 MIN_BARS     = 60
@@ -279,11 +280,20 @@ def run_advanced_scan(progress_callback=None) -> dict:
             if r:
                 results.append(r)
 
-    # RS Rating from r3m rank
+    # RS Rating: rank 3-month return across the FULL loaded universe, not just
+    # the stocks that passed the filter (Pattern A). Otherwise the top survivor
+    # always reads RS≈99 regardless of true market-wide strength.
     if results:
+        univ_r3m: dict[str, float] = {}
+        for _sym, _df in stocks.items():
+            _cl = _df["Close"].dropna()
+            if len(_cl) >= 63:
+                univ_r3m[_sym] = (float(_cl.iloc[-1]) / float(_cl.iloc[-63]) - 1) * 100
+        univ_rs = cross_sectional_rs_rank(univ_r3m)
         r3m_s  = pd.Series([r["r3m"] for r in results])
-        rs_arr = (r3m_s.rank(pct=True) * 99).round(0).astype(int).tolist()
-        for r, rs in zip(results, rs_arr):
+        sub_rs = (r3m_s.rank(pct=True) * 99).round(0).astype(int).tolist()
+        for r, sub in zip(results, sub_rs):
+            rs = univ_rs.get(r["symbol"], int(sub))
             r["rs_rating"] = int(rs)
             r["tt_score"], r["tt_met"] = trend_template_score(
                 stocks[r["symbol"]]["Close"].dropna(), rs_rating=rs

@@ -56,15 +56,21 @@ def _sector_map():
 
 def _clean_df(df):
     """
-    Detect and strip pre-corporate-action (split/bonus/demerger) price history.
-    A >35% single-day price drop is treated as a split event.
-    Aligns all columns to the same clean index.
+    Strip price history before an unadjusted corporate action (demerger etc.).
+
+    NOTE: the data from industry_groups._get_stocks is ALREADY backward-adjusted
+    for splits/bonuses via analysis_utils.adjust_for_splits, so anything left
+    here is either a demerger (a real discontinuity worth truncating at) or a
+    genuine crash/rally. Only single-day DROPS > 35% qualify — the old
+    pct_change().abs() also fired on +35% upper-circuit GAINS, deleting the
+    history of exactly the strongest momentum stocks and corrupting their
+    MAs / 52W highs / ADX.
     """
     c = df["Close"].dropna()
     if len(c) < 2:
         return df
-    pct_chg   = c.pct_change().abs()
-    anomalies = pct_chg[pct_chg > 0.35].index
+    pct_chg   = c.pct_change()
+    anomalies = pct_chg[pct_chg < -0.35].index
     if len(anomalies) == 0:
         return df
     last_event = anomalies[-1]
@@ -322,6 +328,76 @@ _CRITERIA_WEIGHTS = [
 _CRITERIA_WEIGHT_TOTAL = sum(_CRITERIA_WEIGHTS)   # = 11.0
 
 
+# ── RANKING SCORE v2 — backtest-proven re-weighting ──────────────────────────
+# The 0-10 RANKING score below is NOT the same thing as the 10 trend criteria.
+# The criteria stay as the trend-structure FILTER (a stock only appears on the
+# tab if it is in a clean uptrend — score_int >= TREND_MIN_SCORE). But how the
+# surviving uptrends are RANKED is now driven by what a point-in-time, cost-aware
+# factor-attribution backtest (backtest_engine.py, 66 non-overlapping snapshots,
+# forward 21-day returns, IS=older half / OOS=newer half) PROVED predicts forward
+# returns out-of-sample.
+#
+# PROVEN (backtest_engine.py "COMPOSITE RE-WEIGHTING TEST", validated OOS):
+#     old criteria-weighted score (composite_score):  mean_IC +0.0135, t +0.85,
+#                                                      IS +0.0096, OOS +0.0174
+#     this v2 weighting (composite_v2):                mean_IC +0.0328, t +2.07,
+#                                                      IS +0.0232, OOS +0.0424
+#   → +0.025 OOS_IC, sign-stable, graded ROBUST (|t|>=2), decile spread +1.49%→+2.82%.
+#
+# Weights were set from the IN-SAMPLE half ONLY (never tuned on OOS), heavy on the
+# one ROBUST factor (r6m = 6-month/126-bar trailing return), moderate on proximity
+# to the 252-day high, light on the OOS-stable structural bools (P>MA200, HH/HL,
+# ADX>=25), and ZERO on the out-of-sample traps (Beating-Nifty-1M/3M, MA20>MA50,
+# MA50-slope, Accumulation) that flipped sign OOS.
+#
+# Per-stock standardization: the backtest z-scores the two continuous factors
+# CROSS-SECTIONALLY per snapshot. _score_stock scores ONE stock at a time, so it
+# standardizes against FIXED constants = the average cross-sectional mean/std of
+# each factor measured over the backtest's 66 snapshots. This "fixed-z" per-stock
+# score was verified to reproduce composite_v2's cross-sectional IC essentially
+# exactly (mean_IC +0.0343, t +2.13, OOS +0.0439 vs the +0.0424 target), so the
+# live ranking carries the SAME validated edge.
+_V2_W_R6M   = 0.50    # 6-month momentum (r6m) — the proven forward-return predictor
+_V2_W_PCTHI = 0.25    # proximity to 252-day high (<=0)
+_V2_W_C10   = 0.12    # Price > MA200 (OOS-stable)
+_V2_W_C9    = 0.07    # Higher Highs / Higher Lows (OOS-stable, weak)
+_V2_W_C8    = 0.06    # ADX >= 25 (OOS-stable, weak)
+# Fixed standardization constants (avg cross-sectional mean/std over the 66
+# backtest snapshots). Used to z-score the two continuous factors per stock.
+_V2_R6M_MU, _V2_R6M_SD = 0.156, 0.322     # r6m as a FRACTION (e.g. +0.156 = +15.6%)
+_V2_PCTHI_MU, _V2_PCTHI_SD = -0.144, 0.105  # pct-from-252hi as a FRACTION (<=0)
+# Linear map of the raw weighted z-blend onto the user-facing 0-10 display scale.
+# Monotonic ⇒ does not change the RANKING (or the measured IC), only the readout:
+# blend -2 → 0,  blend 0 → 5,  blend +2 → 10 (clamped). Calibrated to the observed
+# blend distribution (p5≈-1.2, p50≈-0.3, p95≈+0.8) so leaders read high.
+_V2_BLEND_LO, _V2_BLEND_HI = -2.0, 2.0
+
+
+def _v2_ranking_score(r6m_frac, pct_from_hi_frac, c8, c9, c10):
+    """
+    Backtest-proven RANKING score for one stock → (raw_blend, score_0_10).
+
+    raw_blend is the evidence-weighted, fixed-z standardized composite (the live
+    twin of backtest_engine.composite_v2). score_0_10 is its monotonic 0-10
+    display mapping. Continuous inputs are FRACTIONS (not percent). A None
+    continuous input contributes 0 (its cross-sectional mean = neutral).
+    """
+    def _z(v, mu, sd):
+        if v is None or sd <= 0:
+            return 0.0
+        return (float(v) - mu) / sd
+    blend = (
+        _V2_W_R6M   * _z(r6m_frac,        _V2_R6M_MU,   _V2_R6M_SD)
+        + _V2_W_PCTHI * _z(pct_from_hi_frac, _V2_PCTHI_MU, _V2_PCTHI_SD)
+        + _V2_W_C10 * (1.0 if c10 else 0.0)
+        + _V2_W_C9  * (1.0 if c9  else 0.0)
+        + _V2_W_C8  * (1.0 if c8  else 0.0)
+    )
+    frac = (blend - _V2_BLEND_LO) / (_V2_BLEND_HI - _V2_BLEND_LO)
+    score = round(max(0.0, min(10.0, frac * 10.0)), 1)
+    return blend, score
+
+
 def _score_stock(df, nifty):
     """
     Compute all 10 features + display metrics for one stock DataFrame.
@@ -355,6 +431,28 @@ def _score_stock(df, nifty):
     r3m = round((price / float(c.iloc[-63])  - 1) * 100, 1) if n >= 63  else None
     r6m = round((price / float(c.iloc[-126]) - 1) * 100, 1) if n >= 126 else None
 
+    # ── 6-month momentum as a FRACTION for the v2 ranking score ───────────────
+    # This is the single ROBUST forward-return predictor the backtest proved
+    # (r6m, OOS_IC +0.041). It mirrors backtest_engine._candidate_factors.r6m
+    # exactly: base = the close 126 bars back (iloc[-1-126]) so the live ranking
+    # score matches the validated composite_v2. Needs >= 127 bars.
+    # GRACEFUL DEGRADATION (spec): for shorter history, fall back to the longest
+    # available trailing window (down to ~3 months) and linearly time-scale it to
+    # a 126-bar-equivalent magnitude so the z-score stays comparable; below ~63
+    # bars there is no usable momentum, so contribute neutrally (None → z=0).
+    if n >= 127:
+        base6 = float(c.iloc[-1 - 126])
+        mom6m_frac = (price / base6 - 1.0) if base6 > 0 else None
+    else:
+        mom6m_frac = None
+        for bars in (126, 105, 84, 63):
+            if n >= bars + 1:
+                base = float(c.iloc[-1 - bars])
+                if base > 0:
+                    # time-scale the shorter return up to a 126-bar-equivalent
+                    mom6m_frac = (price / base - 1.0) * (126.0 / bars)
+                break
+
     # RS vs Nifty
     def rs(period):
         if nifty is None or n < period:
@@ -367,9 +465,9 @@ def _score_stock(df, nifty):
             (float(nifty[idx].iloc[-1]) / float(nifty[idx].iloc[-period]) - 1) * 100,
             1)
 
-    # Match the return windows used elsewhere (21/63/126) so the RS score
+    # Match the return windows used elsewhere (21/63/126/252) so the RS score
     # and the displayed return columns are computed over the SAME period.
-    rs1m = rs(21); rs3m = rs(63); rs6m = rs(126)
+    rs1m = rs(21); rs3m = rs(63); rs6m = rs(126); rs12m = rs(252)
     # BUG-016 FIX: skip None components and reweight rather than defaulting to 0.
     # If rs1m is None, use rs3m 0.6 + rs6m 0.4. If only rs3m exists, use it fully.
     if rs1m is not None and rs3m is not None and rs6m is not None:
@@ -447,17 +545,55 @@ def _score_stock(df, nifty):
     # Force all criteria to Python bool (numpy.bool_ breaks JSON serialisation)
     criteria = [bool(x) for x in [c1, c2, c3, c4, c5, c6, c7, c8, c9, c10]]
 
-    # ── Tier 1A: weighted score ──────────────────────────────────────────────
-    # Convert each criterion to its weighted contribution. Criterion 7 uses
-    # the per-stock c7_score (which can be negative for distribution).
-    raw_weighted = sum(
-        (_CRITERIA_WEIGHTS[i] * (c7_score if i == 6 else (1.0 if crit else 0.0)))
-        for i, crit in enumerate(criteria)
-    )
-    # Rescale to 0-10. Floor at 0 so distribution penalties don't go negative.
-    score = max(0.0, raw_weighted / _CRITERIA_WEIGHT_TOTAL * 10.0)
-    score = round(score, 1)
-    # Legacy integer score 0-10 for filter pills (counts boolean criteria passing)
+    # ── Tier 1A weighted score + GRADED scoring ──────────────────────────────
+    # The magnitude-bearing criteria become 0→1 ramps instead of pass/fail, so
+    # a stock AT its 52w high outscores one 19% below it, and a +30% RS leader
+    # outscores a +1% one. Binary pass/fail threw that information away — the
+    # main precision leak. Ramps are calibrated so genuine leaders still reach
+    # ~1.0 (top stocks keep scoring ~9-10); only marginal passers get deflated.
+    # Structural criteria (MA stacking, HH/HL, P>MA200) stay binary; criterion 7
+    # keeps its signed accumulation/distribution score.
+    def _ramp(x, lo, hi):
+        if x is None:
+            return 0.0
+        return max(0.0, min(1.0, (x - lo) / (hi - lo)))
+
+    f4 = _ramp(pct_from_high, -20.0, 0.0)   # at 52w high → 1.0 · -20% → 0
+    f5 = _ramp(rs1m, 0.0, 12.0)             # +12% 1M relative outperformance → full
+    f6 = _ramp(rs3m, 0.0, 25.0)             # +25% 3M relative outperformance → full
+    f8 = _ramp(adx_val, 18.0, 38.0)         # ADX 18 → 0, 38+ → full (strong trend)
+
+    _factors = [
+        1.0 if c1 else 0.0,   # 1  price > MA20/50      (binary structural)
+        1.0 if c2 else 0.0,   # 2  MA20 > MA50          (binary structural)
+        1.0 if c3 else 0.0,   # 3  MA50 slope rising    (binary)
+        f4,                   # 4  proximity to 52w high   (GRADED)
+        f5,                   # 5  1M RS magnitude         (GRADED)
+        f6,                   # 6  3M RS magnitude         (GRADED)
+        c7_score,             # 7  accumulation/distribution (signed)
+        f8,                   # 8  ADX trend strength      (GRADED)
+        1.0 if c9 else 0.0,   # 9  higher-highs/lows    (binary pattern)
+        1.0 if c10 else 0.0,  # 10 price > MA200        (binary)
+    ]
+    raw_weighted = sum(_CRITERIA_WEIGHTS[i] * _factors[i] for i in range(len(_factors)))
+    # Legacy criteria-weighted 0-10 value (the OLD ranking score). Kept for
+    # transparency/back-compat only — it is NO LONGER the ranking score because
+    # the backtest proved it barely predicts forward returns (mean_IC +0.0135,
+    # t +0.85). Floor at 0 so distribution penalties don't go negative.
+    score_criteria_weighted = round(max(0.0, raw_weighted / _CRITERIA_WEIGHT_TOTAL * 10.0), 1)
+
+    # ── RANKING SCORE v2 (backtest-proven) ────────────────────────────────────
+    # The primary `score` is now the validated composite_v2 weighting: heavy on
+    # 6-month momentum, moderate on proximity to the 252-day high, light on the
+    # OOS-stable structural bools (P>MA200, HH/HL, ADX), zero on the OOS traps.
+    # Proven OUT-OF-SAMPLE to beat the old score (OOS_IC +0.0424 vs +0.0174,
+    # decile spread +2.82% vs +1.49%). pct_from_high is a percent here, so /100
+    # to feed the fraction the standardization constants expect.
+    pct_from_hi_frac = pct_from_high / 100.0 if pct_from_high is not None else None
+    composite_v2_raw, score = _v2_ranking_score(mom6m_frac, pct_from_hi_frac, c8, c9, c10)
+    # Legacy integer score 0-10 for filter pills (counts boolean criteria passing).
+    # This is the FILTER (trend structure) and is unchanged — TREND_MIN_SCORE gates
+    # on it, so the tab still shows only clean uptrends.
     score_int = int(sum(criteria))
 
     # ── Tier 1C: MFI (Money Flow Index 14-bar) — institutional flow ──────────
@@ -479,6 +615,39 @@ def _score_stock(df, nifty):
     at_support  = bool(_at_ma20_support(c))
     avg_deliv   = _avg_delivery(df)
     r2          = _r_squared(c)
+
+    # ── Tradability: liquidity + round-trip cost (validated: a "perfect"
+    # trend with ₹0.5Cr ADTV costs ~3.2% round-trip — that erases the edge) ──
+    try:
+        from costs import round_trip_cost_pct
+        cv = df[["Close", "Volume"]].dropna()
+        adtv_cr = (float((cv["Close"].iloc[-20:] * cv["Volume"].iloc[-20:]).mean()) / 1e7
+                   if len(cv) >= 20 else None)
+        cost_pct = round_trip_cost_pct(adtv_cr)
+    except Exception:
+        adtv_cr, cost_pct = None, None
+
+    # ── Volatility (Wilder ATR14 as % of price) — conviction-rank input.
+    # Walk-forward IC of LOW volatility: +0.028 (consistent sign both halves).
+    try:
+        from analysis_utils import atr as _atr_canon
+        atr_pct = (round(_atr_canon(df) / price * 100, 2)
+                   if price > 0 and "High" in df.columns else None)
+    except Exception:
+        atr_pct = None
+
+    # ── Extension above MA50 (don't-chase check; walk-forward IC -0.028) ──
+    ext_ma50 = round((price / ma50 - 1) * 100, 1) if ma50 else None
+
+    # ── Entry window: WHERE in the trend you are, not just trend strength ──
+    if ext_ma50 is not None and ext_ma50 > 15:
+        entry_window = "extended"        # 🟠 wait for pullback
+    elif at_support:
+        entry_window = "pullback"        # 🟢 at MA20 support
+    elif new_high_flag and (ext_ma50 is None or ext_ma50 <= 15):
+        entry_window = "fresh_breakout"  # 🟢 new high, not extended
+    else:
+        entry_window = "in_range"        # ⚪ no defined entry edge
 
     # ── Tier 2G: trend-age sweet-spot bucket ──────────────────────────────
     # Empirical: stocks in their first 60 days of Stage 2 outperform; after
@@ -508,14 +677,22 @@ def _score_stock(df, nifty):
         warnings.append("⚠ stage-2 >180d")
     if adx_val is not None and adx_val < 20 and n >= 50:
         warnings.append("⚠ weak trend (ADX<20)")
+    if adtv_cr is not None and adtv_cr < 3.0:
+        warnings.append(f"⚠ illiquid ₹{adtv_cr:.1f}Cr")
+    if ext_ma50 is not None and ext_ma50 > 15:
+        warnings.append(f"⚠ extended +{ext_ma50:.0f}% MA50")
 
     return {
-        # Core — score is now weighted (Tier 1A); score_int retains the
-        # legacy 0-10 boolean-count for backward compatibility with the
-        # criteria-dot filter pills in the UI.
-        "score":          score,         # weighted 0-10 (float, one decimal)
-        "score_int":      score_int,     # boolean-count 0-10 (legacy, for filter chips)
+        # Core — `score` is now the backtest-PROVEN composite_v2 ranking score
+        # (0-10, float). score_int retains the legacy 0-10 boolean-count used as
+        # the trend-structure FILTER and for the criteria-dot pills in the UI.
+        "score":          score,         # composite_v2 ranking 0-10 (proven OOS)
+        "score_int":      score_int,     # boolean-count 0-10 (FILTER / filter chips)
         "criteria":       criteria,
+        # Backtest-proven ranking internals (transparency; additive — UI-safe):
+        "composite_v2":   round(float(composite_v2_raw), 4),  # raw weighted z-blend
+        "score_criteria_weighted": score_criteria_weighted,   # OLD criteria-weighted 0-10
+        "mom6m":          round(float(mom6m_frac) * 100, 1) if mom6m_frac is not None else None,
         "price":          round(float(price), 2),
         "ma20":           round(float(ma20), 2),
         "ma50":           round(float(ma50), 2)  if ma50  is not None else None,
@@ -531,7 +708,15 @@ def _score_stock(df, nifty):
         "rs1m": float(rs1m) if rs1m is not None else None,
         "rs3m": float(rs3m) if rs3m is not None else None,
         "rs6m": float(rs6m) if rs6m is not None else None,
+        "rs12m": float(rs12m) if rs12m is not None else None,
         "rs_composite": float(rsc),
+        # Tradability + conviction inputs (v3)
+        "adtv_cr":      round(float(adtv_cr), 1) if adtv_cr is not None else None,
+        "cost_pct":     round(float(cost_pct), 2) if cost_pct is not None else None,
+        "atr_pct":      float(atr_pct) if atr_pct is not None else None,
+        "ext_ma50":     float(ext_ma50) if ext_ma50 is not None else None,
+        "entry_window": entry_window,
+        "conviction":   None,   # filled cross-sectionally in run_trending_scan
         # Tier 1C: institutional flow
         "mfi":            round(float(mfi_val), 1),
         "mfi_label":      mfi_label,
@@ -568,7 +753,23 @@ def run_trending_scan(progress_callback=None):
         progress_callback(0, 100, "Loading market data…")
 
     stocks   = _get_stocks()
-    nifty    = _build_nifty(stocks)
+    # Benchmark: real NIFTYBEES (cap-weighted Nifty 50, dividend-reinvested)
+    # — the same series every alpha calc uses. The old 20-stock equal-weight
+    # proxy diverges from the actual index, so "Beating Nifty 1M/3M" was being
+    # measured against the wrong Nifty. Proxy kept only as fallback.
+    nifty = None
+    bench_source = "proxy"
+    try:
+        from benchmark import get_benchmark
+        nifty = get_benchmark(days=420)
+        if nifty is not None and len(nifty) >= 130:
+            bench_source = "NIFTYBEES"
+        else:
+            nifty = None
+    except Exception:
+        nifty = None
+    if nifty is None:
+        nifty = _build_nifty(stocks)
     universe = set(get_universe_symbols())  # Nifty Total Market 750
     sec_map  = _sector_map()
 
@@ -580,7 +781,10 @@ def run_trending_scan(progress_callback=None):
         nifty_3m = round((float(nifty.iloc[-1]) / float(nifty.iloc[-63]) - 1) * 100, 1)
 
     results = []
-    syms    = sorted(s for s in stocks if s in universe)
+    # Scan everything _get_stocks loaded — now the curated 750 PLUS liquid
+    # off-index stocks (recent IPOs not yet in the index, e.g. AEROFLEX), so they
+    # appear on Trending too, not only on Emerging Leaders.
+    syms    = sorted(stocks.keys())
     total   = len(syms)
 
     for i, sym in enumerate(syms):
@@ -601,6 +805,31 @@ def run_trending_scan(progress_callback=None):
 
     if progress_callback:
         progress_callback(total, total, f"Done — {len(results)} trending stocks found")
+
+    # ── CONVICTION RANK (v3) — evidence-based ordering of the trending set ──
+    # Walk-forward validated (trending_validation.py, 19 snapshots 2024-06 →
+    # 2026-03, 11,866 obs, fwd 60d alpha vs NIFTYBEES):
+    #   composite IC +0.083 (t 1.94), IS +0.097 / OOS +0.071 — the most stable
+    #   of 5 candidates tested; also best within the trending subset itself
+    #   (+0.046, OOS +0.027). Components and weights (rank-blended):
+    #     0.50 × delivery %  (avg 20d)   — only factor with t > 2 alone (+0.087)
+    #     0.25 × LOW volatility (ATR%)   — consistent sign both halves (-0.028 raw)
+    #     0.25 × proximity to 52W high   — (+0.031)
+    #   NOTE: the 10 trend criteria stay as the FILTER (trend structure), but
+    #   measured IC of the criteria score among trending stocks is ~0 to
+    #   NEGATIVE (-0.028) — it must not be used as the buy-ranking. Momentum
+    #   magnitude (r3m) within trending stocks was firmly anti-predictive
+    #   (-0.049): chasing the hottest name lost to buying the accumulating one.
+    if results:
+        _dl = pd.Series([r.get("avg_deliv") for r in results], dtype=float)
+        _av = pd.Series([r.get("atr_pct") for r in results], dtype=float)
+        _ph = pd.Series([r.get("pct_from_high") for r in results], dtype=float)
+        r_dl = _dl.rank(pct=True).fillna(0.5)          # higher delivery = better
+        r_lv = (1.0 - _av.rank(pct=True)).fillna(0.5)  # lower ATR% = better
+        r_ph = _ph.rank(pct=True).fillna(0.5)          # nearer 52W high = better
+        conv = (0.50 * r_dl + 0.25 * r_lv + 0.25 * r_ph) * 100
+        for r, cval in zip(results, conv):
+            r["conviction"] = round(float(cval), 1)
 
     # Sector RS heatmap — computed BEFORE final sort so we can use sector rank
     # in the tailwind multiplier (Tier 1D).
@@ -681,6 +910,19 @@ def run_trending_scan(progress_callback=None):
     except Exception:
         bhavcopy_date = None
 
+    # ── Scorecard: log today's ranked list + fill forward returns for older
+    # scans. Idempotent per bhavcopy date — the permanent honesty loop that
+    # measures whether the tab's picks actually beat the market.
+    scorecard = None
+    try:
+        import trending_scorecard as _sc
+        if bhavcopy_date and results:
+            _sc.log_scan(results, bhavcopy_date)
+            _sc.fill_forward_returns(stocks, nifty)
+        scorecard = _sc.summary()
+    except Exception as _sce:
+        scorecard = {"error": str(_sce)}
+
     result = {
         "stocks":          results,
         "universe_count":  total,
@@ -703,6 +945,11 @@ def run_trending_scan(progress_callback=None):
         ],
         "criteria_weights": _CRITERIA_WEIGHTS,     # Tier 1A: expose weights to UI
         "sector_tailwind":  sector_tailwind,       # Tier 1D: for UI display
+        # v3 — evidence-based conviction rank + scorecard
+        "bench_source":     bench_source,          # "NIFTYBEES" | "proxy"
+        "conviction_weights": {"delivery": 0.50, "low_volatility": 0.25,
+                               "near_52w_high": 0.25},
+        "scorecard":        scorecard,
     }
 
     _cache.update({"data": result, "ts": time.time()})

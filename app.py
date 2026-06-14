@@ -13,14 +13,6 @@ from flask import Flask, render_template, request, jsonify, make_response
 MAX_CONCURRENT_SCANS = int(os.getenv("MAX_CONCURRENT_SCANS", 2))
 _scan_semaphore = threading.BoundedSemaphore(MAX_CONCURRENT_SCANS)
 
-class _ScanSlot:
-    """Context manager — `with _ScanSlot(): run_scan()` serialises CPU/RAM
-    pressure. Non-blocking; caller can pre-check len(_scan_semaphore._value)."""
-    def __enter__(self):
-        _scan_semaphore.acquire()
-        return self
-    def __exit__(self, *a):
-        _scan_semaphore.release()
 from screener import run_screener
 from sector_analysis import run_sector_analysis
 from breakout_scanner import run_breakout_scan
@@ -77,6 +69,65 @@ try:
     PORTFOLIO_AVAILABLE = True
 except Exception as _pf_e:
     print(f"[portfolio] disabled (file not present): {_pf_e}")
+
+# ── LOCAL-ONLY: ⚔️ Strategy Engine (gitignored) ───────────────────────────────
+STRATEGY_AVAILABLE = False
+try:
+    import strategy_engine as _strat
+    STRATEGY_AVAILABLE = True
+except Exception as _st_e:
+    print(f"[strategy] disabled (file not present): {_st_e}")
+
+if STRATEGY_AVAILABLE:
+    import threading as _st_threading
+    _strat_lock  = _st_threading.Lock()
+    _strat_state = {"running": False, "result": None, "error": None,
+                    "progress": 0, "total": 100, "message": ""}
+
+    def _do_strategy_scan(force: bool):
+        def _cb(done, total, msg):
+            with _strat_lock:
+                _strat_state.update({"progress": done, "total": total, "message": msg})
+        try:
+            res = _strat.run_strategy(progress_callback=_cb, force=force)
+            with _strat_lock:
+                _strat_state.update({"result": res, "running": False,
+                                     "error": res.get("error")})
+        except Exception as e:
+            with _strat_lock:
+                _strat_state.update({"error": str(e), "running": False})
+
+    @app.route("/api/strategy/scan", methods=["POST"])
+    def api_strategy_scan():
+        force = (request.args.get("force") == "true")
+        with _strat_lock:
+            if _strat_state["running"]:
+                return jsonify({"status": "already_running"}), 409
+            _strat_state.update({"running": True, "result": None, "error": None,
+                                 "progress": 0, "message": ""})
+        _st_threading.Thread(target=_do_strategy_scan, args=(force,),
+                             daemon=True).start()
+        return jsonify({"status": "started"})
+
+    @app.route("/api/strategy/status")
+    def api_strategy_status():
+        with _strat_lock:
+            s = dict(_strat_state)
+        pct = round(s["progress"] / s["total"] * 100, 1) if s["total"] else 0
+        return jsonify({"running": s["running"], "pct": pct,
+                        "message": s["message"], "result": s["result"],
+                        "error": s["error"]})
+
+    @app.route("/api/strategy/config", methods=["GET", "POST"])
+    def api_strategy_config():
+        try:
+            if request.method == "POST":
+                cfg = _strat.save_config(request.get_json(force=True) or {})
+            else:
+                cfg = _strat.load_config()
+            return jsonify(cfg)
+        except Exception as e:
+            return jsonify({"error": str(e)}), 500
 
 if PORTFOLIO_AVAILABLE:
     @app.route("/api/portfolio", methods=["GET"])
@@ -256,6 +307,7 @@ if ALPHA_AVAILABLE:
 def inject_portfolio_flag():
     return {
         "portfolio_enabled":   PORTFOLIO_AVAILABLE,
+        "strategy_enabled":    STRATEGY_AVAILABLE,
         "investgrade_enabled": INVESTGRADE_AVAILABLE,
         "alpha_enabled":       ALPHA_AVAILABLE,
         "monster_enabled":        MONSTER_AVAILABLE,
@@ -1204,6 +1256,16 @@ def trend_scan_status():
     })
 
 
+@app.route("/api/trending/scorecard")
+def trending_scorecard_summary():
+    """Honest forward-return scorecard of past trending picks (v3 evidence loop)."""
+    try:
+        from trending_scorecard import summary
+        return jsonify(summary())
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
 # ── Fundamentals — background scheduler (auto-started at launch) ──────────────
 # State is managed entirely inside fundamentals.py (_sched dict).
 # No manual fund_state needed here anymore.
@@ -1823,6 +1885,50 @@ threading.Thread(target=_prime_market_breadth, daemon=True).start()
 
 
 # ── Bhavcopy auto-refresh scheduler ──────────────────────────────────────────
+# ── Pre-warm (module-level so BOTH the bhavcopy scheduler AND server startup
+# can trigger it). Runs every scanner SEQUENTIALLY so users never hit a cold
+# cache. A non-blocking lock guarantees only one prewarm pass runs at a time
+# (two overlapping passes would fight over the scan semaphore + RAM).
+_prewarm_lock = threading.Lock()
+_PREWARM_SCANS = [
+    ("breadth",      "market_breadth",         "run_market_breadth"),
+    ("trending",     "trending",               "run_trending_scan"),
+    ("sector",       "sector_analysis",        "run_sector_analysis"),
+    ("industry",     "industry_groups",        "run_industry_analysis"),
+    ("edge",         "edge_engine",            "run_edge_engine"),
+    ("breakout",     "breakout_scanner",       "run_breakout_scan"),
+    ("momentum",     "momentum_scanner",       "run_momentum_scan"),
+    ("emerging",     "emerging_leaders",       "run_emerging_leaders_scan"),
+    ("volume",       "volume_scanner",         "run_volume_scan"),
+    ("early_mover",  "early_mover_scanner",    "run_early_mover_scan"),
+    ("advanced",     "advanced_scanner",       "run_advanced_scan"),
+    ("institutional","institutional_scanner",  "run_institutional_scan"),
+    ("monster",      "monster_growth",         "run_monster_growth_scan"),
+    ("early_growth", "early_growth",           "run_early_growth_scan"),
+    ("vvv",          "minervini_vvv",          "run_vvv_scan"),
+    ("mbo",          "multiyear_breakout",     "run_multiyear_scan"),   # slowest — last
+]
+
+def _prewarm_all_scans(trigger="startup"):
+    if not _prewarm_lock.acquire(blocking=False):
+        print(f"[prewarm/{trigger}] another prewarm already running — skipping", flush=True)
+        return
+    try:
+        print(f"[prewarm/{trigger}] warming scan caches…", flush=True)
+        for label, mod_name, fn_name in _PREWARM_SCANS:
+            try:
+                _t0 = time.time()
+                _fn = getattr(__import__(mod_name), fn_name, None)
+                if _fn is None:
+                    continue
+                _fn()   # synchronous — fills the module _cache as a side-effect
+                print(f"[prewarm/{trigger}] {label}: {time.time()-_t0:.1f}s", flush=True)
+            except Exception as _pe:
+                print(f"[prewarm/{trigger}] {label} FAILED: {_pe}", flush=True)
+    finally:
+        _prewarm_lock.release()
+
+
 # Polls NSE every 20 minutes for the latest bhavcopy.
 # NSE publishes after market close (~6–7 PM IST). This runs silently in the
 # background so the DATA SOURCE bar always shows today's data automatically —
@@ -1928,45 +2034,10 @@ def _bhavcopy_scheduler():
                     except Exception:
                         pass
 
-                # ── O2 — Pre-warm scans in background so users never hit a
-                # cold cache. Runs SEQUENTIALLY (not parallel) to avoid the
-                # OOM-on-parallel-scans issue. Breadth runs first because the
-                # header trend pill depends on it. Slow scans (mbo at ~2 min
-                # cold) go last so they don't block the others.
-                def _prewarm_scans():
-                    print("[bhavcopy_scheduler] pre-warming scan caches...", flush=True)
-                    _scans_to_warm = [
-                        ("breadth",      "market_breadth",         "run_market_breadth"),
-                        ("trending",     "trending",               "run_trending_scan"),
-                        ("sector",       "sector_analysis",        "run_sector_analysis"),
-                        ("industry",     "industry_groups",        "run_industry_analysis"),
-                        ("edge",         "edge_engine",            "run_edge_engine"),
-                        ("breakout",     "breakout_scanner",       "run_breakout_scan"),
-                        ("momentum",     "momentum_scanner",       "run_momentum_scan"),
-                        ("emerging",     "emerging_leaders",       "run_emerging_leaders_scan"),
-                        ("volume",       "volume_scanner",         "run_volume_scan"),
-                        ("early_mover",  "early_mover_scanner",    "run_early_mover_scan"),
-                        ("advanced",     "advanced_scanner",       "run_advanced_scan"),
-                        ("institutional","institutional_scanner",  "run_institutional_scan"),
-                        ("monster",      "monster_growth",         "run_monster_growth_scan"),
-                        ("early_growth", "early_growth",           "run_early_growth_scan"),
-                        ("vvv",          "minervini_vvv",          "run_vvv_scan"),
-                        ("mbo",          "multiyear_breakout",     "run_multiyear_scan"),   # slowest — last
-                    ]
-                    for label, mod_name, fn_name in _scans_to_warm:
-                        try:
-                            _t0 = _time.time()
-                            _mod = __import__(mod_name)
-                            _fn  = getattr(_mod, fn_name, None)
-                            if _fn is None:
-                                continue
-                            _fn()   # synchronous — fills _cache as side-effect
-                            print(f"[prewarm] {label}: {(_time.time()-_t0):.1f}s",
-                                  flush=True)
-                        except Exception as _pe:
-                            print(f"[prewarm] {label} FAILED: {_pe}", flush=True)
-
-                threading.Thread(target=_prewarm_scans, daemon=True).start()
+                # ── O2 — Pre-warm scans in background so users never hit a cold
+                # cache (new bhavcopy just landed → caches were invalidated above).
+                threading.Thread(target=_prewarm_all_scans, args=("bhavcopy",),
+                                 daemon=True).start()
         except Exception as e:
             print(f"[bhavcopy_scheduler] error: {e}", flush=True)
 
@@ -1979,6 +2050,26 @@ def _bhavcopy_scheduler():
 
 threading.Thread(target=_bhavcopy_scheduler, daemon=True, name="bhavcopy-auto").start()
 print("[bhavcopy_scheduler] Started — checks NSE every 20 min automatically.")
+
+
+# ── Startup pre-warm: a server restart (deploy, crash-respawn, manual) leaves
+# every in-memory scan cache cold, so the first visitor to each tab pays the
+# full cold-scan cost. If today's bhavcopy is ALREADY cached on disk (the warm-
+# restart case), warm all caches in the background now. On a truly cold machine
+# (no data yet) we skip and let the bhavcopy scheduler download-then-warm, so we
+# never stampede NSE on boot.
+def _startup_prewarm():
+    try:
+        from data_fetcher import _latest_bhavcopy_date
+        if _latest_bhavcopy_date() is not None:
+            _prewarm_all_scans(trigger="startup")
+        else:
+            print("[prewarm/startup] no cached bhavcopy yet — deferring to scheduler", flush=True)
+    except Exception as _e:
+        print(f"[prewarm/startup] error: {_e}", flush=True)
+
+threading.Thread(target=_startup_prewarm, daemon=True, name="startup-prewarm").start()
+print("[prewarm/startup] Scheduled — warms all scan caches on boot if data is cached.")
 
 
 if __name__ == "__main__":
