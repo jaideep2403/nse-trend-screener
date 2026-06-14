@@ -2052,24 +2052,28 @@ threading.Thread(target=_bhavcopy_scheduler, daemon=True, name="bhavcopy-auto").
 print("[bhavcopy_scheduler] Started — checks NSE every 20 min automatically.")
 
 
-# ── Startup pre-warm: a server restart (deploy, crash-respawn, manual) leaves
-# every in-memory scan cache cold, so the first visitor to each tab pays the
-# full cold-scan cost. If today's bhavcopy is ALREADY cached on disk (the warm-
-# restart case), warm all caches in the background now. On a truly cold machine
-# (no data yet) we skip and let the bhavcopy scheduler download-then-warm, so we
-# never stampede NSE on boot.
-def _startup_prewarm():
-    try:
-        from data_fetcher import _latest_bhavcopy_date
-        if _latest_bhavcopy_date() is not None:
-            _prewarm_all_scans(trigger="startup")
-        else:
-            print("[prewarm/startup] no cached bhavcopy yet — deferring to scheduler", flush=True)
-    except Exception as _e:
-        print(f"[prewarm/startup] error: {_e}", flush=True)
-
-threading.Thread(target=_startup_prewarm, daemon=True, name="startup-prewarm").start()
-print("[prewarm/startup] Scheduled — warms all scan caches on boot if data is cached.")
+# ── Startup pre-warm — OFF BY DEFAULT.
+# Warming all 16 scans on every boot helps a beefy local machine, but on a
+# BURSTABLE cloud instance (EC2 t2/t3) it fires on every deploy/restart, pegs
+# the CPU, and EXHAUSTS the instance's CPU credits — after which the box is
+# throttled to baseline for HOURS and every scan crawls. That made production
+# "the slowest ever". So it's opt-in via STARTUP_PREWARM=1 (set it only where
+# you have dedicated CPU). Production stays fast; the bhavcopy scheduler still
+# pre-warms once/day off-peak after new data — the case that actually matters.
+if os.getenv("STARTUP_PREWARM", "0") == "1":
+    def _startup_prewarm():
+        try:
+            from data_fetcher import _latest_bhavcopy_date
+            if _latest_bhavcopy_date() is not None:
+                _prewarm_all_scans(trigger="startup")
+            else:
+                print("[prewarm/startup] no cached bhavcopy yet — deferring to scheduler", flush=True)
+        except Exception as _e:
+            print(f"[prewarm/startup] error: {_e}", flush=True)
+    threading.Thread(target=_startup_prewarm, daemon=True, name="startup-prewarm").start()
+    print("[prewarm/startup] Scheduled (STARTUP_PREWARM=1).")
+else:
+    print("[prewarm/startup] disabled by default (burstable-CPU safe); set STARTUP_PREWARM=1 to enable.")
 
 
 if __name__ == "__main__":
