@@ -2052,28 +2052,10 @@ threading.Thread(target=_bhavcopy_scheduler, daemon=True, name="bhavcopy-auto").
 print("[bhavcopy_scheduler] Started — checks NSE every 20 min automatically.")
 
 
-# ── Startup pre-warm — OFF BY DEFAULT.
-# Warming all 16 scans on every boot helps a beefy local machine, but on a
-# BURSTABLE cloud instance (EC2 t2/t3) it fires on every deploy/restart, pegs
-# the CPU, and EXHAUSTS the instance's CPU credits — after which the box is
-# throttled to baseline for HOURS and every scan crawls. That made production
-# "the slowest ever". So it's opt-in via STARTUP_PREWARM=1 (set it only where
-# you have dedicated CPU). Production stays fast; the bhavcopy scheduler still
-# pre-warms once/day off-peak after new data — the case that actually matters.
-if os.getenv("STARTUP_PREWARM", "0") == "1":
-    def _startup_prewarm():
-        try:
-            from data_fetcher import _latest_bhavcopy_date
-            if _latest_bhavcopy_date() is not None:
-                _prewarm_all_scans(trigger="startup")
-            else:
-                print("[prewarm/startup] no cached bhavcopy yet — deferring to scheduler", flush=True)
-        except Exception as _e:
-            print(f"[prewarm/startup] error: {_e}", flush=True)
-    threading.Thread(target=_startup_prewarm, daemon=True, name="startup-prewarm").start()
-    print("[prewarm/startup] Scheduled (STARTUP_PREWARM=1).")
-else:
-    print("[prewarm/startup] disabled by default (burstable-CPU safe); set STARTUP_PREWARM=1 to enable.")
+# NOTE: There is intentionally NO startup pre-warm. Warming all scans on every
+# boot exhausted the burstable EC2 instance's CPU credits and throttled
+# production. Cache warming happens only via the once-a-day bhavcopy scheduler
+# (off-peak), exactly as it did before — keep it that way on burstable hosts.
 
 
 if __name__ == "__main__":
