@@ -23,6 +23,8 @@ momentum_freshness.db
 .nifty50_cache.pkl
 .breadth_cache.pkl
 .breadth_score_history.json
+.breadth_calibration.json
+.scan_cache/
 
 # IDE / agent runtime metadata — local-only, per-developer
 .claude/

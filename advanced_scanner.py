@@ -11,6 +11,7 @@ import pandas as pd
 from concurrent.futures import ThreadPoolExecutor
 from data_fetcher import _weekdays_back, _download_one_day
 from nse_stocks import is_etf
+import result_cache
 from analysis_utils import (
     trend_template_score, stage_analysis, stage_label,
     is_nr7, is_inside_bar, is_3wt,
@@ -255,6 +256,12 @@ def run_advanced_scan(progress_callback=None) -> dict:
             and _cache["data"].get("results")):
         return _cache["data"]
 
+    _disk = result_cache.get("advanced")
+    if _disk is not None:
+        _cache["data"] = _disk
+        _cache["ts"] = time.time()
+        return _disk
+
     stocks = _load_all_stocks(progress_callback)
     if not stocks:
         return {"results": [], "computed_at": int(time.time()), "total_scanned": 0}
@@ -338,6 +345,7 @@ def run_advanced_scan(progress_callback=None) -> dict:
     }
     _cache["data"] = out
     _cache["ts"]   = time.time()
+    result_cache.put("advanced", out)
 
     if progress_callback:
         progress_callback(total, total,

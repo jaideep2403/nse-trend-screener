@@ -38,6 +38,7 @@ from fundamentals import load_all_fundamentals
 from data_fetcher import _weekdays_back, _download_one_day
 from analysis_utils import stage_analysis, NIFTY_PROXY_SYMS, equal_weight_index
 from nse_stocks import is_etf
+import result_cache
 
 # ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -449,6 +450,13 @@ def run_monster_growth_scan(progress_callback=None) -> dict:
                 and _cache["data"].get("results")):
             return _cache["data"]
 
+    _disk = result_cache.get("monster")
+    if _disk is not None:
+        with _cache_lock:
+            _cache["data"] = _disk
+            _cache["ts"] = time.time()
+        return _disk
+
     if progress_callback:
         progress_callback(0, 100, "Loading OHLCV data from bhavcopy cache…")
 
@@ -522,6 +530,7 @@ def run_monster_growth_scan(progress_callback=None) -> dict:
     with _cache_lock:
         _cache["data"] = out
         _cache["ts"]   = time.time()
+    result_cache.put("monster", out)
 
     # P2-10/11: enrich AFTER cache is set so Monster's own results are
     # visible to build_consensus when it scans every scanner's _cache.

@@ -15,6 +15,7 @@ from analysis_utils import (
     is_high_tight_flag, detect_candle_signals,
 )
 from industry_groups import INDUSTRY_GROUPS
+import result_cache
 
 # ── Symbol → Group lookup (built once at import) ──────────────────────────────
 _SYM_TO_GROUP: dict[str, str] = {}
@@ -650,6 +651,11 @@ def run_breakout_scan(progress_callback=None) -> dict:
             and time.time() - _cache["ts"] < CACHE_TTL
             and _cache["data"].get("results")):
         return _cache["data"]
+    _disk = result_cache.get("breakout")
+    if _disk is not None:
+        _cache["data"] = _disk
+        _cache["ts"] = time.time()
+        return _disk
 
     # 1. Load all NSE OHLCV from bhavcopy cache
     stocks = _load_all_stocks(progress_callback)
@@ -763,6 +769,7 @@ def run_breakout_scan(progress_callback=None) -> dict:
     }
     _cache["data"] = out
     _cache["ts"]   = time.time()
+    result_cache.put("breakout", out)
 
     if progress_callback:
         progress_callback(total, total,

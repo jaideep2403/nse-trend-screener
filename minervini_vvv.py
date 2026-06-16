@@ -44,6 +44,7 @@ from analysis_utils import (
 from breakout_scanner import _is_vcp
 from institutional_scanner import _detect_earnings_setup, _detect_pocket_pivot, _acc_dist_days
 from risk_config import MAX_STOP_PCT, MIN_RR_RATIO
+import result_cache
 
 
 # ── Additional Minervini continuation patterns (BUG-FIX: original VVV only had
@@ -547,6 +548,13 @@ def run_vvv_scan(progress_callback=None) -> dict:
                 and _cache["data"].get("results") is not None):
             return _cache["data"]
 
+    _disk = result_cache.get("vvv")
+    if _disk is not None:
+        with _cache_lock:
+            _cache["data"] = _disk
+            _cache["ts"] = time.time()
+        return _disk
+
     def _prog(n, total, msg):
         if progress_callback:
             progress_callback(n, total, msg)
@@ -628,6 +636,7 @@ def run_vvv_scan(progress_callback=None) -> dict:
     with _cache_lock:
         _cache["data"] = out
         _cache["ts"]   = time.time()
+    result_cache.put("vvv", out)
 
     # Enrich with cross-scan consensus stamps (P2-10/11)
     try:

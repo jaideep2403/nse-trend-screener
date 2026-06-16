@@ -26,6 +26,7 @@ from data_fetcher import _weekdays_back, _download_one_day
 from nse_stocks import is_etf
 from analysis_utils import stage_analysis, stage_label
 from industry_groups import INDUSTRY_GROUPS
+import result_cache
 
 # ── Symbol → group lookup ─────────────────────────────────────────────────────
 _SYM_TO_GROUP: dict[str, str] = {}
@@ -325,6 +326,12 @@ def run_early_mover_scan(progress_callback=None) -> dict:
     if _cache["data"] and time.time() - _cache["ts"] < CACHE_TTL:
         return _cache["data"]
 
+    _disk = result_cache.get("early_mover")
+    if _disk is not None:
+        _cache["data"] = _disk
+        _cache["ts"] = time.time()
+        return _disk
+
     # ── Load stocks ───────────────────────────────────────────────────────────
     stocks = _load_all_stocks(progress_callback)
     if not stocks:
@@ -444,6 +451,7 @@ def run_early_mover_scan(progress_callback=None) -> dict:
     }
     _cache["data"] = out
     _cache["ts"]   = time.time()
+    result_cache.put("early_mover", out)
 
     if progress_callback:
         n = out["inflecting"]; h = out["hidden_gems"]; e = out["emerging"]

@@ -111,11 +111,10 @@ jobs:
             --document-name "AWS-RunShellScript" \
             --comment "Deploy ${{ github.sha }}" \
             --parameters "commands=[
+              'docker image prune -af || true',
               'docker pull $IMAGE_URI',
-              'docker stop ${{ env.CONTAINER_NAME }} 2>/dev/null || true',
-              'docker rm ${{ env.CONTAINER_NAME }} 2>/dev/null || true',
-              'docker run -d --restart=unless-stopped -p ${{ env.APP_PORT }}:${{ env.APP_PORT }} -v nse-data:/data --name ${{ env.CONTAINER_NAME }} $IMAGE_URI',
-              'docker image prune -f'
+              'docker rm -f ${{ env.CONTAINER_NAME }} 2>/dev/null || true',
+              'docker run -d --restart=unless-stopped -p ${{ env.APP_PORT }}:${{ env.APP_PORT }} -v nse-data:/data --name ${{ env.CONTAINER_NAME }} $IMAGE_URI'
             ]" \
             --query "Command.CommandId" \
             --output text)
@@ -133,7 +132,17 @@ jobs:
             --query "Status" --output text)
 
           echo "SSM command status: $STATUS"
-          [ "$STATUS" = "Success" ] || exit 1
+          if [ "$STATUS" != "Success" ]; then
+            echo "===== SSM stdout (on-instance output) ====="
+            aws ssm get-command-invocation --command-id "$COMMAND_ID" \
+              --instance-id "${{ secrets.EC2_INSTANCE_ID }}" \
+              --query "StandardOutputContent" --output text || true
+            echo "===== SSM stderr (the real docker error) ====="
+            aws ssm get-command-invocation --command-id "$COMMAND_ID" \
+              --instance-id "${{ secrets.EC2_INSTANCE_ID }}" \
+              --query "StandardErrorContent" --output text || true
+            exit 1
+          fi
 
       # ── Healthcheck + Auto-rollback ──────────────────────────────────────────
       # Waits 30s for container boot, then polls /api/header for up to 180s.

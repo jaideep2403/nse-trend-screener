@@ -17,6 +17,7 @@ import heapq
 import pandas as pd
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from data_fetcher import _weekdays_back, _download_one_day
+import result_cache
 from analysis_utils import (stage_analysis, stage_label, NIFTY_PROXY_SYMS,
                             equal_weight_index, adjust_for_splits)
 from nse_stocks import is_etf
@@ -1477,6 +1478,13 @@ def run_edge_engine(progress_callback=None, include_backtests=False) -> dict:
     if cache["data"] and time.time() - cache["ts"] < ttl:
         return cache["data"]
 
+    if not include_backtests:
+        _disk = result_cache.get("edge")
+        if _disk is not None:
+            _cache["data"] = _disk
+            _cache["ts"] = time.time()
+            return _disk
+
     # Load fundamentals (best-effort, optional)
     fundamentals_map = {}
     try:
@@ -1618,6 +1626,8 @@ def run_edge_engine(progress_callback=None, include_backtests=False) -> dict:
     }
     cache["data"] = out
     cache["ts"]   = time.time()
+    if not include_backtests:
+        result_cache.put("edge", out)
 
     if progress_callback:
         progress_callback(100, 100,

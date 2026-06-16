@@ -32,6 +32,7 @@ from datetime import date, timedelta
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from data_fetcher import _download_one_day, _bhav_cache_path, BHAV_DIR
+import result_cache
 
 warnings.filterwarnings("ignore")
 log = logging.getLogger(__name__)
@@ -367,6 +368,12 @@ def run_multiyear_scan(min_base_years: int = 1,
     if cached and time.time() - _scan_cache["ts"] < SCAN_CACHE_TTL:
         return cached
 
+    _disk = result_cache.get("multiyear")
+    if _disk is not None:
+        _scan_cache["data"] = _disk
+        _scan_cache["ts"] = time.time()
+        return _disk
+
     # Universe
     try:
         from nse_stocks import get_universe_symbols
@@ -435,6 +442,7 @@ def run_multiyear_scan(min_base_years: int = 1,
     }
     _scan_cache["data"] = out
     _scan_cache["ts"]   = time.time()
+    result_cache.put("multiyear", out)
     return out
 
 

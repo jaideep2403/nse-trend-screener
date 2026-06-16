@@ -26,6 +26,7 @@ from analysis_utils import (stage_analysis, stage_label, NIFTY_PROXY_SYMS,
 from data_fetcher import _weekdays_back, _download_one_day
 from nse_stocks import is_etf
 import regime as regime_mod
+import result_cache
 
 # ── Score history (persisted) for smoothing ────────────────────────────────────
 _DATA_DIR = Path(os.getenv("DATA_DIR", os.path.dirname(__file__) or "."))
@@ -658,6 +659,12 @@ def run_market_breadth(progress_callback=None) -> dict:
             and time.time() - _cache["ts"] < CACHE_TTL):
         return _cache["data"]
 
+    _disk = result_cache.get("breadth")
+    if _disk is not None:
+        _cache["data"] = _disk
+        _cache["ts"] = time.time()
+        return _disk
+
     stocks = _load_all_stocks(progress_callback)
     if not stocks:
         return {"error": "No data available"}
@@ -773,6 +780,7 @@ def run_market_breadth(progress_callback=None) -> dict:
     _cache["data"] = out
     _cache["ts"]   = time.time()
     _save_persisted_cache(_cache)   # persist to disk so next restart shows immediately
+    result_cache.put("breadth", out)
 
     if progress_callback:
         progress_callback(1, 1, "Market breadth computed")

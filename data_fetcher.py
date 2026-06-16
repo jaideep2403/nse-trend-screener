@@ -27,6 +27,7 @@ DOWNLOAD_WORKERS = 10   # parallel bhavcopy downloads — NSE handles this fine
 LOOKBACK_DAYS    = 400  # calendar days to cover (~270 trading days / ~1yr OHLCV)
 
 _session = None
+_DAY_MEM: dict = {}   # in-memory memo: date → parsed DataFrame (never None)
 
 
 # ── HTTP session (reused across calls) ────────────────────────────────────────
@@ -60,11 +61,15 @@ def _bhav_cache_path(dt: date) -> Path:
 
 def _download_one_day(dt: date) -> pd.DataFrame | None:
     """Download and cache one day's bhavcopy. Returns None for holidays/futures."""
+    if dt in _DAY_MEM:
+        return _DAY_MEM[dt]
     cache = _bhav_cache_path(dt)
     if cache.exists():
         try:
             with open(cache, "rb") as f:
-                return pickle.load(f)
+                df = pickle.load(f)
+            _DAY_MEM[dt] = df
+            return df
         except Exception as e:
             print(f"[data_fetcher] corrupt bhavcopy cache {cache.name} — deleting and re-downloading: {e}", flush=True)
             cache.unlink(missing_ok=True)
@@ -102,6 +107,7 @@ def _download_one_day(dt: date) -> pd.DataFrame | None:
 
         with open(cache, "wb") as f:
             pickle.dump(out, f)
+        _DAY_MEM[dt] = out
         return out
 
     except Exception as e:

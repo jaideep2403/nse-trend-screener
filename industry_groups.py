@@ -8,6 +8,7 @@ import time
 import pandas as pd
 from data_fetcher import _weekdays_back, _download_one_day
 from nse_stocks import is_etf
+import result_cache
 
 # ── Auto-sector mapper (NSE TotalMarket CSV, no yfinance) ─────────────────────
 try:
@@ -652,6 +653,12 @@ def run_industry_analysis(progress_callback=None) -> dict:
     if _cache["data"] and time.time() - _cache["ts"] < CACHE_TTL:
         return _cache["data"]
 
+    _disk = result_cache.get("industry")
+    if _disk is not None:
+        _cache["data"] = _disk
+        _cache["ts"] = time.time()
+        return _disk
+
     stocks = _get_stocks(progress_callback)
     if not stocks:
         return {"groups": [], "computed_at": int(time.time()), "total_groups": 0}
@@ -672,6 +679,7 @@ def run_industry_analysis(progress_callback=None) -> dict:
     }
     _cache["data"] = out
     _cache["ts"]   = time.time()
+    result_cache.put("industry", out)
 
     if progress_callback:
         progress_callback(1, 1, f"Done — {len(groups)} industry groups ranked by RS")

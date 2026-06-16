@@ -20,6 +20,7 @@ import pandas as pd
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from data_fetcher import _weekdays_back, _download_one_day
 from nse_stocks import is_etf
+import result_cache
 from analysis_utils import stage_analysis, stage_label
 from industry_groups import INDUSTRY_GROUPS
 
@@ -267,6 +268,12 @@ def run_volume_scan(progress_callback=None) -> dict:
     if _cache["data"] and time.time() - _cache["ts"] < CACHE_TTL:
         return _cache["data"]
 
+    _disk = result_cache.get("volume")
+    if _disk is not None:
+        _cache["data"] = _disk
+        _cache["ts"] = time.time()
+        return _disk
+
     stocks = _load_all_stocks(progress_callback)
     if not stocks:
         return {"stocks": [], "computed_at": int(time.time()),
@@ -316,6 +323,7 @@ def run_volume_scan(progress_callback=None) -> dict:
     }
     _cache["data"] = out
     _cache["ts"]   = time.time()
+    result_cache.put("volume", out)
 
     if progress_callback:
         progress_callback(

@@ -18,6 +18,7 @@ from data_fetcher import _weekdays_back, _download_one_day
 from analysis_utils import stage_analysis, stage_label
 from industry_groups import INDUSTRY_GROUPS
 from nse_stocks import is_etf
+import result_cache
 
 # ── Symbol → Group lookup ─────────────────────────────────────────────────────
 # Use sector_mapper's enriched map (covers all ~750 stocks via the NSE
@@ -319,6 +320,11 @@ def run_momentum_scan(progress_callback=None) -> dict:
     """
     if _cache["data"] and time.time() - _cache["ts"] < CACHE_TTL:
         return _cache["data"]
+    _disk = result_cache.get("momentum")
+    if _disk is not None:
+        _cache["data"] = _disk
+        _cache["ts"] = time.time()
+        return _disk
 
     # ── Load all stocks ───────────────────────────────────────────────────────
     stocks = _load_all_stocks(progress_callback)
@@ -471,6 +477,7 @@ def run_momentum_scan(progress_callback=None) -> dict:
     }
     _cache["data"] = out
     _cache["ts"]   = time.time()
+    result_cache.put("momentum", out)
 
     if progress_callback:
         progress_callback(total_stocks, total_stocks,

@@ -31,6 +31,7 @@ import numpy as np
 import pandas as pd
 from industry_groups import _get_stocks, _build_nifty, INDUSTRY_GROUPS, _group_rs
 from nse_stocks import get_universe_symbols
+import result_cache
 
 try:
     from sector_mapper import get_enriched_sector_map as _enriched_sector_map, refresh_sector_cache
@@ -748,6 +749,11 @@ def run_trending_scan(progress_callback=None):
     global _cache
     if _cache["data"] and time.time() - _cache["ts"] < CACHE_TTL:
         return _cache["data"]
+    _disk = result_cache.get("trending")
+    if _disk is not None:
+        _cache["data"] = _disk
+        _cache["ts"] = time.time()
+        return _disk
 
     if progress_callback:
         progress_callback(0, 100, "Loading market data…")
@@ -953,4 +959,5 @@ def run_trending_scan(progress_callback=None):
     }
 
     _cache.update({"data": result, "ts": time.time()})
+    result_cache.put("trending", result)
     return result

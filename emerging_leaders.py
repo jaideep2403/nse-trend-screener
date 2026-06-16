@@ -50,6 +50,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from data_fetcher import _weekdays_back, _download_one_day
 from analysis_utils import adjust_for_splits
 from nse_stocks import is_etf
+import result_cache
 
 # ── Symbol → sector/group lookup (reuse momentum's enriched map) ──────────────
 try:
@@ -429,6 +430,12 @@ def run_emerging_leaders_scan(progress_callback=None, _stocks=None,
     use_cache = (_stocks is None and as_of is None)
     if use_cache and _cache["data"] and time.time() - _cache["ts"] < CACHE_TTL:
         return _cache["data"]
+    if use_cache:
+        _disk = result_cache.get("emerging")
+        if _disk is not None:
+            _cache["data"] = _disk
+            _cache["ts"] = time.time()
+            return _disk
 
     stocks = _stocks if _stocks is not None else _load_all_stocks(progress_callback)
     if not stocks:
@@ -481,6 +488,7 @@ def run_emerging_leaders_scan(progress_callback=None, _stocks=None,
     if use_cache:
         _cache["data"] = out
         _cache["ts"]   = time.time()
+        result_cache.put("emerging", out)
     return out
 
 
