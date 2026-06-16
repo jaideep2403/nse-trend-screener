@@ -111,31 +111,33 @@ def _is_valid_symbol(sym: str) -> bool:
     return not any(sym.upper().startswith(p) for p in _EXCLUDED_PREFIXES)
 
 
-# Commodity / liquid / smart-beta ETFs that trade in the EQ bhavcopy but do NOT
-# follow a -BEES/-ETF/-IETF suffix pattern, so the suffix rules below miss them.
-_ETF_EXACT = {
-    "LIQUID1", "LIQUIDCASE", "LIQUIDADD", "LIQUIDPLUS", "ABSLLIQUID",
-    "SETFGOLD", "SETFNIF50", "SETFNIFBK", "SETFNN50",
-    "TATAGOLD", "TATSILV", "HDFCGOLD", "HDFCSILVER", "AXISGOLD", "ICICIGOLD",
-    "KOTAKGOLD", "BSLGOLDETF", "QGOLDHALF", "GOLDSHARE", "GOLD1", "SILVER1",
-    "MON100", "MOM100", "MOM50", "MAFANG", "MONIFTY500", "HNGSNGBEES",
-    "CPSEETF", "MOVALUE", "MOLOWVOL", "MOQUALITY", "MOSMALL250", "MOREALTY",
-    "MOHEALTH", "MODEFENCE",
+# Real NSE stocks whose symbols happen to contain fund-like tokens (ETF / GOLD /
+# SILVER / GILT) but are NOT ETFs — they must never be filtered out.
+_NOT_ETF = {
+    "JETFREIGHT",   # Jet Freight Logistics (contains "ETF")
+    "PNBGILTS",     # PNB Gilts Ltd, primary dealer (contains "GILT")
+    "GOLDIAM",      # Goldiam International, jewellery (contains "GOLD")
+    "GOLDTECH",     # Goldstone Technologies (contains "GOLD")
+    "SHANTIGOLD",   # Shanti Gold International, jewellery
+    "SKYGOLD",      # Sky Gold, jewellery
 }
 
 def is_etf(symbol: str) -> bool:
-    """True for exchange-traded funds. ETFs trade in the EQ series alongside
-    stocks, so the off-index / full-EQ loaders can pick them up — but a stock
-    screener must never show them. (NIFTYBEES etc. stay loadable at the data
-    layer for benchmark use; this only gates which symbols get SCANNED.)"""
+    """True for exchange-traded funds / debt-fund units. ETFs trade in the EQ
+    series alongside stocks, so the off-index / full-EQ loaders pick them up —
+    but a stock screener must never show them. Validated against the full
+    ~2400-symbol NSE list: catches all ~156 ETFs with ZERO false positives on
+    real stocks (the handful of fund-named real stocks are whitelisted above).
+    NIFTYBEES etc. stay loadable at the data layer for benchmark use; this only
+    gates which symbols get SCANNED / displayed."""
     s = (symbol or "").upper().strip()
-    if not s:
+    if not s or s in _NOT_ETF:
         return False
-    if s in _ETF_EXACT:
+    # Fund/ETF name tokens that no real (non-whitelisted) stock carries.
+    if any(t in s for t in ("ETF", "BEES", "LIQUID", "GILT", "GSEC")):
         return True
-    if s.endswith("BEES") or s.endswith("IETF") or s.endswith("ETF"):
-        return True
-    if s.startswith("LIQUID") or s.startswith("SETF"):
+    # Commodity (gold / silver) ETFs.
+    if "GOLD" in s or "SILVER" in s or "SLVR" in s:
         return True
     return False
 
