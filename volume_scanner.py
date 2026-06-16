@@ -19,6 +19,7 @@ import time
 import pandas as pd
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from data_fetcher import _weekdays_back, _download_one_day
+from nse_stocks import is_etf
 from analysis_utils import stage_analysis, stage_label
 from industry_groups import INDUSTRY_GROUPS
 
@@ -88,6 +89,7 @@ def _load_all_stocks(progress_callback=None) -> dict[str, pd.DataFrame]:
     combined = pd.concat(frames, ignore_index=True).sort_values("Date")
     stocks: dict[str, pd.DataFrame] = {}
     for sym, grp in combined.groupby("Symbol"):
+        if is_etf(sym): continue
         if _universe and sym not in _universe:
             continue
         g = grp.set_index("Date")[["Open", "High", "Low", "Close", "Volume"]]

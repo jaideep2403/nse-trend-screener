@@ -49,6 +49,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from data_fetcher import _weekdays_back, _download_one_day
 from analysis_utils import adjust_for_splits
+from nse_stocks import is_etf
 
 # ── Symbol → sector/group lookup (reuse momentum's enriched map) ──────────────
 try:
@@ -113,6 +114,7 @@ def _load_all_stocks(progress_callback=None) -> dict[str, pd.DataFrame]:
     combined = pd.concat(frames, ignore_index=True).sort_values("Date")
     stocks: dict[str, pd.DataFrame] = {}
     for sym, grp in combined.groupby("Symbol"):
+        if is_etf(sym): continue
         if _is_etf(sym):
             continue   # commodity/index ETFs are not "emerging companies"
         g = grp.set_index("Date")[["Open", "High", "Low", "Close", "Volume"]]

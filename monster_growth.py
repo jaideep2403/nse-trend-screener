@@ -37,6 +37,7 @@ import pandas as pd
 from fundamentals import load_all_fundamentals
 from data_fetcher import _weekdays_back, _download_one_day
 from analysis_utils import stage_analysis, NIFTY_PROXY_SYMS, equal_weight_index
+from nse_stocks import is_etf
 
 # ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -89,6 +90,7 @@ def _load_universe_ohlcv(progress_callback=None) -> dict[str, pd.DataFrame]:
     stocks   = {}
 
     for sym, grp in combined.groupby("Symbol"):
+        if is_etf(sym): continue
         if universe and sym not in universe:
             continue
         g = grp.set_index("Date")[["Open", "High", "Low", "Close", "Volume"]]

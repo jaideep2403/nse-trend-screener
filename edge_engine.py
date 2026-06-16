@@ -19,6 +19,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from data_fetcher import _weekdays_back, _download_one_day
 from analysis_utils import (stage_analysis, stage_label, NIFTY_PROXY_SYMS,
                             equal_weight_index, adjust_for_splits)
+from nse_stocks import is_etf
 from risk_config import (
     POSITION_SIZE_FRAC, BT_COOLDOWN_BARS,
     MAX_CONCURRENT_POSITIONS, BT_LOAD_DAYS, BT_LOOKBACK_BARS,
@@ -337,6 +338,7 @@ def _load_stocks(progress_callback=None, days: int = 400,
     combined = pd.concat(frames, ignore_index=True).sort_values("Date")
     stocks: dict[str, pd.DataFrame] = {}
     for sym, grp in combined.groupby("Symbol"):
+        if is_etf(sym): continue
         if universe and sym not in universe:
             continue
         _keep = [c for c in ["Open", "High", "Low", "Close", "Volume", "DelivPer"]

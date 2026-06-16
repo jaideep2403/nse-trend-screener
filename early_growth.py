@@ -46,6 +46,7 @@ import pandas as pd
 
 from fundamentals import load_all_fundamentals
 from data_fetcher import _weekdays_back, _download_one_day
+from nse_stocks import is_etf
 
 # ── Constants ──────────────────────────────────────────────────────────────────
 MIN_BARS          = 150    # need MA150
@@ -111,6 +112,7 @@ def _load_universe(progress_callback=None) -> dict[str, pd.DataFrame]:
     stocks   = {}
 
     for sym, grp in combined.groupby("Symbol"):
+        if is_etf(sym): continue
         # Skip illiquid / very small stocks — must have volume data
         want_cols = [c for c in ["Open","High","Low","Close","Volume","DelivPer"]
                      if c in grp.columns]

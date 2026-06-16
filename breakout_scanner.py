@@ -9,6 +9,7 @@ import numpy as np
 import pandas as pd
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from data_fetcher import _weekdays_back, _download_one_day
+from nse_stocks import is_etf
 from analysis_utils import (
     trend_template_score, stage_analysis, stage_label,
     is_high_tight_flag, detect_candle_signals,
@@ -75,6 +76,7 @@ def _load_all_stocks(progress_callback=None) -> dict[str, pd.DataFrame]:
     univ_rs: dict[str, float] = {}   # MarketSmith RS metric for EVERY EQ stock
     univ_ad: dict[str, float] = {}   # 13-week Acc/Dis score for every EQ stock
     for sym, grp in combined.groupby("Symbol"):
+        if is_etf(sym): continue
         g = grp.set_index("Date")[["Open", "High", "Low", "Close", "Volume"]]
         g = g[~g.index.duplicated(keep="last")].sort_index()
         g = _adjust_for_splits(g)
