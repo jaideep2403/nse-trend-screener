@@ -494,6 +494,25 @@
   .tf-btn.active { background: rgba(59,130,246,0.15); border-color: var(--accent); color: var(--accent2); }
   .ma-ok  { color: var(--green2); font-size: 10px; font-family: 'Inter', sans-serif; }
   .ma-bad { color: var(--red2);   font-size: 10px; font-family: 'Inter', sans-serif; }
+
+  /* ── Site footer — clean white, professional; shows under every tab ──────── */
+  .site-footer {
+    background: #ffffff;
+    text-align: center;
+    padding: 30px 24px 36px;
+    margin: 44px 0 0;
+    border-top: 1px solid #e5e7eb;
+  }
+  .site-footer .ft-title {
+    font-size: 21px; font-weight: 800; color: #0f172a;
+    letter-spacing: -0.3px; margin: 0 0 10px;
+    font-family: 'Inter', sans-serif;
+  }
+  .site-footer .ft-line {
+    font-size: 13.5px; color: #374151; margin: 3px 0; font-weight: 500;
+    font-family: 'Inter', sans-serif;
+  }
+  .site-footer .ft-heart { color: #ef4444; }
 </style>
 </head>
 <body>
@@ -7117,5 +7136,11 @@ function trendRender() {
 
 
 </script>
+
+<footer class="site-footer">
+  <div class="ft-title">Stock analysis and screening tool</div>
+  <div class="ft-line">Made with <span class="ft-heart">❤️</span> for equity markets</div>
+  <div class="ft-line">Data provided by NSE bhavcopy</div>
+</footer>
 </body>
 </html>
