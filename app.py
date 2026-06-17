@@ -384,6 +384,29 @@ def index():
     return resp
 
 
+# ── Live presence — count of UNIQUE visitors active in the last minute ───────
+# A browser sends its random localStorage id here every ~30s; we keep
+# {visitor_id: last_seen} in memory and return how many were seen within the
+# window. Microsecond endpoint (a dict write + prune) — safe for the box.
+_presence: dict[str, float] = {}
+_presence_lock = threading.Lock()
+PRESENCE_WINDOW = 60   # seconds a visitor counts as "online"
+
+
+@app.route("/api/presence")
+def api_presence():
+    vid = (request.args.get("id") or "").strip()[:64]
+    now = time.time()
+    with _presence_lock:
+        if vid:
+            _presence[vid] = now
+        cutoff = now - PRESENCE_WINDOW
+        for _k in [k for k, t in _presence.items() if t < cutoff]:
+            del _presence[_k]
+        n = len(_presence)
+    return jsonify({"online": n})
+
+
 @app.route("/api/header")
 def api_header():
     """Lightweight header: Nifty 50 level, day change %, adv/dec, market trend."""

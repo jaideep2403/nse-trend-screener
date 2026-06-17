@@ -520,6 +520,10 @@
     <span class="hs-label">Market Trend</span>
     <span class="hdr-trend muted" id="hdrTrend">—</span>
   </div>
+  <div class="hdr-stat" title="Unique visitors active on the site in the last minute">
+    <span class="hs-label">Users Online</span>
+    <span class="hs-val" id="usersOnline" style="color:#34d399">—</span>
+  </div>
   <button class="theme-toggle" onclick="toggleTheme()" id="themeBtn">🌙 Dark</button>
 </header>
 
@@ -2563,6 +2567,20 @@
 
 <!-- ══════════════════════════════════════════════════════════ JAVASCRIPT -->
 <script>
+// ── Live presence: heartbeat + unique-users-online counter ──────────────────
+(function presenceInit(){
+  let vid = localStorage.getItem('visitorId');
+  if (!vid) { vid = 'v_' + Math.random().toString(36).slice(2) + Date.now().toString(36); localStorage.setItem('visitorId', vid); }
+  function beat(){
+    fetch('/api/presence?id=' + encodeURIComponent(vid))
+      .then(function(r){ return r.json(); })
+      .then(function(d){ var el = document.getElementById('usersOnline'); if (el && d && typeof d.online === 'number') el.textContent = d.online; })
+      .catch(function(){});
+  }
+  beat();
+  setInterval(beat, 30000);
+})();
+
 // ── IST Timestamp helpers ───────────────────────────────────────────────────
 function toIST(unixSec) {
   if (!unixSec) return null;
