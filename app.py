@@ -1447,37 +1447,6 @@ def consensus_lookup(symbol):
         return jsonify({"error": str(e), "symbol": symbol.upper(), "scan_count": 0}), 500
 
 
-@app.route("/api/stage-transitions")
-def stage_transitions_recent():
-    """P2-14: list stocks that recently transitioned into a target stage.
-
-    Self-populates when the DB is empty so the tab works on first open even
-    if the user hasn't run Monster Growth / Early Growth / Alpha Engine yet
-    (those are the only scanners that explicitly call update_all). When the
-    user clicks Refresh with force=1 we also re-populate, useful after a new
-    bhavcopy lands.
-    """
-    try:
-        from stage_transitions import recent_transitions, stats, populate_from_universe
-        stage = int(request.args.get("into_stage", 2))
-        days  = int(request.args.get("within_days", 10))
-        force = request.args.get("force") in ("1", "true", "yes")
-
-        st = stats()
-        if st.get("total", 0) == 0 or force:
-            populate_from_universe()
-            st = stats()
-
-        return jsonify({
-            "stage":   stage,
-            "within":  days,
-            "stocks":  recent_transitions(stage, within_days=days),
-            "stats":   st,
-        })
-    except Exception as e:
-        return jsonify({"error": str(e), "stocks": []}), 500
-
-
 @app.route("/api/stage/<symbol>")
 def stage_lookup(symbol):
     """P2-14: per-symbol stage info — current stage, days since transition."""
@@ -1604,70 +1573,6 @@ def fii_dii_flow():
 
     except Exception as e:
         return jsonify({"error": str(e), "rows": []}), 500
-
-
-@app.route("/api/position-size")
-def position_size():
-    """
-    F6 — ATR-based position sizing calculator.
-    Params: symbol, capital (default 1000000 = ₹10L), risk_pct (default 1.0)
-    """
-    symbol   = request.args.get("symbol", "").upper()
-    capital  = request.args.get("capital",  1_000_000, type=float)
-    risk_pct = request.args.get("risk_pct", 1.0,       type=float)
-    if not symbol:
-        return jsonify({"error": "symbol required"}), 400
-    try:
-        # Use fetch_ohlcv which builds per-stock pkl from bhavcopy cache (fast)
-        from data_fetcher import fetch_ohlcv
-        ticker = symbol if symbol.endswith(".NS") else f"{symbol}.NS"
-        ohlcv_map = fetch_ohlcv([ticker], min_bars=20)
-        df = ohlcv_map.get(ticker)
-        if df is None or len(df) < 20:
-            return jsonify({"error": f"No data for {symbol}"}), 404
-
-        close = df["Close"].dropna()
-        hi    = df["High"].dropna()
-        lo    = df["Low"].dropna()
-        cur   = float(close.iloc[-1])
-
-        tr = pd.concat([
-            hi - lo,
-            (hi - close.shift(1)).abs(),
-            (lo - close.shift(1)).abs(),
-        ], axis=1).max(axis=1)
-        # Wilder's ATR (canonical) — old rolling SMA over-stated ATR by 5-15%
-        # in trending markets, making /api/position-size stops & sizing inconsistent
-        # with every other scanner.
-        atr14 = (float(tr.ewm(alpha=1/14, adjust=False).mean().iloc[-1])
-                 if len(tr) >= 14 else float(tr.mean()))
-
-        stop_1atr = round(cur - atr14, 2)
-        stop_1_5atr = round(cur - 1.5 * atr14, 2)
-        risk_amount  = capital * risk_pct / 100
-        risk_per_sh  = max(cur - stop_1_5atr, 0.01)
-        shares       = int(risk_amount / risk_per_sh)
-        position_val = round(shares * cur, 2)
-        pos_pct_cap  = round(position_val / capital * 100, 1) if capital > 0 else 0
-
-        return jsonify({
-            "symbol":       symbol,
-            "price":        round(cur, 2),
-            "atr14":        round(atr14, 2),
-            "atr_pct":      round(atr14 / cur * 100, 2),
-            "stop_1atr":    stop_1atr,
-            "stop_1_5atr":  stop_1_5atr,
-            "capital":      capital,
-            "risk_pct":     risk_pct,
-            "risk_amount":  round(risk_amount, 2),
-            "shares":       shares,
-            "position_value": position_val,
-            "position_pct_of_capital": pos_pct_cap,
-            "target_2r":    round(cur + 2 * (cur - stop_1_5atr), 2),
-            "target_3r":    round(cur + 3 * (cur - stop_1_5atr), 2),
-        })
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
 
 
 @app.route("/api/sector/rrg")
