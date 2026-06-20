@@ -58,6 +58,10 @@
       var(--bg);
     background-attachment: fixed;
     min-height: 100vh;
+    /* Sticky footer: flex column lets .site-footer's margin-top:auto pin it to
+       the bottom on short tabs instead of floating mid-page. */
+    display: flex;
+    flex-direction: column;
   }
   body.light {
     background:
@@ -500,7 +504,7 @@
     background: #ffffff;
     text-align: center;
     padding: 30px 24px 36px;
-    margin: 44px 0 0;
+    margin-top: auto;          /* flex column pins the footer to the bottom */
     border-top: 1px solid #e5e7eb;
   }
   .site-footer .ft-title {
