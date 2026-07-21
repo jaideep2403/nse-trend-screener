@@ -74,6 +74,43 @@ def adjust_for_splits(df: pd.DataFrame) -> pd.DataFrame:
     closes = df["Close"].values.astype(float)
     vol = df["Volume"].values.astype(float) if "Volume" in df.columns else None
 
+    # CRITICAL-FIX (2026-07-16): the clean-fraction path used to accept ANY overnight
+    # drop within 3% of a small fraction with NO confirmation. That misclassified
+    # common single-day PRICE MOVES as corporate actions — e.g. a −20% earnings gap
+    # (ratio 0.80 ≈ "4:5 bonus") or a −33% crash (ratio 0.667 ≈ "2:3") — and then
+    # rescaled the ENTIRE prior history, manufacturing fake breakouts / fake 52-week
+    # highs → bad BUY signals. A split has a mechanical fingerprint a price move does
+    # not, so we now require confirmation:
+    #   • tight fraction match (≤2%, was 3%) — a real split lands near-exactly;
+    #   • elevated SHARE volume — a split raises the share count, so ex-date share
+    #     volume rises (≈1/ratio); a quiet drift does not;
+    #   • NOT a turnover panic — a crash SPIKES rupee turnover (close×vol); a split
+    #     keeps market cap ~constant, so turnover stays continuous. A big turnover
+    #     spike ⇒ price move, not corporate action ⇒ reject.
+    # Safety bias: a MISSED split leaves an obvious one-time gap the trend filters
+    # simply reject (a harmless false negative); a FABRICATED split creates a fake
+    # breakout that gets BOUGHT. So we err toward fewer detections.
+    # NOTE: the honest long-term fix is NSE's authoritative corporate-actions feed;
+    # this remains a price/volume heuristic.
+    turnover = (closes * vol) if vol is not None else None
+
+    def _confirms_split(i, ratio):
+        if vol is None or i < 12:
+            # Without volume we can only trust DEEP, near-exact ratios (a liquid name
+            # rarely drops ~50%/67%/75% in one day AND lands within 2% of the fraction
+            # by chance). Shallow bands without volume are refused.
+            return ratio <= 0.55
+        recent_v = vol[max(0, i - 20):i]
+        avg_v = recent_v.mean() if len(recent_v) else 0.0
+        vol_up = avg_v > 0 and vol[i] >= avg_v * 1.3          # share count rose
+        recent_t = turnover[max(0, i - 20):i]
+        med_t = np.median(recent_t) if len(recent_t) else 0.0
+        panic = med_t > 0 and turnover[i] > med_t * 3.0        # rupee-turnover spike
+        if panic:
+            return False                                        # crash, not a split
+        # Deep exact splits are allowed on volume alone; shallow bands need volume too.
+        return vol_up
+
     events: list[tuple[int, float]] = []
     for i in range(1, len(closes)):
         prev, cur = closes[i - 1], closes[i]
@@ -83,17 +120,20 @@ def adjust_for_splits(df: pd.DataFrame) -> pd.DataFrame:
         # Only consider drops > 18%; smaller drops aren't bonuses.
         if ratio >= 0.82:
             continue
-        # Check if ratio is within 3% of a known clean fraction
-        for _, r in KNOWN_RATIOS:
-            if abs(ratio - r) / r < 0.03:
+        # Within 2% of a known clean fraction AND confirmed by the volume/turnover
+        # fingerprint above.
+        matched = any(abs(ratio - r) / r < 0.02 for _, r in KNOWN_RATIOS)
+        if matched and _confirms_split(i, ratio):
+            events.append((i, ratio))
+        elif ratio < 0.70 and vol is not None and i >= 10:
+            # Unusual (non-clean) deep drop: only a split if BOTH a strong share-volume
+            # spike AND no turnover panic (kept from the original, now panic-guarded).
+            avg_v = vol[max(0, i - 10):i].mean()
+            recent_t = turnover[max(0, i - 10):i]
+            med_t = np.median(recent_t) if len(recent_t) else 0.0
+            panic = med_t > 0 and turnover[i] > med_t * 3.0
+            if avg_v > 0 and vol[i] >= avg_v * 2 and not panic:
                 events.append((i, ratio))
-                break
-        else:
-            # Drop > 30% AND volume spike >= 2× — likely a split even if ratio is unusual
-            if ratio < 0.70 and vol is not None and i >= 10:
-                avg_v = vol[max(0, i-10):i].mean()
-                if avg_v > 0 and vol[i] >= avg_v * 2:
-                    events.append((i, ratio))
 
     if not events:
         return df

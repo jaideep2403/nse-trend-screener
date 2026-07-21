@@ -105,7 +105,7 @@
 
   <!-- Hero banner -->
   <div class="eg-hero">
-    <h3>🌱 Early Growth Scanner</h3>
+    <h3><svg class="ic ic-h"><use href="#i-sprout"/></svg>Early Growth Scanner</h3>
     <p>
       Catches stocks 2–4 quarters <strong>before they become obvious</strong>.
       Looks for: Stage 1 base or early Stage 2 breakout + earnings just starting to accelerate
@@ -117,12 +117,7 @@
   <div class="panel">
     <div class="panel-header">
       <h2>Scanner Controls</h2>
-      <button id="eg-scan-btn" onclick="egStartScan()"
-              style="padding:7px 20px;border-radius:7px;border:none;
-                     background:linear-gradient(135deg,#22c55e,#16a34a);
-                     color:#fff;font-weight:700;font-size:13px;cursor:pointer">
-        🌱 Run Scan
-      </button>
+      <button id="eg-scan-btn" class="btn btn-primary" onclick="egStartScan()"><svg class="ic ic-b"><use href="#i-sprout"/></svg>Run Scan</button>
     </div>
     <div class="panel-body">
 
@@ -247,7 +242,7 @@ var egPollTimer = null;
 function egStartScan() {
   var btn = document.getElementById("eg-scan-btn");
   btn.disabled = true;
-  btn.textContent = "Scanning…";
+  btn.innerHTML = '<span class="spinner"></span>Scanning…';
   document.getElementById("eg-error").style.display         = "none";
   document.getElementById("eg-results-panel").style.display = "none";
   document.getElementById("eg-coverage-note").style.display = "none";
@@ -286,7 +281,7 @@ function egShowError(msg) {
   var el = document.getElementById("eg-error");
   el.textContent = msg; el.style.display = "block";
   var btn = document.getElementById("eg-scan-btn");
-  btn.disabled = false; btn.textContent = "🌱 Run Scan";
+  btn.disabled = false; btn.innerHTML = '<svg class="ic ic-b"><use href="#i-sprout"/></svg>Run Scan';
 }
 
 /* ── Show results ───────────────────────────────────────────────────── */
@@ -294,7 +289,7 @@ function egShowResults(data) {
   egData = data;
   document.getElementById("eg-progress-wrap").style.display = "none";
   var btn = document.getElementById("eg-scan-btn");
-  btn.disabled = false; btn.textContent = "🌱 Run Scan";
+  btn.disabled = false; btn.innerHTML = '<svg class="ic ic-b"><use href="#i-sprout"/></svg>Run Scan';
 
   var rows = data.results || [];
 

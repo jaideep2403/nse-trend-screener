@@ -20,11 +20,13 @@ freshness, and every operation is best-effort (a cache miss just recomputes).
 """
 from __future__ import annotations
 
+import glob
 import os
 import pickle
 import threading
 
-_DIR = os.path.join(os.environ.get("DATA_DIR", os.path.dirname(__file__)), ".scan_cache")
+_BASE = os.path.dirname(os.path.abspath(__file__))
+_DIR = os.path.join(os.environ.get("DATA_DIR", _BASE), ".scan_cache")
 _LOCK = threading.Lock()
 
 
@@ -38,6 +40,32 @@ def _bhav_tag() -> str:
         return "nodate"
 
 
+def _code_version() -> str:
+    """Newest source-file mtime across the app's Python modules, snapshotted ONCE
+    per process at import. Combined into the cache tag so a CODE change (deploy,
+    bug fix, logic change) invalidates EVERY persisted scan result.
+
+    WHY (fix 2026-07-08): the tag was the bhavcopy DATE only, so after a code
+    change without a new bhavcopy the disk cache still matched — every scanner
+    served results computed by the OLD code until the next trading day (or a
+    manual `rm .scan_cache/*.pkl`). A restart carrying new code now bumps this
+    version and forces a clean recompute."""
+    try:
+        mtimes = [os.path.getmtime(p) for p in glob.glob(os.path.join(_BASE, "*.py"))]
+        return str(int(max(mtimes))) if mtimes else "0"
+    except Exception:
+        return "0"
+
+
+_CODE_VERSION = _code_version()   # stable within a process; changes across deploys
+
+
+def _tag() -> str:
+    """Cache-validity token = bhavcopy date + code version. Either one changing
+    invalidates the persisted result (fresh data OR fresh code → recompute)."""
+    return f"{_bhav_tag()}|{_CODE_VERSION}"
+
+
 def get(name: str):
     """Return the persisted result for `name` if it was computed against the
     CURRENT bhavcopy date, else None. Never raises."""
@@ -47,7 +75,7 @@ def get(name: str):
             return None
         with open(path, "rb") as f:
             blob = pickle.load(f)
-        if blob.get("tag") == _bhav_tag():
+        if blob.get("tag") == _tag():
             return blob.get("data")
     except Exception:
         pass
@@ -65,7 +93,7 @@ def put(name: str, data) -> None:
             tmp = os.path.join(_DIR, f"{name}.pkl.tmp")
             final = os.path.join(_DIR, f"{name}.pkl")
             with open(tmp, "wb") as f:
-                pickle.dump({"tag": _bhav_tag(), "data": data}, f, protocol=pickle.HIGHEST_PROTOCOL)
+                pickle.dump({"tag": _tag(), "data": data}, f, protocol=pickle.HIGHEST_PROTOCOL)
             os.replace(tmp, final)
     except Exception:
         pass

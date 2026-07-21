@@ -87,7 +87,7 @@
 
   <!-- Description -->
   <div class="mg-hero">
-    <h3>🔥 Monster Growth Scanner</h3>
+    <h3><svg class="ic ic-h"><use href="#i-flame"/></svg>Monster Growth Scanner</h3>
     <p>
       Finds Nifty 500 companies with <strong>accelerating earnings + revenue growth</strong> trading at
       a <strong>reasonable PEG ratio</strong> in a confirmed <strong>Stage 2 uptrend</strong>.
@@ -98,7 +98,7 @@
 
   <!-- Controls -->
   <div style="display:flex; align-items:center; gap:14px; margin-bottom:14px; flex-wrap:wrap;">
-    <button id="mgScanBtn" class="btn btn-primary" onclick="mgStartScan()">🔥 Run Monster Scan</button>
+    <button id="mgScanBtn" class="btn btn-primary" onclick="mgStartScan()"><svg class="ic ic-b"><use href="#i-flame"/></svg>Run Monster Scan</button>
     <span id="mgStatus" style="font-size:13px; color:var(--muted)">Click to scan Nifty 500 for growth monsters</span>
     <div style="margin-left:auto; display:flex; gap:8px; align-items:center;">
       <label style="font-size:12px; color:var(--muted)">Filter:</label>
@@ -182,7 +182,7 @@
   window.mgStartScan = function() {
     var btn = document.getElementById("mgScanBtn");
     btn.disabled = true;
-    btn.textContent = "⏳ Scanning…";
+    btn.innerHTML = '<span class="spinner"></span>Scanning…';
     document.getElementById("mgStatus").textContent = "Starting scan…";
     document.getElementById("mgProgress").style.display = "block";
     document.getElementById("mgTableWrap").style.display = "none";
@@ -197,7 +197,7 @@
       .catch(function(e) {
         document.getElementById("mgStatus").textContent = "Error: " + e;
         btn.disabled = false;
-        btn.textContent = "🔥 Run Monster Scan";
+        btn.innerHTML = '<svg class="ic ic-b"><use href="#i-flame"/></svg>Run Monster Scan';
       });
   };
 
@@ -214,7 +214,7 @@
           _mgPollId = null;
           var btn = document.getElementById("mgScanBtn");
           btn.disabled = false;
-          btn.textContent = "🔥 Run Monster Scan";
+          btn.innerHTML = '<svg class="ic ic-b"><use href="#i-flame"/></svg>Run Monster Scan';
           document.getElementById("mgProgress").style.display = "none";
 
           if (d.error) {
@@ -451,7 +451,7 @@
             // Scan in progress — resume polling
             document.getElementById("mgProgress").style.display = "block";
             document.getElementById("mgScanBtn").disabled = true;
-            document.getElementById("mgScanBtn").textContent = "⏳ Scanning…";
+            document.getElementById("mgScanBtn").innerHTML = '<span class="spinner"></span>Scanning…';
             _mgPollId = setInterval(mgPoll, 2000);
           } else if (d.result && d.result.results && d.result.results.length > 0) {
             _mgData = d.result;

@@ -1,8 +1,12 @@
 import os
+import re
 import threading
 import time
+from datetime import timedelta
 import pandas as pd
-from flask import Flask, render_template, request, jsonify, make_response
+from flask import (Flask, render_template, request, jsonify, make_response,
+                   abort, session, redirect, url_for)
+import auth
 
 # ── Concurrent scan semaphore (F10) ───────────────────────────────────────────
 # Cap simultaneous heavy scans across the whole process. Each scan loads
@@ -34,6 +38,73 @@ from fundamentals import (cache_status as fund_cache_status,
                           start_background_scheduler)
 
 app = Flask(__name__)
+
+# ── Session auth ─────────────────────────────────────────────────────────────
+# Two roles: admin (Jai — full access incl. positions) and demo (screeners only,
+# no positions). Enforcement is FAIL-CLOSED in a before_request hook below, so a
+# newly added route is protected by default rather than by remembering a
+# decorator. Secret + hashed users live in gitignored files (see auth.py).
+app.secret_key = auth.get_secret_key()
+app.permanent_session_lifetime = timedelta(days=14)
+
+# Paths reachable WITHOUT a session. Everything else requires login.
+_PUBLIC_PATHS = {"/login", "/logout", "/favicon.ico", "/healthz"}
+
+
+@app.before_request
+def _require_login():
+    p = request.path
+    if p in _PUBLIC_PATHS or p.startswith("/static/"):
+        return None
+    if not auth.current_user():
+        # APIs get a clean 401 (so fetch() can react); pages redirect to login.
+        if p.startswith("/api/"):
+            return jsonify({"error": "auth required"}), 401
+        return redirect(url_for("login", next=p))
+    # Owner-only position APIs — demo is authenticated but not authorised.
+    if not auth.is_admin() and p.startswith(auth.ADMIN_ONLY_API_PREFIXES):
+        return jsonify({"error": "forbidden"}), 403
+    return None
+
+
+@app.route("/login", methods=["GET", "POST"])
+def login():
+    next_url = request.args.get("next") or ""
+    # Only allow same-site relative redirects (no open-redirect via ?next=http…).
+    if not next_url.startswith("/") or next_url.startswith("//"):
+        next_url = ""
+    error = None
+    last_user = ""
+    if request.method == "POST":
+        username = (request.form.get("username") or "").strip()
+        password = request.form.get("password") or ""
+        last_user = username
+        role = auth.verify(username, password)
+        if role:
+            auth.log_in(username, role)
+            return redirect(next_url or url_for("index"))
+        error = "Incorrect username or password."
+    # GET when a valid session already exists: DON'T silently pass through to the
+    # app (that reads like an auth bypass). Render the login page with an explicit
+    # "you're already signed in" state — the user can continue, switch accounts, or
+    # sign out. Unauthenticated access is still fully blocked by _require_login.
+    signed_in_as = None
+    if request.method == "GET" and auth.current_user():
+        signed_in_as = auth.display_name(auth.current_user())
+        last_user = auth.current_user()
+    return render_template("login.html", error=error, next_url=next_url,
+                           last_user=last_user, signed_in_as=signed_in_as)
+
+
+@app.route("/logout")
+def logout():
+    auth.log_out()
+    return redirect(url_for("login"))
+
+
+@app.route("/healthz")
+def healthz():
+    return "ok", 200
 
 # ── Safe JSON: convert NaN/Inf → null so responses are valid JSON ─────────────
 # Python's json (and Flask's default provider) emit bare `NaN`/`Infinity` tokens,
@@ -128,6 +199,52 @@ if STRATEGY_AVAILABLE:
             return jsonify(cfg)
         except Exception as e:
             return jsonify({"error": str(e)}), 500
+
+# ── 🏆 Sector Leaders (sector-rotation + leaders) ─────────────────────────────
+SECTOR_LEADERS_AVAILABLE = False
+try:
+    import sector_leaders as _secld
+    SECTOR_LEADERS_AVAILABLE = True
+except Exception as _secld_e:
+    print(f"[sector-leaders] disabled: {_secld_e}")
+
+if SECTOR_LEADERS_AVAILABLE:
+    import threading as _secld_threading
+    _secld_lock  = _secld_threading.Lock()
+    _secld_state = {"running": False, "result": None, "error": None,
+                    "progress": 0, "total": 100, "message": ""}
+
+    def _do_sector_leaders_scan(force: bool):
+        try:
+            res = _secld.run_sector_leaders(force=force)
+            with _secld_lock:
+                _secld_state.update({"result": res, "running": False,
+                                     "progress": 100,
+                                     "error": res.get("error")})
+        except Exception as e:
+            with _secld_lock:
+                _secld_state.update({"error": str(e), "running": False})
+
+    @app.route("/api/sector-leaders/scan", methods=["POST"])
+    def api_sector_leaders_scan():
+        force = (request.args.get("force") == "true")
+        with _secld_lock:
+            if _secld_state["running"]:
+                return jsonify({"status": "already_running"}), 409
+            _secld_state.update({"running": True, "result": None, "error": None,
+                                 "progress": 0, "message": ""})
+        _secld_threading.Thread(target=_do_sector_leaders_scan, args=(force,),
+                                daemon=True).start()
+        return jsonify({"status": "started"})
+
+    @app.route("/api/sector-leaders/status")
+    def api_sector_leaders_status():
+        with _secld_lock:
+            s = dict(_secld_state)
+        pct = round(s["progress"] / s["total"] * 100, 1) if s["total"] else 0
+        return jsonify({"running": s["running"], "pct": pct,
+                        "message": s["message"], "result": s["result"],
+                        "error": s["error"]})
 
 if PORTFOLIO_AVAILABLE:
     @app.route("/api/portfolio", methods=["GET"])
@@ -305,9 +422,16 @@ if ALPHA_AVAILABLE:
 # Inject flag into all templates (read by index.html to show/hide the tab)
 @app.context_processor
 def inject_portfolio_flag():
+    # Position features are owner-only. For the demo role we force them OFF so the
+    # My Portfolio + Strategy tabs never render — this is the UI half; the API half
+    # is enforced fail-closed in _require_login().
+    _pos = auth.can_see_positions()
     return {
-        "portfolio_enabled":   PORTFOLIO_AVAILABLE,
-        "strategy_enabled":    STRATEGY_AVAILABLE,
+        "role":                auth.current_role(),
+        "user_display":        auth.display_name(auth.current_user() or ""),
+        "can_see_positions":   _pos,
+        "portfolio_enabled":   PORTFOLIO_AVAILABLE and _pos,
+        "strategy_enabled":    STRATEGY_AVAILABLE and _pos,
         "investgrade_enabled": INVESTGRADE_AVAILABLE,
         "alpha_enabled":       ALPHA_AVAILABLE,
         "monster_enabled":        MONSTER_AVAILABLE,
@@ -384,6 +508,297 @@ def index():
     return resp
 
 
+# ── Per-tab deep-link routing ────────────────────────────────────────────────
+# Each tab gets its own clean URL (e.g. /trending_stocks, /strategy). They ALL
+# serve the same single-page app; the frontend reads the path and opens the
+# matching tab. This is URL routing (deep-linking), NOT microservices — one app,
+# one process. A single-segment path that matches a known slug serves the SPA;
+# anything else 404s. /api/* and /static/* contain a slash so they never match
+# this single-segment rule and are untouched.
+TAB_SLUGS = {
+    "screener", "portfolio", "investment_grade", "trending_stocks", "strategy",
+    "multiyear_breakout", "breakout_stocks", "edge_engine", "momentum",
+    "emerging_leaders", "sector_rotation", "volume_spike", "market_breadth",
+    "industry_groups", "advanced_setups", "institutional_edge", "alpha_engine",
+    "monster_growth", "minervini_vvv", "consensus",
+    "early_movers", "early_growth", "sector_leaders", "risk_regime", "defensive_leaders",
+    "all_weather",
+}
+
+
+@app.route("/<tab_slug>")
+def index_tab(tab_slug):
+    """Serve the SPA for a per-tab deep link; the frontend opens the tab.
+    Unknown single-segment paths (favicon.ico, typos, …) 404."""
+    # Owner-only tabs: a demo deep-link lands on the app home instead of a tab
+    # that won't render for them.
+    if tab_slug in {"portfolio", "strategy"} and not auth.can_see_positions():
+        return redirect(url_for("index"))
+    if tab_slug in TAB_SLUGS:
+        return index()
+    abort(404)
+
+
+# ── Cross-tab stock search ───────────────────────────────────────────────────
+# "Where does this stock show up?" — answers in one place instead of making the
+# user open 20 tabs. Reads each scanner's CACHED result only (never recomputes:
+# a search must be instant), so a tab whose scan hasn't run today simply has no
+# cache — reported as `not_scanned` so the answer is honestly partial rather
+# than a misleading "not found".
+# (cache key, url slug, label, icon id). The icon id refers to a <symbol> in the
+# template's inline SVG sprite — the same set the sidebar uses, so the search
+# dropdown and the nav can never drift apart. Labels are emoji-free by design.
+_SEARCH_SOURCES = [
+    ("trending",      "trending_stocks",    "Trending Stocks",    "i-flame"),
+    ("momentum",      "momentum",           "Momentum",           "i-trend"),
+    ("breakout",      "breakout_stocks",    "Breakout Stocks",    "i-zap"),
+    ("multiyear",     "multiyear_breakout", "Multi-Yr Breakout",  "i-mountain"),
+    ("emerging",      "emerging_leaders",   "Emerging Leaders",   "i-sprout"),
+    ("early_mover",   "early_movers",       "Early Movers",       "i-search"),
+    ("advanced",      "advanced_setups",    "Advanced Setups",    "i-target"),
+    ("institutional", "institutional_edge", "Institutional Edge", "i-bank"),
+    ("monster",       "monster_growth",     "Monster Growth",     "i-flame"),
+    ("early_growth",  "early_growth",       "Early Growth",       "i-sprout"),
+    ("vvv",           "minervini_vvv",      "Minervini VVV",      "i-target"),
+    ("edge",          "edge_engine",        "Edge Engine",        "i-cpu"),
+    ("volume",        "volume_spike",       "Vol Spike",          "i-bars"),
+]
+_LIST_KEYS = ("stocks", "results", "ranked", "rows", "candidates", "picks", "leaders")
+
+
+def _search_rows(result):
+    if not isinstance(result, dict):
+        return []
+    for k in _LIST_KEYS:
+        v = result.get(k)
+        if isinstance(v, list) and v and isinstance(v[0], dict):
+            return v
+    return []
+
+
+# Some scanners bake emoji into their DATA (edge_engine's tier is literally "🥇 A"),
+# so the search dropdown can't be de-emoji'd by renaming labels alone. Strip them at
+# render time; the scanner's own tab still shows its native tier string.
+_EMOJI_RE = re.compile(
+    "[\U0001F000-\U0001FAFF\U00002190-\U000021FF\U00002300-\U000027BF"
+    "\U00002B00-\U00002BFF\U0000FE0F\U00002600-\U000026FF]"
+)
+
+
+def _strip_emoji(s: str) -> str:
+    return _EMOJI_RE.sub("", str(s)).strip()
+
+
+# ── Canonical market-wide RS Rating ──────────────────────────────────────────
+# Each scanner computes "RS" as a percentile rank WITHIN ITS OWN scan set, so the
+# same stock showed RS 96 (momentum, pool 799) / 98 (breakout, 342) / 76
+# (emerging, 345) — confusing and not a true IBD RS Rating. This is the ONE honest
+# market-wide RS: percentile of 3-month return across the FULL universe (1-99),
+# the same value everywhere. Cached per bhavcopy so a search stays instant.
+_rs_map_cache = {"tag": None, "map": {}}
+
+
+def _market_rs_map() -> dict:
+    import result_cache as _rc
+    tag = _rc._tag() if hasattr(_rc, "_tag") else None
+    if _rs_map_cache["tag"] == tag and _rs_map_cache["map"]:
+        return _rs_map_cache["map"]
+    try:
+        import industry_groups as _ig
+        stocks = _ig._get_stocks()
+        r3m = {}
+        for s, df in stocks.items():
+            c = df["Close"]
+            if len(c) > 64:
+                r3m[s] = float(c.iloc[-1] / c.iloc[-64] - 1)
+        if not r3m:
+            return {}
+        ser = pd.Series(r3m)
+        ranks = (ser.rank(pct=True) * 99).round().clip(1, 99).astype(int).to_dict()
+        _rs_map_cache.update({"tag": tag, "map": ranks})
+        return ranks
+    except Exception:
+        return {}
+
+
+def _search_summary(row) -> str:
+    """Compact one-liner: WHY this symbol is on that tab."""
+    bits = []
+    if isinstance(row.get("rank"), (int, float)):
+        bits.append(f"#{int(row['rank'])}")
+    for k in ("score", "emergence_score", "setup_score", "composite_score"):
+        v = row.get(k)
+        if isinstance(v, (int, float)):
+            bits.append(f"score {round(float(v), 1)}")
+            break
+    if row.get("tier"):
+        tier = _strip_emoji(row["tier"])
+        if tier:
+            bits.append(tier)
+    # Per-row "RS {int}" was DROPPED here: each scanner's rs_rating/rs_rank is a
+    # percentile WITHIN ITS OWN scan set (different pool per tab), so printing them
+    # side by side showed the same stock as RS 96 / 98 / 76 — not comparable, not a
+    # true RS Rating. The ONE canonical market-wide RS now lives in the dropdown
+    # header (rs_market). Only rs_composite stays here — it's a distinct, correctly
+    # labelled metric (excess return vs Nifty, in points).
+    v = row.get("rs_composite")
+    if isinstance(v, (int, float)):
+        bits.append(f"RS vs Nifty {'+' if v >= 0 else ''}{round(float(v), 1)}%")
+    # Pattern / timeframe (breakout-style rows) so they're not left blank now that
+    # the per-scan RS is gone.
+    pats = row.get("patterns")
+    if isinstance(pats, list) and pats:
+        tf = row.get("timeframes")
+        tf_str = ("/".join(str(t) for t in tf) + " ") if isinstance(tf, list) and tf else ""
+        bits.append(f"{tf_str}{_strip_emoji(str(pats[0]))}")
+    if isinstance(row.get("buyer_demand"), str) and row["buyer_demand"]:
+        bits.append(f"demand {row['buyer_demand']}")
+    if row.get("sustained_breakout"):
+        bits.append("sustained breakout")
+    if row.get("entry_window"):
+        bits.append(_strip_emoji(row["entry_window"]))
+    return " · ".join(b for b in bits[:4] if b)
+
+
+@app.route("/api/new-highs")
+def api_new_highs():
+    """The day's 52-week-high makers — powers the header ticker tape.
+
+    Reads ONLY the cached Market Breadth result (`new_highs_list`, already
+    computed there) — never recomputes. This is honestly an END-OF-DAY fact:
+    "stocks that closed at a 52-week high on <bhavcopy_date>" changes once per
+    trading day, so a scrolling tape of it implies nothing about live ticks.
+    """
+    # Read market_breadth's LIVE module cache — the same source the header trend
+    # pill uses. Do NOT rely on result_cache here: market_breadth keeps its own
+    # 6h persisted cache, so run_market_breadth() usually short-circuits and
+    # never reaches result_cache.put — the scan_cache copy can sit on an older
+    # code-version tag for hours and read as permanently "pending".
+    # The bhavcopy scheduler clears this module cache when new data lands, so the
+    # next prewarm recompute repopulates it and the tape swaps automatically.
+    cached = None
+    try:
+        from market_breadth import _cache as _mb_cache
+        cached = _mb_cache.get("data")
+    except Exception:
+        cached = None
+    if not cached:
+        import result_cache as _rc
+        cached = _rc.get("breadth")
+    # No data = breadth hasn't computed for THIS bhavcopy yet (boot, or a new
+    # bhavcopy just landed and the prewarm is recomputing). That is NOT the same
+    # as "today genuinely had zero new highs" — the UI must not confuse the two.
+    pending = not cached
+    cached = cached or {}
+    lst = cached.get("new_highs_list") or []
+    nh_count = cached.get("new_highs_count")   # TRUE count (list is a top-N tape slice)
+    as_of = cached.get("bhavcopy_date")
+
+    # SELF-HEAL (2026-07-20): the breadth module cache can be built DURING the
+    # bhavcopy rollover with an incomplete data snapshot — it then gets stamped with
+    # today's date but an EMPTY new_highs_list, and nothing invalidates a same-date
+    # cache for up to 6h. So the tape showed "No new 52-week highs" on a day 20+
+    # stocks actually made new highs. When the cached list is empty (and we're not
+    # genuinely still computing), recompute the LIGHT new-highs list from current
+    # data — one cheap pass, no scoring — and trust that instead of a stale zero.
+    # Cached in a module-level slot so the frequently-polled tape doesn't recompute.
+    if not lst and not pending:
+        try:
+            import industry_groups as _ig
+            from market_breadth import _new_high_stocks
+            cur_stocks = _ig._get_stocks()
+            cur_date = None
+            for _df in cur_stocks.values():
+                cur_date = str(_df.index[-1].date()); break
+            slot = globals().setdefault("_nh_fallback", {"date": None, "list": []})
+            if slot["date"] != cur_date:
+                slot["date"] = cur_date
+                slot["list"] = _new_high_stocks(cur_stocks)   # full list
+            if slot["list"]:
+                lst = slot["list"]
+                nh_count = len(slot["list"])
+                as_of = cur_date
+        except Exception:
+            pass
+
+    # True count = new_highs_count when present (list is a top-N tape slice);
+    # otherwise fall back to the list length (self-heal path returns the full list).
+    count = nh_count if nh_count is not None else len(lst)
+    return jsonify({
+        "as_of": as_of,
+        "count": count,
+        "pending": pending,
+        "stocks": [{
+            "symbol":    x.get("symbol"),
+            "price":     x.get("price"),
+            "r3m":       x.get("r3m"),
+            "vol_ratio": x.get("vol_ratio"),
+        } for x in lst[:60] if x.get("symbol")],
+    })
+
+
+@app.route("/api/stock-search")
+def api_stock_search():
+    import result_cache as _rc
+    q = (request.args.get("q") or "").strip().upper()
+    if len(q) < 2:
+        return jsonify({"query": q, "symbol": None, "hits": [],
+                        "suggestions": [], "not_scanned": []})
+
+    loaded, not_scanned = [], []
+    for key, slug, label, icon in _SEARCH_SOURCES:
+        cached = _rc.get(key)
+        if cached is None:
+            not_scanned.append(label)
+            continue
+        loaded.append((slug, label, icon, _search_rows(cached)))
+
+    all_syms = set()
+    for *_, rows in loaded:
+        for r in rows:
+            s = str(r.get("symbol") or r.get("Symbol") or "").upper()
+            if s:
+                all_syms.add(s)
+
+    if q in all_syms:
+        symbol = q
+    else:
+        pref = sorted(s for s in all_syms if s.startswith(q))
+        cont = sorted(s for s in all_syms if q in s and not s.startswith(q))
+        symbol = (pref or cont or [None])[0]
+    suggestions = sorted(s for s in all_syms if s.startswith(q) and s != symbol)[:6]
+
+    hits = []
+    if symbol:
+        for slug, label, icon, rows in loaded:
+            for r in rows:
+                if str(r.get("symbol") or r.get("Symbol") or "").upper() == symbol:
+                    hits.append({"tab": slug, "label": label, "icon": icon,
+                                 "summary": _search_summary(r)})
+                    break
+        # Do you already own it? Read the raw store — never the enriched
+        # list_positions(), which re-runs per-position analysis (far too slow
+        # for a keystroke-latency endpoint).
+        if PORTFOLIO_AVAILABLE and auth.can_see_positions():
+            try:
+                import portfolio as _pf
+                store = _pf._load_store()
+                poss = store if isinstance(store, list) else (store or {}).get("positions", [])
+                for p in poss:
+                    if str(p.get("symbol", "")).upper() == symbol:
+                        hits.insert(0, {
+                            "tab": "portfolio", "label": "My Portfolio", "icon": "i-briefcase",
+                            "summary": f"you hold {p.get('qty')} @ ₹{p.get('entry_price')}",
+                        })
+                        break
+            except Exception:
+                pass
+
+    rs_market = _market_rs_map().get(symbol) if symbol else None
+    return jsonify({"query": q, "symbol": symbol, "hits": hits, "rs_market": rs_market,
+                    "suggestions": suggestions, "not_scanned": not_scanned})
+
+
 # ── Live presence — count of UNIQUE visitors active in the last minute ───────
 # A browser sends its random localStorage id here every ~30s; we keep
 # {visitor_id: last_seen} in memory and return how many were seen within the
@@ -409,11 +824,292 @@ def api_presence():
 
 @app.route("/api/header")
 def api_header():
-    """Lightweight header: Nifty 50 level, day change %, adv/dec, market trend."""
+    """Lightweight header: Nifty 50 level, day change %, adv/dec, market trend.
+    Also carries Position Guardian alerts (pure guardian.db read — fast)."""
     try:
-        return jsonify(get_market_header())
+        h = get_market_header()
+        # Guardian alerts are derived from the OWNER's held positions — never send
+        # them to a demo session.
+        if auth.can_see_positions():
+            try:
+                import guardian
+                h["guardian_alerts"] = guardian.get_active_alerts()
+            except Exception:
+                h["guardian_alerts"] = []
+        else:
+            h["guardian_alerts"] = []
+        return jsonify(h)
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+
+
+# ── Risk & Regime engine (capital protection + sizing + honest scorecard) ────
+def _current_regime() -> str:
+    """Canonical regime label from Market Breadth's cache (single source of truth)."""
+    try:
+        import market_breadth
+        data = (market_breadth._cache or {}).get("data") or {}
+        return (data.get("regime") or {}).get("regime") or "Unknown"
+    except Exception:
+        return "Unknown"
+
+
+# Equity high-water-mark store (gitignored) — tracks the peak of the owner's book
+# so the equity-curve brake can react to a personal drawdown even when the market
+# regime hasn't turned.
+_HWM_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".portfolio_hwm.json")
+
+
+def _update_hwm(equity: float) -> float:
+    """Persist and return the running high-water mark of portfolio equity."""
+    import json
+    hwm = 0.0
+    try:
+        with open(_HWM_FILE) as fh:
+            hwm = float((json.load(fh) or {}).get("hwm") or 0.0)
+    except (FileNotFoundError, ValueError, OSError):
+        pass
+    if equity and equity > hwm:
+        hwm = float(equity)
+        try:
+            with open(_HWM_FILE, "w") as fh:
+                json.dump({"hwm": hwm, "updated": time.time()}, fh)
+        except OSError:
+            pass
+    return hwm
+
+
+@app.route("/api/risk/summary")
+def api_risk_summary():
+    """Regime → recommended exposure (the capital-protection switch), the
+    equity-curve brake, and portfolio heat if the caller owns positions."""
+    import risk_engine
+    regime = _current_regime()
+    exposure = risk_engine.regime_exposure(regime)
+    out = {"exposure": exposure}
+    # Portfolio heat + equity brake are owner-only.
+    if auth.can_see_positions() and PORTFOLIO_AVAILABLE:
+        try:
+            import portfolio as _pf
+            summ = _pf.portfolio_summary()
+            positions = summ.get("positions") or summ.get("holdings") or []
+            open_risks, capital = [], float(summ.get("capital") or 1_000_000)
+            equity = float(summ.get("total_current_value")
+                           or summ.get("current_value") or 0.0)
+            # Equity = deployed value + cash. If only holdings value is known, use
+            # capital as the base so a fresh book with cash isn't seen as a drawdown.
+            equity = max(equity, capital) if equity else capital
+            for p in positions:
+                entry = p.get("entry_price") or p.get("entry")
+                stop  = p.get("stop") or p.get("sl")
+                qty   = p.get("qty") or p.get("quantity") or 0
+                if entry and stop and qty and entry > stop:
+                    open_risks.append((entry - stop) * qty)
+            out["heat"] = risk_engine.portfolio_heat(open_risks, capital)
+            hwm = _update_hwm(equity)
+            out["equity_brake"] = risk_engine.equity_brake(equity, hwm)
+            out["equity_brake"]["equity"] = round(equity, 2)
+            out["equity_brake"]["high_water_mark"] = round(hwm, 2)
+            # Effective exposure = regime ladder × equity brake.
+            out["effective_exposure_pct"] = round(
+                exposure["exposure_pct"] * out["equity_brake"]["multiplier"], 1)
+        except Exception:
+            out["heat"] = None
+    return jsonify(out)
+
+
+@app.route("/api/risk/position-size", methods=["POST"])
+def api_position_size():
+    """Risk-budgeted position sizing, scaled by the current regime exposure."""
+    import risk_engine
+    d = request.get_json(silent=True) or {}
+    try:
+        capital = float(d.get("capital") or 0)
+        entry   = float(d.get("entry") or 0)
+        stop    = float(d.get("stop") or 0)
+        risk_pct = float(d.get("risk_pct") or 0.75)
+        max_pos  = float(d.get("max_position_pct") or 10.0)
+    except (TypeError, ValueError):
+        return jsonify({"valid": False, "message": "Numbers only, please."})
+    # Apply the live regime exposure unless the caller overrides it.
+    if d.get("regime_exposure_pct") is not None:
+        reg_pct = float(d["regime_exposure_pct"])
+    else:
+        reg_pct = risk_engine.regime_exposure(_current_regime())["exposure_pct"]
+    # Fold in the equity-curve brake (owner-only) — a personal drawdown cuts size
+    # ON TOP of the regime. Demo sessions size on the regime alone.
+    brake_mult = 1.0
+    brake = None
+    if auth.can_see_positions() and PORTFOLIO_AVAILABLE:
+        try:
+            import portfolio as _pf, json as _json
+            summ = _pf.portfolio_summary()
+            capital_book = float(summ.get("capital") or capital)
+            equity = float(summ.get("total_current_value") or summ.get("current_value") or 0.0)
+            equity = max(equity, capital_book) if equity else capital_book
+            hwm = _update_hwm(equity)
+            brake = risk_engine.equity_brake(equity, hwm)
+            brake_mult = brake["multiplier"]
+        except Exception:
+            pass
+    eff_pct = reg_pct * brake_mult
+    res = risk_engine.position_size(capital, entry, stop, risk_pct, eff_pct, max_pos)
+    res["regime"] = _current_regime()
+    res["regime_exposure_pct"] = reg_pct
+    res["equity_brake"] = brake
+    res["effective_exposure_pct"] = round(eff_pct, 1)
+    return jsonify(res)
+
+
+# ── System-level walk-forward (the yardstick) — heavy, background + cached ────
+_sysbt_state = {"running": False, "pct": 0, "msg": "", "result": None, "tag": None}
+_sysbt_lock = threading.Lock()
+
+
+def _run_sysbt():
+    import system_backtest, result_cache as _rc
+    def prog(done, total, msg):
+        _sysbt_state.update({"pct": int(done / max(total, 1) * 100), "msg": msg})
+    try:
+        r = system_backtest.run_system_backtest(days=1600, rebal=21, top_k=10,
+                                                progress=prog)
+        tag = _rc._tag() if hasattr(_rc, "_tag") else None
+        _sysbt_state.update({"result": r, "tag": tag})
+        try:
+            _rc.put("system_backtest", r)
+        except Exception:
+            pass
+    except Exception as e:
+        _sysbt_state.update({"result": {"error": str(e)}})
+    finally:
+        _sysbt_state.update({"running": False, "pct": 100})
+
+
+@app.route("/api/risk/system-backtest", methods=["POST"])
+def api_system_backtest_run():
+    with _sysbt_lock:
+        if _sysbt_state["running"]:
+            return jsonify({"status": "already_running"}), 409
+        _sysbt_state.update({"running": True, "pct": 0, "msg": "starting…", "result": None})
+    threading.Thread(target=_run_sysbt, daemon=True).start()
+    return jsonify({"status": "started"})
+
+
+@app.route("/api/risk/system-backtest/status")
+def api_system_backtest_status():
+    import result_cache as _rc
+    # Serve a cached result if present and not currently recomputing.
+    if not _sysbt_state["running"] and _sysbt_state["result"] is None:
+        cached = None
+        try:
+            cached = _rc.get("system_backtest")
+        except Exception:
+            cached = None
+        if cached:
+            return jsonify({"running": False, "pct": 100, "result": cached})
+    return jsonify({"running": _sysbt_state["running"], "pct": _sysbt_state["pct"],
+                    "msg": _sysbt_state["msg"], "result": _sysbt_state["result"]})
+
+
+@app.route("/api/risk/drift")
+def api_risk_drift():
+    """Live-vs-backtest drift monitor (owner-only — reads the journal)."""
+    if not auth.can_see_positions():
+        return jsonify({"ready": False, "note": "Owner-only."})
+    try:
+        import drift_monitor
+        return jsonify(drift_monitor.compute_drift())
+    except Exception as e:
+        return jsonify({"ready": False, "note": f"drift error: {e}"})
+
+
+@app.route("/api/defensive")
+def api_defensive():
+    """Defensive-Momentum Leaders — the validated lower-drawdown scan. Cached by
+    bhavcopy tag; first call computes (a few seconds), then served instantly."""
+    import result_cache as _rc
+    cached = None
+    try:
+        cached = _rc.get("defensive")
+    except Exception:
+        cached = None
+    if cached:
+        return jsonify(cached)
+    try:
+        import industry_groups as _ig, defensive_scan as _ds
+        res = _ds.run_defensive_scan(_ig._get_stocks(), top_n=50)
+        try:
+            _rc.put("defensive", res)
+        except Exception:
+            pass
+        return jsonify(res)
+    except Exception as e:
+        return jsonify({"error": str(e), "stocks": []}), 500
+
+
+@app.route("/api/allweather")
+def api_allweather():
+    """All-Weather engine — current market regime + the ACTIVE engine's live picks.
+    BULL → momentum offense · SIDEWAYS → Defensive Leaders · BEAR → cash (with the
+    lowest-risk defensive names shown as a secondary 'if you must stay invested').
+    Cached by bhavcopy tag; first call computes, then served instantly."""
+    import result_cache as _rc
+    cached = None
+    try:
+        cached = _rc.get("allweather")
+    except Exception:
+        cached = None
+    if cached:
+        return jsonify(cached)
+    try:
+        import regime_engine as _rg, industry_groups as _ig
+        import system_backtest as _sb, defensive_scan as _ds
+        reg = _rg.live_regime()
+        state = reg.get("state")
+        stocks = _ig._get_stocks()
+        picks, secondary = [], None
+        # The validated engine runs the Defensive-Momentum Leaders whenever risk-on
+        # (BULL or SIDEWAYS) and holds CASH in a confirmed downtrend (BEAR). Raw
+        # breakout-momentum offense was tested and rejected (it lost badly on NSE).
+        if state in ("BULL", "SIDEWAYS"):
+            picks = _ds.run_defensive_scan(stocks, top_n=20).get("stocks", [])
+        else:                       # BEAR / UNKNOWN → raise cash
+            secondary = _ds.run_defensive_scan(stocks, top_n=12).get("stocks", [])
+        res = {"regime": reg, "state": state, "engine": reg.get("engine"),
+               "picks": picks, "secondary": secondary, "as_of": reg.get("as_of")}
+        try:
+            _rc.put("allweather", res)
+        except Exception:
+            pass
+        return jsonify(res)
+    except Exception as e:
+        return jsonify({"error": str(e), "picks": []}), 500
+
+
+@app.route("/api/fundamentals/history")
+def api_fundamentals_history():
+    """Point-in-time fundamentals-capture coverage — how many dated snapshots we've
+    accumulated toward a bias-free quality validation."""
+    try:
+        import fundamentals_history as _fh
+        cov = _fh.coverage()
+        cov["dates"] = cov.get("dates", [])[-12:]   # last 12 for brevity
+        return jsonify(cov)
+    except Exception as e:
+        return jsonify({"error": str(e)})
+
+
+@app.route("/api/risk/scorecard")
+def api_risk_scorecard():
+    """Honest, survivorship-free validation scorecard: per-bucket forward alpha
+    vs NIFTYBEES + the factor registry (what's proven / what was rejected)."""
+    import validation_registry as vr
+    return jsonify({
+        "as_of":   vr.VALIDATION_ASOF,
+        "method":  vr.VALIDATION_METHOD,
+        "buckets": vr.BUCKET_STATS,
+        "factors": vr.FACTOR_REGISTRY,
+    })
 
 
 @app.route("/api/scan", methods=["POST"])
@@ -1245,6 +1941,16 @@ def do_trend_scan():
         with trend_lock:
             trend_state["result"]  = result
             trend_state["running"] = False
+        # Position Guardian sweep — piggyback on every trending scan while the
+        # bhavcopy cache is warm. Cheap (only held/watched symbols), never fatal.
+        try:
+            import guardian
+            sw = guardian.run_sweep()
+            if sw.get("alerts"):
+                print(f"[guardian] {len(sw['alerts'])} active alert(s): "
+                      + ", ".join(a['symbol'] for a in sw['alerts']), flush=True)
+        except Exception as ge:
+            print(f"[guardian] sweep failed: {ge}", flush=True)
     except Exception as e:
         with trend_lock:
             trend_state["error"]   = str(e)
@@ -1287,6 +1993,74 @@ def trending_scorecard_summary():
         return jsonify(summary())
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+
+
+# ── Position Guardian + Watchlist ─────────────────────────────────────────────
+# The guardian sweep runs after every trending scan (see do_trend_scan) and
+# once at startup; these routes are thin — reads hit guardian.db only.
+
+@app.route("/api/guardian/alerts")
+def guardian_alerts():
+    try:
+        import guardian
+        return jsonify({"alerts": guardian.get_active_alerts()})
+    except Exception as e:
+        return jsonify({"alerts": [], "error": str(e)})
+
+
+@app.route("/api/guardian/dismiss", methods=["POST"])
+def guardian_dismiss():
+    try:
+        import guardian
+        sym = (request.get_json(silent=True) or {}).get("symbol", "")
+        return jsonify({"dismissed": guardian.dismiss(sym)})
+    except Exception as e:
+        return jsonify({"dismissed": False, "error": str(e)}), 500
+
+
+@app.route("/api/guardian/sweep", methods=["POST"])
+def guardian_manual_sweep():
+    try:
+        import guardian
+        return jsonify(guardian.run_sweep())
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/watchlist")
+def watchlist_get():
+    try:
+        import watchlist
+        return jsonify({"symbols": watchlist.get_symbols()})
+    except Exception as e:
+        return jsonify({"symbols": [], "error": str(e)})
+
+
+@app.route("/api/watchlist/toggle", methods=["POST"])
+def watchlist_toggle():
+    try:
+        import watchlist, guardian
+        sym = (request.get_json(silent=True) or {}).get("symbol", "")
+        res = watchlist.toggle(sym)
+        # Removing a symbol should clear its alert immediately; adding one
+        # gets picked up on the next sweep (or trigger one in the background).
+        threading.Thread(target=guardian.run_sweep, daemon=True).start()
+        return jsonify(res)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+def _guardian_startup_sweep():
+    """One sweep ~90s after launch (lets the bhavcopy cache warm first)."""
+    time.sleep(90)
+    try:
+        import guardian
+        guardian.run_sweep()
+    except Exception as e:
+        print(f"[guardian] startup sweep failed: {e}", flush=True)
+
+
+threading.Thread(target=_guardian_startup_sweep, daemon=True).start()
 
 
 # ── Fundamentals — background scheduler (auto-started at launch) ──────────────
@@ -1798,6 +2572,15 @@ if VVV_AVAILABLE:
 # it at module level is safe with both multi-worker gunicorn and plain python.
 start_background_scheduler()
 
+# Point-in-time fundamentals capture: weekly dated snapshots of fundamentals.db so
+# the quality factor can eventually be validated with NO look-ahead bias (see
+# fundamentals_history.py). Idempotent daemon; captures at most once every 7 days.
+try:
+    import fundamentals_history as _fh
+    _fh.start_snapshot_scheduler()
+except Exception:
+    pass
+
 # Auto-prime Market Breadth on startup so the header trend pill shows the
 # authoritative breadth-based signal (instead of the quick adv/dec estimate)
 # within ~30s of server boot, without the user needing to click the tab.
@@ -1978,6 +2761,33 @@ def _bhavcopy_scheduler():
 
 threading.Thread(target=_bhavcopy_scheduler, daemon=True, name="bhavcopy-auto").start()
 print("[bhavcopy_scheduler] Started — checks NSE every 20 min automatically.")
+
+
+# ── Boot pre-warm ────────────────────────────────────────────────────────────
+# The scheduler above warms every scan when NEW bhavcopy data lands, but nothing
+# warmed them on a plain start. So after a restart — or a code deploy, which
+# invalidates every cache via the code-versioned tag — users hit cold tabs and
+# the stock search honestly reports "N tabs not scanned today". This closes that
+# gap: on boot, warm every scanner in the background, gated on a bhavcopy
+# already existing locally so a cold machine doesn't stampede NSE (the scheduler
+# owns that case). The non-blocking _prewarm_lock means this can never collide
+# with a bhavcopy-triggered pass.
+def _boot_prewarm():
+    import time as _t
+    _t.sleep(6)   # let the app finish booting and binding the port
+    try:
+        from data_fetcher import _latest_bhavcopy_date
+        if _latest_bhavcopy_date() is None:
+            print("[prewarm/startup] no bhavcopy on disk yet — leaving it to the scheduler",
+                  flush=True)
+            return
+    except Exception as _e:
+        print(f"[prewarm/startup] skipped: {_e}", flush=True)
+        return
+    _prewarm_all_scans("startup")
+
+
+threading.Thread(target=_boot_prewarm, daemon=True, name="boot-prewarm").start()
 
 
 # NOTE: There is intentionally NO startup pre-warm. Warming all scans on every

@@ -641,7 +641,10 @@ def _new_high_stocks(stocks: dict) -> list[dict]:
             "pct_ath":   0.0,
         })
     results.sort(key=lambda x: x["vol_ratio"], reverse=True)
-    return results[:20]
+    # Return the FULL list (was capped at [:20], which made the header count pin at
+    # a fake constant 20 on any day with ≥20 new highs). Callers truncate for the
+    # scrolling tape but report len(full) as the true count.
+    return results
 
 
 # ── Follow-Through Day (IBD) ──────────────────────────────────────────────────
@@ -710,7 +713,9 @@ def run_market_breadth(progress_callback=None) -> dict:
     nifty_stage = stage_analysis(nifty) if nifty is not None else 0
     sector_b    = _sector_stage2_breadth(stocks)
     sector_pct  = sector_b["pct_stage2"] if sector_b else None
-    new_highs_l = _new_high_stocks(stocks)
+    new_highs_all = _new_high_stocks(stocks)
+    new_highs_l   = new_highs_all[:60]          # scrolling tape (display only)
+    new_highs_ct  = len(new_highs_all)          # TRUE count for the header
     vix_proxy   = _realized_vol(nifty) if nifty is not None else None
 
     # Trading date of the data (staleness guard — score history keys to this)
@@ -769,7 +774,8 @@ def run_market_breadth(progress_callback=None) -> dict:
         "nifty_r6m":     nifty_r6m,
         "timing":        timing,
         "ftd":           ftd,
-        "new_highs_list": new_highs_l,
+        "new_highs_list": new_highs_l,      # top-60 for the tape
+        "new_highs_count": new_highs_ct,    # TRUE count of 52w-high makers today
         "sector_breadth": sector_b,        # sector Stage-2 stats
         "vix_proxy":      vix_proxy,        # realized vol (NIFTYBEES-based)
         "backtest":       backtest,         # walk-forward calibration (or fallback)

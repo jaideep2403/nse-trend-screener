@@ -122,6 +122,24 @@ _V2_BOOL_WEIGHTS = {
 }
 
 
+# ── composite_v3 — v2 minus an EXHAUSTION penalty (candidates under test) ──────
+# Hypothesis (GVT&D case): among stocks the v2 score ranks highly, the ones that
+# are climax-extended fade immediately. Penalty variants are DETERMINISTIC
+# per-stock functions (no cross-sectional stats), so whichever wins can be
+# transplanted into trending._v2_ranking_score verbatim — no fixed-z constants
+# needed. Thresholds are set a priori from the live tab's own conventions
+# (the UI already warns at ext_ma50 > 15% and r1m > 50%); variant WINNER
+# selection uses the IS half only, with OOS reported as the honest verdict.
+#   pen_ext = 2.0 × max(0, ext_ma50 − 0.10)   — >10% over MA50 starts costing
+#   pen_clx = 1.5 × max(0, r1m − 0.15)        — >15%/21-bar pop starts costing
+_V3_VARIANTS = {
+    "composite_v3_ext":  lambda ext, r1: 2.0 * (ext - 0.10).clip(lower=0).fillna(0.0),
+    "composite_v3_clx":  lambda ext, r1: 1.5 * (r1 - 0.15).clip(lower=0).fillna(0.0),
+    "composite_v3_both": lambda ext, r1: (1.5 * (ext - 0.10).clip(lower=0).fillna(0.0)
+                                          + 1.0 * (r1 - 0.15).clip(lower=0).fillna(0.0)),
+}
+
+
 def _zscore(s: pd.Series) -> pd.Series:
     """
     Cross-sectional z-score of a numeric series (mean 0, std 1), NaN-safe.
@@ -290,12 +308,45 @@ def _candidate_factors(df_slice: pd.DataFrame, nifty_slice: pd.Series) -> dict |
     hi = float(w.max())
     pct_from_252hi = (last / hi - 1.0) if hi > 0 else None
 
+    # ── EXHAUSTION candidates (all fractions, point-in-time) ──────────────────
+    # Motivated by the GVT&D failure mode: the v2 ranking rewards raw 6-month
+    # momentum + proximity to the 252-day high, which is exactly what a blow-off
+    # top maximises — the score peaks AT the climax, right before the fade.
+    # These measure "how stretched is the move RIGHT NOW":
+    #   r1m         — 21-bar trailing return (climax magnitude; huge 1M pops
+    #                 mean the move is late, not early)
+    #   ext_ma50    — extension above MA50 (chase risk; trending_validation
+    #                 already measured raw IC -0.028 for this, display-only so far)
+    #   retrace_10d — close / 10-bar high - 1 (<=0): has the fade already begun?
+    #   vol_expand  — 10-bar daily-return std / prior-50-bar std (volatility
+    #                 climax; distribution days widen the tape near tops)
+    r1m = trailing_ret(21)
+
+    ext_ma50 = None
+    if n >= 50:
+        ma50 = float(c.iloc[-50:].mean())
+        ext_ma50 = (last / ma50 - 1.0) if ma50 > 0 else None
+
+    hi10 = float(c.iloc[-10:].max())
+    retrace_10d = (last / hi10 - 1.0) if hi10 > 0 else None
+
+    vol_expand = None
+    rets = c.pct_change().dropna()
+    if len(rets) >= 60:
+        recent_sd = float(rets.iloc[-10:].std())
+        prior_sd  = float(rets.iloc[-60:-10].std())
+        vol_expand = (recent_sd / prior_sd) if prior_sd > 0 else None
+
     return {
         "r3m":            r3m,
         "r6m":            r6m,
         "rs_proxy":       rs_proxy,
         "vol_ratio":      vol_ratio,
         "pct_from_252hi": pct_from_252hi,
+        "r1m":            r1m,
+        "ext_ma50":       ext_ma50,
+        "retrace_10d":    retrace_10d,
+        "vol_expand":     vol_expand,
         "ctrl_mom63":     r3m,    # short-term momentum, reported for transparency
         "ctrl_mom252":    r12m,   # 12-month momentum — GATED positive control
     }
@@ -398,16 +449,21 @@ def run_attribution(hold: int = DEFAULT_HOLD,
         raise RuntimeError("Could not build a usable Nifty benchmark series.")
     nifty = nifty.sort_index()
 
-    # ── Static liquidity universe cap (runtime control, NOT a feature) ──
-    # Rank symbols by full-history median daily turnover (Close*Volume) and keep
-    # the top `max_universe`. The same fixed set is used at every snapshot, so it
-    # introduces no cross-sectional forward-looking bias into the IC — it only
-    # trims how many _score_stock calls we make.
+    # ── POINT-IN-TIME liquidity universe cap (runtime control, NOT a feature) ──
+    # Rank by median daily turnover (Close*Volume) and keep the top `max_universe`.
+    # FIXED 2026-07-16: this used FULL-HISTORY median turnover, which quietly embeds
+    # SURVIVAL — a stock that collapsed has near-zero LATE-period turnover, so its
+    # full-history median is low and it's dropped from the test, hiding the loss.
+    # Measure turnover over an EARLY, point-in-time window (the first `_LIQ_WINDOW`
+    # bars of each symbol's history) so inclusion is decided on information available
+    # at the START of the backtest — a name liquid enough to trade THEN stays in the
+    # universe even if it later cratered, so its full downside is captured.
     if max_universe and len(stocks) > max_universe:
+        _LIQ_WINDOW = 120   # ~6 months of early history
         liq = []
         for sym, df in stocks.items():
             if "Volume" in df.columns:
-                cv = df[["Close", "Volume"]].dropna()
+                cv = df[["Close", "Volume"]].dropna().head(_LIQ_WINDOW)
                 med_turnover = float((cv["Close"] * cv["Volume"]).median()) if len(cv) else 0.0
             else:
                 med_turnover = 0.0
@@ -427,14 +483,17 @@ def run_attribution(hold: int = DEFAULT_HOLD,
               f"({snap_dates[0].date()} → {snap_dates[-1].date()}) | HOLD={hold} bars",
               flush=True)
 
+    # Raw per-snapshot frames for the offline-calibration dump (see below).
+    _snapshot_dump: list[dict] = []
     # factor_name -> list of per-snapshot IC values
     factor_ics: dict[str, list[float]] = {}
     factor_nobs: dict[str, int] = {}
-    # Composite decile tracking (live composite_score AND candidate composite_v2)
-    decile_top_rets: list[float] = []
-    decile_bot_rets: list[float] = []
-    decile_top_rets_v2: list[float] = []
-    decile_bot_rets_v2: list[float] = []
+    # Composite decile tracking — generic {score_col: ([top...], [bot...])} so
+    # the v3 exhaustion variants ride the same machinery as score/v2.
+    decile_cols = ["composite_score", "composite_v2"] + list(_V3_VARIANTS)
+    decile_acc: dict[str, tuple[list[float], list[float]]] = {
+        col: ([], []) for col in decile_cols
+    }
     n_obs_total = 0
 
     # The set of factor names is fixed: 10 criteria + composite + candidates +
@@ -459,12 +518,21 @@ def run_attribution(hold: int = DEFAULT_HOLD,
             # THIS symbol's own series. df_hist is a prefix of df, so the last
             # bar <= as_of sits at position len(df_hist)-1 within df.
             as_of_pos = len(df_hist) - 1
-            fwd_pos = as_of_pos + hold
+            # REALISTIC FILL (fixed 2026-07-16): the signal is decided on the as_of
+            # CLOSE (EOD bhavcopy), which is not tradeable — fill entry at the NEXT
+            # bar's OPEN. Filling at the as_of close captured overnight drift the
+            # trader can never earn and biased momentum ICs upward. Exit is measured
+            # `hold` bars after the FILL bar so the holding window is honest.
+            fill_pos = as_of_pos + 1
+            fwd_pos = fill_pos + hold
             if fwd_pos >= len(df):
                 continue   # no forward bar available for this stock at this snap
 
+            open_ = df["Open"] if "Open" in df.columns else df["Close"]
             close = df["Close"]
-            entry_px = float(close.iloc[as_of_pos])
+            entry_px = float(open_.iloc[fill_pos])
+            if not math.isfinite(entry_px) or entry_px <= 0:
+                entry_px = float(close.iloc[fill_pos])   # fallback if open missing
             exit_px  = float(close.iloc[fwd_pos])
             if entry_px <= 0 or not math.isfinite(entry_px) or not math.isfinite(exit_px):
                 continue
@@ -520,6 +588,14 @@ def run_attribution(hold: int = DEFAULT_HOLD,
         # THIS snapshot only ⇒ no look-ahead.
         fdf["composite_v2"] = _composite_v2(fdf)
 
+        # ── composite_v3 exhaustion variants: v2 minus a deterministic penalty
+        # for climax-extension. NaN inputs → 0 penalty (neutral), same graceful
+        # degradation the live scorer uses.
+        _ext = pd.to_numeric(fdf.get("ext_ma50"), errors="coerce")
+        _r1  = pd.to_numeric(fdf.get("r1m"), errors="coerce")
+        for _name, _pen in _V3_VARIANTS.items():
+            fdf[_name] = fdf["composite_v2"] - _pen(_ext, _r1)
+
         # ── Per-snapshot IC for every factor ──
         for k in fdf.columns:
             ic = _spearman(fdf[k].tolist(), fwd_list)
@@ -532,10 +608,7 @@ def run_attribution(hold: int = DEFAULT_HOLD,
         # report can show whether the new weighting widens the top-minus-bottom
         # net forward-return spread, not just the IC.
         k = max(1, m_obs // N_DECILES)
-        for score_col, top_acc, bot_acc in (
-            ("composite_score", decile_top_rets, decile_bot_rets),
-            ("composite_v2",    decile_top_rets_v2, decile_bot_rets_v2),
-        ):
+        for score_col, (top_acc, bot_acc) in decile_acc.items():
             if m_obs >= N_DECILES * 2 and score_col in fdf.columns:
                 order = fdf[score_col].rank(method="first")
                 bottom_mask = (order <= k).to_numpy()
@@ -547,6 +620,11 @@ def run_attribution(hold: int = DEFAULT_HOLD,
         if verbose:
             print(f"  snapshot {snap_i + 1}/{len(snap_dates)} {as_of.date()}: "
                   f"{m_obs} stocks scored", flush=True)
+
+        # Offline-calibration dump: keep the raw per-snapshot factor frame +
+        # forward returns so penalty weights can be re-evaluated WITHOUT
+        # re-running the expensive scoring loop. Point-in-time by construction.
+        _snapshot_dump.append({"as_of": str(as_of.date()), "fdf": fdf, "fwd": fwd})
 
     # ── Aggregate IC stats per factor ──
     # factor_ics[k] holds this factor's per-snapshot ICs in ASCENDING snapshot
@@ -619,19 +697,29 @@ def run_attribution(hold: int = DEFAULT_HOLD,
             return {"top": top, "bottom": bot, "spread": top - bot, "n_snaps": len(top_rets)}
         return {"top": None, "bottom": None, "spread": None, "n_snaps": 0}
 
-    decile_spread    = _agg_decile(decile_top_rets, decile_bot_rets)
-    decile_spread_v2 = _agg_decile(decile_top_rets_v2, decile_bot_rets_v2)
+    decile_spread    = _agg_decile(*decile_acc["composite_score"])
+    decile_spread_v2 = _agg_decile(*decile_acc["composite_v2"])
+    decile_spread_v3 = {name: _agg_decile(*decile_acc[name]) for name in _V3_VARIANTS}
 
     # Count of ROBUST *tradable* factors (controls excluded). These are the only
     # signals that cleared both |t| >= ROBUST_T and IS/OOS sign-stability.
     robust_names = [k for k, st in results.items()
                     if k not in CONTROL_FACTORS and st["verdict"] == "ROBUST"]
 
+    if _snapshot_dump:
+        try:
+            import pickle
+            with open("/tmp/backtest_snapshots.pkl", "wb") as fh:
+                pickle.dump(_snapshot_dump, fh)
+        except Exception:
+            pass
+
     elapsed = time.time() - t0
     out = {
         "factors":          results,
         "decile_spread":    decile_spread,
         "decile_spread_v2": decile_spread_v2,
+        "decile_spread_v3": decile_spread_v3,
         "controls": {
             "ctrl_mom252": results.get("ctrl_mom252"),  # GATED positive control
             "ctrl_mom63":  results.get("ctrl_mom63"),    # reported (short-term)
@@ -842,6 +930,76 @@ def _print_v2_comparison(result: dict) -> None:
     print("=" * _W)
 
 
+def _print_v3_comparison(result: dict) -> None:
+    """
+    EXHAUSTION-PENALTY TEST: composite_v2 vs the composite_v3 variants
+    (v2 minus a deterministic climax/extension penalty).
+
+    Honest selection protocol: the winning variant is chosen by IS_IC ONLY
+    (older half), then judged on whether its OOS_IC beats composite_v2's
+    OOS_IC and stays sign-stable. Choosing on OOS would be overfitting the
+    holdout — this keeps the OOS number a genuine verdict.
+    """
+    facs = result["factors"]
+    v2 = facs.get("composite_v2")
+    print()
+    print("  EXHAUSTION-PENALTY TEST  —  composite_v2  vs  composite_v3 variants")
+    print("-" * _W)
+    if v2 is None:
+        print("    insufficient data to compare.")
+        print("=" * _W)
+        return
+
+    ds_v3 = result.get("decile_spread_v3", {})
+
+    def _sp(ds):
+        return (f"{ds['spread'] * 100:+.2f}%"
+                if ds and ds.get("spread") is not None else "   n/a")
+
+    rows = [("composite_v2 (base)", v2, result.get("decile_spread_v2", {}))]
+    candidates = []
+    for name in _V3_VARIANTS:
+        st = facs.get(name)
+        if st is not None:
+            rows.append((name, st, ds_v3.get(name, {})))
+            candidates.append((name, st))
+    print(f"    {'variant':<24}{'mean_IC':>9}{'t_stat':>8}{'IS_IC':>9}"
+          f"{'OOS_IC':>9}{'decile':>9}")
+    for name, st, ds in rows:
+        print(f"    {name:<24}{st['ic_mean']:>+9.4f}{st['t_stat']:>+8.2f}"
+              f"{st['is_ic']:>+9.4f}{st['oos_ic']:>+9.4f}{_sp(ds):>9}")
+    print("-" * _W)
+
+    if not candidates:
+        print("    no v3 variant produced ICs.")
+        print("=" * _W)
+        return
+
+    # Winner by IS half ONLY; OOS is the untouched verdict.
+    win_name, win = max(candidates, key=lambda kv: (kv[1]["is_ic"]
+                                                    if math.isfinite(kv[1]["is_ic"]) else -1e9))
+    better_oos = win["oos_ic"] > v2["oos_ic"]
+    sign_stable = (
+        math.isfinite(win["is_ic"]) and math.isfinite(win["oos_ic"])
+        and math.isfinite(win["ic_mean"])
+        and _sign(win["is_ic"]) == _sign(win["oos_ic"]) == _sign(win["ic_mean"])
+        and _sign(win["ic_mean"]) != 0
+    )
+    print(f"    IS-selected winner: {win_name} (IS_IC {win['is_ic']:+.4f})")
+    print(f"    {'PASS' if better_oos else 'FAIL'}: winner OOS_IC ({win['oos_ic']:+.4f}) "
+          f"{'>' if better_oos else '<='} composite_v2 OOS_IC ({v2['oos_ic']:+.4f}).")
+    print(f"    {'PASS' if sign_stable else 'FAIL'}: winner sign-stable "
+          f"(IS {win['is_ic']:+.4f}, OOS {win['oos_ic']:+.4f}, mean {win['ic_mean']:+.4f}).")
+    print()
+    if better_oos and sign_stable:
+        print(f"    >>> VALIDATED — {win_name} beats composite_v2 OUT-OF-SAMPLE. "
+              f"Safe to wire the exhaustion penalty into trending.py.")
+    else:
+        print(f"    >>> NOT VALIDATED — the exhaustion penalty did NOT improve on "
+              f"composite_v2 OOS. Leave the live ranking unchanged.")
+    print("=" * _W)
+
+
 def _print_report(result: dict) -> bool:
     hold = result["hold"]
     months = round(hold / 21.0, 1)
@@ -886,6 +1044,7 @@ def _print_report(result: dict) -> bool:
     print("=" * _W)
 
     _print_v2_comparison(result)
+    _print_v3_comparison(result)
 
     ok, msgs = _validate_controls(result)
     print()

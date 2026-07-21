@@ -640,15 +640,57 @@ def _score_stock(df, nifty):
     # ── Extension above MA50 (don't-chase check; walk-forward IC -0.028) ──
     ext_ma50 = round((price / ma50 - 1) * 100, 1) if ma50 else None
 
+    # ── Strength-fade detection (the GVT&D fix) ──────────────────────────
+    # Backtest evidence (66 snapshots, top-30 by ranking score): stocks that
+    # had already retraced >6% from their 10-day high went on to make +0.61%
+    # fwd-21d vs +2.42% for the rest (sign-stable IS/OOS). Meanwhile a stock
+    # crashing down THROUGH MA20 used to flag 🟢 "pullback" (GVT&D showed
+    # pullback from 5052 all the way down to 4401). A fading stock is not a
+    # dip-buy — it gets its own state that outranks every other label.
+    retrace_21d = round((price / float(c.iloc[-21:].max()) - 1) * 100, 1)
+    retrace_10d = round((price / float(c.iloc[-10:].max()) - 1) * 100, 1)
+    r5d = round((price / float(c.iloc[-6]) - 1) * 100, 1) if n >= 6 else None
+    # Fade threshold scales with the stock's own volatility: a -8% retrace is
+    # a breakdown for a quiet large-cap but normal chop for a 6%-ATR name.
+    fade_thresh = max(8.0, 1.75 * atr_pct) if atr_pct else 8.0
+    weakening = (
+        # the validated cut: >6% off the 10-day high AND not already recovering
+        (retrace_10d <= -6.0 and (price < ma20 or (r5d is not None and r5d < 0)))
+        # deep retrace beyond the stock's own volatility budget
+        or retrace_21d <= -fade_thresh
+        # broke MA20 and still falling
+        or (price < ma20 and r5d is not None and r5d < 0)
+    )
+
     # ── Entry window: WHERE in the trend you are, not just trend strength ──
-    if ext_ma50 is not None and ext_ma50 > 15:
+    if weakening:
+        entry_window = "weakening"       # 🔴 strength fading — not a dip-buy
+    elif ext_ma50 is not None and ext_ma50 > 15:
         entry_window = "extended"        # 🟠 wait for pullback
-    elif at_support:
+    elif at_support and price >= ma20 * 0.98:
+        # current price must actually BE at/above the MA20 zone — a dip that
+        # touched MA20 days ago and kept falling is not "at support" today
         entry_window = "pullback"        # 🟢 at MA20 support
     elif new_high_flag and (ext_ma50 is None or ext_ma50 <= 15):
         entry_window = "fresh_breakout"  # 🟢 new high, not extended
     else:
         entry_window = "in_range"        # ⚪ no defined entry edge
+
+    # ── Sustained Breakout — VALIDATED buy gate (sustained_breakout_validation.py):
+    # broke out to a new 252-day high within ~25 sessions AND is still HOLDING it
+    # (within 8% of that high, above MA20, not fading >6% off the 10-day high).
+    # This subset beat ALL trending names on forward 21d alpha (+2.29% vs +1.80%,
+    # OOS +1.60% vs +0.54%) with a better tail, and it excludes the faders
+    # (FADED_BREAKOUT went NEGATIVE OOS, −0.80%). This is the "trending + broke
+    # out + sustaining it" list — surface these when the market allows buying.
+    w252 = c.iloc[-252:] if n >= 252 else c
+    days_since_high = int(len(w252) - 1 - int(w252.values.argmax()))
+    sustained_breakout = bool(
+        days_since_high <= 25          # broke out to a new high recently
+        and pct_from_high >= -8.0      # still within 8% of that high (holding)
+        and price > ma20               # above the fast MA
+        and retrace_10d > -6.0         # not fading off the recent high
+    )
 
     # ── Tier 2G: trend-age sweet-spot bucket ──────────────────────────────
     # Empirical: stocks in their first 60 days of Stage 2 outperform; after
@@ -681,7 +723,12 @@ def _score_stock(df, nifty):
     if adtv_cr is not None and adtv_cr < 3.0:
         warnings.append(f"⚠ illiquid ₹{adtv_cr:.1f}Cr")
     if ext_ma50 is not None and ext_ma50 > 15:
-        warnings.append(f"⚠ extended +{ext_ma50:.0f}% MA50")
+        # Backtest (top-30 ranked names): extended stocks average HIGHER fwd
+        # returns but with a far fatter left tail (worst-5% outcome -19% vs
+        # -15%). It's a sizing/entry-timing risk, not a rank demotion.
+        warnings.append(f"⚠ extended +{ext_ma50:.0f}% MA50 — tail risk, size small")
+    if retrace_10d <= -6.0:
+        warnings.append(f"⚠ fading {retrace_10d:.0f}% off 10d high")
 
     return {
         # Core — `score` is now the backtest-PROVEN composite_v2 ranking score
@@ -716,7 +763,11 @@ def _score_stock(df, nifty):
         "cost_pct":     round(float(cost_pct), 2) if cost_pct is not None else None,
         "atr_pct":      float(atr_pct) if atr_pct is not None else None,
         "ext_ma50":     float(ext_ma50) if ext_ma50 is not None else None,
+        "retrace_10d":  float(retrace_10d),
+        "retrace_21d":  float(retrace_21d),
         "entry_window": entry_window,
+        "sustained_breakout": sustained_breakout,   # VALIDATED buy gate
+        "days_since_high":    days_since_high,
         "conviction":   None,   # filled cross-sectionally in run_trending_scan
         # Tier 1C: institutional flow
         "mfi":            round(float(mfi_val), 1),
@@ -740,6 +791,77 @@ def _score_stock(df, nifty):
         "at_support":     at_support,
         "hh_hl":          bool(c9),
         "data_days":      int(n),
+    }
+
+
+# ── C2: per-row "If You Buy This" trade plan ──────────────────────────────────
+# Deterministic from the row's OWN fields (no reload). Turns a Trending pick into
+# an actionable entry / stop / size using the SAME primitives the validated exit
+# engine (exits.py) and the Portfolio tab already use, so the numbers are
+# consistent everywhere:
+#   • initial stop = 2.5×ATR below entry (Chandelier basis), clamped to a sane
+#                    4–18% band (identical band to portfolio.py). It's the line in
+#                    the sand; AFTER entry the Chandelier trails up (see `manage`).
+#   • size %       = risk RISK_PER_TRADE_PCT of capital on a full stop-out →
+#                    weight = risk% ÷ stop%, capped at MAX_POSITION_PCT.
+#   • targets      = +2R / +3R (matches exits.py TRIM_R_1 / TRIM_R_2 rungs).
+#   • cost         = round-trip cost% already on the row (liquidity-aware).
+# Expressed in PERCENTAGES + ₹/share so it needs no capital figure. This is
+# mechanical trade arithmetic shown for education — not personalised advice.
+RISK_PER_TRADE_PCT = 1.0     # risk 1% of capital per trade on a full stop-out
+MAX_POSITION_PCT   = 15.0    # never let one name exceed 15% of capital
+STOP_ATR_MULT      = 2.5     # Chandelier basis (== exits.CHANDELIER_MULT)
+STOP_MIN_PCT       = 4.0     # sane stop band floor (== portfolio.py)
+STOP_MAX_PCT       = 18.0    # sane stop band ceiling
+STOP_FALLBACK_PCT  = 8.0     # used only when ATR is unavailable
+
+
+def trade_plan(row: dict) -> dict | None:
+    """Mechanical entry/stop/size/targets for one Trending row. None if unusable."""
+    price = row.get("price")
+    if not price or price <= 0:
+        return None
+    atr_pct = row.get("atr_pct")
+    if atr_pct and atr_pct > 0:
+        stop_pct = min(max(STOP_ATR_MULT * atr_pct, STOP_MIN_PCT), STOP_MAX_PCT)
+    else:
+        stop_pct = STOP_FALLBACK_PCT
+    stop_price     = round(price * (1 - stop_pct / 100), 2)
+    risk_per_share = round(price - stop_price, 2)
+    # Size to risk 1% of capital on a full stop-out; cap single-name weight.
+    raw_size_pct   = RISK_PER_TRADE_PCT / stop_pct * 100
+    size_pct       = min(raw_size_pct, MAX_POSITION_PCT)
+    size_capped    = raw_size_pct > MAX_POSITION_PCT
+    # When the position hits the ceiling first, the capital actually at risk on a
+    # full stop is LESS than 1% — report the honest figure.
+    eff_risk_pct   = round(min(RISK_PER_TRADE_PCT, MAX_POSITION_PCT * stop_pct / 100), 2)
+    cost_pct       = row.get("cost_pct")
+    return {
+        "entry":              round(float(price), 2),
+        "stop_price":         stop_price,
+        "stop_pct":           round(stop_pct, 2),
+        "stop_basis":         ("2.5×ATR (Chandelier)" if (atr_pct and atr_pct > 0)
+                               else "8% fallback (no ATR)"),
+        "risk_per_share":     risk_per_share,
+        "size_pct":           round(size_pct, 2),
+        "size_capped":        size_capped,
+        "risk_pct_of_capital": eff_risk_pct,
+        "targets": [
+            {"label": "T1 (+2R)", "price": round(price * (1 + 2 * stop_pct / 100), 2),
+             "gain_pct": round(2 * stop_pct, 1)},
+            {"label": "T2 (+3R)", "price": round(price * (1 + 3 * stop_pct / 100), 2),
+             "gain_pct": round(3 * stop_pct, 1)},
+        ],
+        "cost_pct":           cost_pct,
+        "atr_pct":            round(float(atr_pct), 2) if atr_pct else None,
+        "manage": ("Initial stop is your line in the sand. To manage the winner, "
+                   "trail a 2.5×ATR Chandelier stop under the swing high and treat a "
+                   "close below MA50 as the trend-break exit — both cut the loss tail "
+                   "in backtest (exit_backtest.py). A close below MA20 is an early "
+                   "warning, not an exit (too tight — it whipsaws you out). Honest "
+                   "caveat: exits protect capital, they don't boost return — holding "
+                   "to target had a higher average gain but a far fatter loss tail. "
+                   "Take partials at +2R/+3R only if you need to lock gains."),
     }
 
 
@@ -929,6 +1051,43 @@ def run_trending_scan(progress_callback=None):
     except Exception as _sce:
         scorecard = {"error": str(_sce)}
 
+    # ── Rank momentum: Δrank / Δscore vs ~5 scans ago (from the scorecard log).
+    # GVT&D walked rank 19→55 over four sessions while the chart still looked
+    # fine — that deterioration was stored and displayed nowhere. Display-only
+    # until enough history exists to validate it as a factor.
+    try:
+        from trending_scorecard import rank_deltas as _rank_deltas
+        _rd = _rank_deltas(bhavcopy_date) if bhavcopy_date else {}
+    except Exception:
+        _rd = {}
+    for r in results:
+        d = _rd.get(r["symbol"])
+        r["rank_delta_5d"]  = d["delta_rank"]  if d else None
+        r["score_delta_5d"] = d["delta_score"] if d else None
+        # slipping = lost >20 places in ~a week — surfaced as a warning chip
+        if d and d["delta_rank"] <= -20:
+            r["warnings"] = r.get("warnings", []) + [f"⚠ slipping {d['delta_rank']} ranks/5d"]
+
+    # ── C2: attach the per-row "If You Buy This" trade plan (entry/stop/size).
+    for r in results:
+        r["trade_plan"] = trade_plan(r)
+
+    # ── Market regime — DISPLAY-ONLY context (C1). The prove-before-keep gate
+    # (regime_evidence.py: 41 monthly snapshots, 2023→2026) showed the top-30
+    # momentum leaders returned +2.2–4.8%/mo in EVERY regime sampled — no clean
+    # regime effect on the list, and the window held no true bear — so regime
+    # is shown as market context and does NOT gate, reorder, or trim the picks.
+    # The one suggestive finding (extended names turned negative in Correction,
+    # n=47) is surfaced as a banner caveat, not a mechanical downgrade.
+    regime_ctx = None
+    try:
+        import regime as _R
+        _mkt_vol = _R.build_market_volume(stocks)
+        regime_ctx = _R.market_regime(nifty, _mkt_vol)
+        regime_ctx["display_only"] = True
+    except Exception as _re:
+        regime_ctx = {"regime": "Unknown", "error": str(_re), "display_only": True}
+
     result = {
         "stocks":          results,
         "universe_count":  total,
@@ -956,6 +1115,7 @@ def run_trending_scan(progress_callback=None):
         "conviction_weights": {"delivery": 0.50, "low_volatility": 0.25,
                                "near_52w_high": 0.25},
         "scorecard":        scorecard,
+        "regime":           regime_ctx,          # C1 — display-only market context
     }
 
     _cache.update({"data": result, "ts": time.time()})

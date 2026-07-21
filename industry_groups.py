@@ -22,7 +22,11 @@ except ImportError:
     _SECTOR_MAPPER_AVAILABLE = False
 
 _cache        = {"data": None, "ts": 0}
-_stocks_cache = {"data": None, "ts": 0}
+_stocks_cache = {"data": None, "ts": 0, "complete": False,
+                 "last_good": None, "last_good_q": None, "last_attempt": 0.0}
+# Min gap between heavy reload attempts while we're only able to serve last_good
+# (i.e. during a mid-rollover incomplete-data window).
+_STOCKS_RETRY_SEC = 20
 CACHE_TTL     = 3600   # 1 hour
 STOCKS_TTL    = 3600   # reuse loaded stocks for 1 hour
 
@@ -419,13 +423,83 @@ def _group_rs(stocks: dict, nifty: pd.Series) -> list[dict]:
 
 # ── Cached stock loader (shared between industry analysis + RRG) ──────────────
 
+def _snapshot_quality(stocks: dict) -> dict:
+    """Cheap completeness metrics for a freshly-loaded stock snapshot.
+
+    n              — how many symbols loaded
+    max_date       — newest last-bar date across all symbols
+    date_agreement — fraction of symbols whose last bar IS max_date. A healthy
+                     end-of-day snapshot has ~all active names on the latest date;
+                     a mid-rollover partial load has a mix (some on the new date,
+                     most still on the prior one), which drops this sharply.
+    """
+    n = len(stocks)
+    if n == 0:
+        return {"n": 0, "max_date": None, "date_agreement": 0.0}
+    last_dates = [df.index[-1] for df in stocks.values() if len(df)]
+    if not last_dates:
+        return {"n": n, "max_date": None, "date_agreement": 0.0}
+    max_date = max(last_dates)
+    agree = sum(1 for d in last_dates if d == max_date) / len(last_dates)
+    md = max_date.date() if hasattr(max_date, "date") else max_date
+    return {"n": n, "max_date": str(md), "date_agreement": round(agree, 3)}
+
+
+_STOCKS_MIN_SYMBOLS = 200   # a real NSE-universe load is hundreds; fewer = partial
+
+
+def _is_complete(q: dict, prev_q: dict | None = None) -> bool:
+    """A snapshot is trustworthy iff:
+      • it has a plausible number of symbols (absolute floor), AND
+      • the bulk of them agree on the latest date (fails on a mixed-date rollover), AND
+      • it hasn't SHRUNK sharply vs the last good load (fails on a partial download).
+    Calibrating against the LAST GOOD load (not the nominal ~750 universe) is what
+    makes this robust — a healthy load only covers the liquid, ≥60-bar names."""
+    if q["n"] < _STOCKS_MIN_SYMBOLS:
+        return False
+    if q["date_agreement"] < 0.70:
+        return False
+    if prev_q and prev_q.get("n") and q["n"] < 0.70 * prev_q["n"]:
+        return False
+    return True
+
+
 def _get_stocks(progress_callback=None) -> dict:
-    if _stocks_cache["data"] and time.time() - _stocks_cache["ts"] < STOCKS_TTL:
-        return _stocks_cache["data"]
-    stocks = _load_stocks(progress_callback)
-    _stocks_cache["data"] = stocks
-    _stocks_cache["ts"]   = time.time()
-    return stocks
+    """Return the shared stock snapshot — GUARANTEED complete, or the last complete
+    one. This is the single source every scanner / the breadth tape / the portfolio
+    read from, so gating completeness HERE fixes the whole class of mid-rollover
+    cache-poisoning bugs (CPPLUS blank row, 'Computing…' trend, empty 52W-high tape)
+    in one place: a partial bhavcopy load can no longer replace a good snapshot."""
+    c = _stocks_cache
+    now = time.time()
+    # 1) Fast path — a COMPLETE, still-fresh snapshot.
+    if c.get("complete") and c["data"] is not None and now - c["ts"] < STOCKS_TTL:
+        return c["data"]
+    # 2) Throttle heavy reloads while we can only serve last_good (rollover window).
+    if now - c.get("last_attempt", 0.0) < _STOCKS_RETRY_SEC:
+        return c.get("last_good") or c.get("data") or {}
+    c["last_attempt"] = now
+    # 3) Attempt a fresh load and judge completeness (relative to the last good one).
+    fresh = _load_stocks(progress_callback)
+    q = _snapshot_quality(fresh)
+    if _is_complete(q, c.get("last_good_q")):
+        c.update({"data": fresh, "ts": now, "complete": True,
+                  "last_good": fresh, "last_good_q": q})
+        return fresh
+    # 4) Incomplete (mid-rollover / partial download): NEVER cache it as good.
+    #    Serve the last COMPLETE snapshot — yesterday's real data beats today's
+    #    broken zeros — and retry on the next call (subject to the throttle).
+    if c.get("last_good") is not None:
+        try:
+            print(f"[stocks] incomplete load {q} — serving last good "
+                  f"{c.get('last_good_q')}", flush=True)
+        except Exception:
+            pass
+        return c["last_good"]
+    # 5) Cold boot with nothing good yet — best effort, but do NOT mark complete
+    #    (so every call keeps retrying until a full snapshot lands).
+    c.update({"data": fresh, "ts": now, "complete": False})
+    return fresh
 
 
 # ── RRG computation ───────────────────────────────────────────────────────────

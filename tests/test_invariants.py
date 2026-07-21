@@ -125,14 +125,18 @@ def test_split_adjust_3to2_bonus():
     """3:2 bonus (price drops to 2/3 of pre-event) is correctly back-adjusted."""
     n = 30
     idx = pd.date_range("2025-01-01", periods=n, freq="B")
-    # Pre-event: ₹150 for 20 days; bonus drops to ₹100 (= 150 * 2/3) for last 10 days
+    # Pre-event: ₹150 for 20 days; bonus drops to ₹100 (= 150 * 2/3) for last 10 days.
+    # A REAL 3:2 bonus raises the share count ~1.5×, so ex-date share volume rises to
+    # ~1.5M while rupee TURNOVER stays continuous (150×1M ≈ 100×1.5M) — the fingerprint
+    # the detector now (correctly) requires to distinguish a bonus from a price crash.
     closes = [150.0] * 20 + [100.0 + (i * 0.5) for i in range(10)]
+    vols   = [1_000_000] * 20 + [1_500_000] * 10
     df = pd.DataFrame({
         "Open":   closes,
         "High":   [c * 1.01 for c in closes],
         "Low":    [c * 0.99 for c in closes],
         "Close":  closes,
-        "Volume": [1_000_000] * n,
+        "Volume": vols,
     }, index=idx)
 
     out = adjust_for_splits(df)
@@ -174,10 +178,12 @@ def test_split_adjust_does_not_have_buggy_1to1_threshold():
     n = 30
     idx = pd.date_range("2025-01-01", periods=n, freq="B")
     closes = [200.0] * 20 + [100.0] * 10   # exact 50% drop = 1:2 split
+    # 1:2 split doubles the share count → ex-date volume ~2×, turnover continuous.
+    vols = [1_000_000] * 20 + [2_000_000] * 10
     df = pd.DataFrame({
         "Open": closes, "High": [c * 1.01 for c in closes],
         "Low": [c * 0.99 for c in closes], "Close": closes,
-        "Volume": [1_000_000] * n,
+        "Volume": vols,
     }, index=idx)
     out = adjust_for_splits(df)
     pre = float(out["Close"].iloc[0])
@@ -186,6 +192,32 @@ def test_split_adjust_does_not_have_buggy_1to1_threshold():
         "split_adjust_1to2_scales_prior_by_half",
         abs(pre - 100.0) < 0.5,
         f"pre={pre:.4f} (expected ~100.0 for 1:2 split)",
+    )
+
+
+def test_split_adjust_rejects_crash_without_volume_fingerprint():
+    """REJECTION PATH (added 2026-07-16): a price move that LOOKS like a clean
+    fraction but lacks the split fingerprint must NOT be adjusted — otherwise a
+    genuine −33%/−50% crash gets erased and Guardian/exits fire on a fake bar.
+    Here: a −50% drop with FLAT volume (no share increase) + a turnover spike
+    (panic) → must stay unadjusted."""
+    n = 30
+    idx = pd.date_range("2025-01-01", periods=n, freq="B")
+    closes = [200.0] * 20 + [100.0] * 10          # exact 50% drop, but a CRASH
+    # FLAT share volume through the drop — no ex-date volume increase, so the split
+    # fingerprint (share count rising ~1/ratio) is absent. The detector must refuse
+    # to adjust: a bonus doubles the share count, a crash does not.
+    vols = [1_000_000] * 30
+    df = pd.DataFrame({
+        "Open": closes, "High": [c * 1.01 for c in closes],
+        "Low": [c * 0.99 for c in closes], "Close": closes, "Volume": vols,
+    }, index=idx)
+    out = adjust_for_splits(df)
+    pre = float(out["Close"].iloc[0])
+    assert_true(
+        "split_adjust_rejects_crash_without_fingerprint",
+        abs(pre - 200.0) < 0.5,   # UNCHANGED — the crash was not treated as a split
+        f"pre={pre:.4f} (expected ~200.0 — a fingerprint-less crash must NOT be adjusted)",
     )
 
 
@@ -397,6 +429,7 @@ def main():
     test_split_adjust_3to2_bonus()
     test_split_adjust_no_event_returns_unmodified()
     test_split_adjust_does_not_have_buggy_1to1_threshold()
+    test_split_adjust_rejects_crash_without_volume_fingerprint()
     test_equal_weight_index_unaffected_by_price_level()
     test_volume_baseline_median_robust_to_outlier()
     test_cross_sectional_rs_rank_monotonic()

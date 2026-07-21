@@ -3,18 +3,22 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>NSE Market Dashboard</title>
+<title>Ascent Wealth Labs — Analytics Platform</title>
+<link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
   /* ── Design tokens ── */
   :root {
-    --bg:         #080c14;
-    --surface:    #0e1520;
-    --surface2:   #131c2e;
-    --border:     #1e2d45;
-    --border2:    #253550;
+    /* Trading-terminal dark: near-black canvas so green/red P&L and the ticker
+       carry the colour. Ladder stays bg < surface < surface2 — each a visible step,
+       or the cards flatten into the page (same defect the light theme had). */
+    --bg:         #05070c;
+    --surface:    #0d131f;
+    --surface2:   #162032;
+    --border:     #22334d;
+    --border2:    #2d4266;
     --accent:     #3b82f6;
     --accent2:    #60a5fa;
     --gold:       #f59e0b;
@@ -28,19 +32,46 @@
     --text2:      #94a3b8;
     --white:      #f1f5f9;
     --card:       #0e1520;
-    --header-bg:  #0e1520;
+    /* Header band — deliberately a touch BLUER/lighter than --surface so the chrome
+       reads as its own layer. (Was #0e1520: a stale copy of the old --surface that
+       drifted unnoticed while this token sat unconsumed.) */
+    --header-bg:  #101a2e;
     --yellow:     #f59e0b;
+    /* Input/field fill. Deliberately NOT --bg: inputs sit INSIDE cards, so they must
+       track the card, not the page canvas. They used --bg and turned navy the moment
+       the light canvas went dark. */
+    --field:      #0b111c;
+    /* ONE source of truth for the nav column. The ticker's left label must line up
+       with the sidebar edge exactly — hard-coding it twice is how they drifted. */
+    --sidebar-w:  228px;
+    /* Text painted directly ON the canvas (not on a card). Tracks --bg, so it stays
+       readable no matter how light/dark the canvas goes. */
+    --on-bg:      #94a3b8;
     --mono:       'JetBrains Mono', 'Courier New', monospace;
   }
   body.light {
-    --bg: #f0f4f8; --surface: #ffffff; --surface2: #f8fafc;
-    --border: #dde3ec; --border2: #c8d3e0;
+    /* Warm ivory canvas (matched to the reference grid-paper swatch), replacing the
+       navy trading floor. White cards on ivory sit only ~4% apart, so separation now
+       rests on the near-black --border + the card shadow, NOT on canvas luminance —
+       that is why --border must stay dark here.
+       --on-bg flips DARK with the canvas: it was #dbe3ee (light text for navy), which
+       would be invisible on ivory. */
+    --bg: #f4f3ee; --surface: #ffffff; --surface2: #f1f5f9;
+    --on-bg: #475569;
+    /* Fields are WHITE in light mode — they sit inside white cards. */
+    --field: #ffffff;
+    /* Borders sit on a #fff surface. Pale greys dissolved into the background, so
+       these are near-black for unambiguous separation between sections. */
+    --border: #1e293b; --border2: #0f172a;
     --accent: #2563eb; --accent2: #1d4ed8;
-    --gold: #d97706; --gold2: #b45309;
+    --gold: #d97706; --gold2: #92400e;
     --green: #059669; --green2: #047857;
     --red: #dc2626; --red2: #b91c1c;
     --muted: #94a3b8; --text: #1e293b; --text2: #475569;
-    --white: #0f172a; --card: #ffffff; --header-bg: #ffffff;
+    --white: #0f172a; --card: #ffffff;
+    /* Very light blue header band: reads as chrome, and gives the header its own
+       identity against BOTH the ivory canvas and the white cards. */
+    --header-bg: #e9f0fb;
     --yellow: #d97706;
   }
 
@@ -51,28 +82,17 @@
     font-size: 13px;
     transition: color 0.2s;
     -webkit-font-smoothing: antialiased;
-    /* Bull & Bear NSE-themed background — visible behind dashboard */
-    background:
-      linear-gradient(rgba(8,12,20,0.30), rgba(8,12,20,0.30)),
-      url("/static/bull_bear.jpg") center center / cover no-repeat fixed,
-      var(--bg);
-    background-attachment: fixed;
+    /* Flat neutral canvas. The bull/bear photo (still in /static, keep it for
+       marketing pages) sat behind live data: it fought text for contrast, carried
+       an NSE watermark that contradicts the Ascent brand, and forced a whole
+       cascade of blur + !important opacity hacks below just to stay readable.
+       Data surfaces should be calm and flat. */
+    background: var(--bg);
     min-height: 100vh;
     /* Sticky footer: flex column lets .site-footer's margin-top:auto pin it to
        the bottom on short tabs instead of floating mid-page. */
     display: flex;
     flex-direction: column;
-  }
-  body.light {
-    background:
-      linear-gradient(rgba(240,244,248,0.50), rgba(240,244,248,0.50)),
-      url("/static/bull_bear.jpg") center center / cover no-repeat fixed,
-      var(--bg);
-    background-attachment: fixed;
-  }
-  /* Make panels semi-transparent so background image shows through */
-  .panel, .container > section, .tab-content > div {
-    backdrop-filter: blur(2px);
   }
   /* But hero cards must be fully opaque — text legibility matters more than aesthetic */
   .mg-hero, .eg-hero, .sl-hero, .cn-hero,
@@ -89,27 +109,23 @@
   }
 
   /* ── Header ── */
+  /* --header-bg, not --surface: the header is its own identity band, distinct from
+     both the cards and the canvas. (This token already existed but was never
+     consumed — the header had been painting from --surface.) */
   header {
-    background: var(--surface);
+    background: var(--header-bg);
     border-bottom: 1px solid var(--border);
-    padding: 0 28px;
+    padding: 0 26px;
     display: flex;
     align-items: center;
-    height: 54px;
-    gap: 36px;
+    height: 60px;
+    gap: 28px;
     position: relative;
   }
   /* Center the LIVE + stats group, push theme toggle to the far right */
-  header > .live-badge { margin-left: 24px; }
-  header > .hdr-sep   { margin: 0 8px; }
-  header > .hdr-stat  { min-width: 90px; }
-  header::after {
-    content: '';
-    position: absolute;
-    bottom: 0; left: 0; right: 0; height: 2px;
-    background: linear-gradient(90deg, var(--accent) 0%, var(--gold) 50%, transparent 100%);
-    opacity: 0.5;
-  }
+  header > .live-badge { margin-left: 20px; }
+  header > .hdr-sep   { margin: 0 6px; }
+  header > .hdr-stat  { min-width: 84px; }
   .logo { display: flex; align-items: center; gap: 10px; }
   .logo-icon {
     height: 28px;
@@ -121,20 +137,22 @@
   .logo h1 span { color: var(--accent2); }
 
   .live-badge {
-    background: rgba(16,185,129,0.18);
-    border: 1px solid rgba(16,185,129,0.45);
+    background: rgba(16,185,129,0.10);
+    border: 1px solid rgba(16,185,129,0.30);
     color: var(--green);
-    font-size: 10px; font-weight: 800;
-    padding: 3px 10px; border-radius: 20px; letter-spacing: 0.6px;
+    font-size: 10px; font-weight: 600;
+    padding: 4px 10px; border-radius: 6px; letter-spacing: 0.5px;
     display: flex; align-items: center; gap: 6px;
-    box-shadow: 0 0 10px rgba(16,185,129,0.15);
   }
   .live-dot {
-    width: 7px; height: 7px; background: #10b981;
+    width: 6px; height: 6px; background: #10b981;
     border-radius: 50%;
-    animation: livePulse 1.2s infinite;
-    box-shadow: 0 0 8px rgba(16,185,129,0.7);
+    animation: livePulse 2.2s ease-in-out infinite;
   }
+  /* Pulse says "the feed is current", which is why it must stop when the data is
+     NOT current — the amber/stale state below kills it rather than blinking a lie. */
+  .live-badge.stale .live-dot { animation: none; }
+  @media (prefers-reduced-motion: reduce) { .live-dot { animation: none; } }
   @keyframes livePulse {
     0%   { transform: scale(0.85); box-shadow: 0 0 0 0 rgba(16,185,129,0.85); }
     50%  { transform: scale(1.15); box-shadow: 0 0 0 8px rgba(16,185,129,0); }
@@ -143,45 +161,130 @@
   /* Trend pill */
   .hdr-trend {
     display: inline-flex; align-items: center; gap: 5px;
-    padding: 3px 10px; border-radius: 14px;
-    font-size: 11px; font-weight: 800; letter-spacing: 0.3px;
+    padding: 4px 11px; border-radius: 6px;
+    font-size: 11px; font-weight: 600; letter-spacing: 0.2px;
     border: 1px solid transparent;
   }
-  .hdr-trend.up    { background: rgba(16,185,129,0.18); color: var(--green); border-color: rgba(16,185,129,0.4); }
-  .hdr-trend.down  { background: rgba(239,68,68,0.18); color: var(--red); border-color: rgba(239,68,68,0.4); }
-  .hdr-trend.flat  { background: rgba(245,158,11,0.18); color: var(--gold); border-color: rgba(245,158,11,0.4); }
-  .hdr-trend.muted { background: rgba(100,116,139,0.18); color: var(--muted); border-color: rgba(100,116,139,0.3); }
+  .hdr-trend.up    { background: rgba(16,185,129,0.12); color: var(--green2); border-color: rgba(16,185,129,0.30); }
+  .hdr-trend.down  { background: rgba(239,68,68,0.12); color: var(--red2); border-color: rgba(239,68,68,0.30); }
+  .hdr-trend.flat  { background: rgba(245,158,11,0.12); color: var(--gold2); border-color: rgba(245,158,11,0.30); }
+  .hdr-trend.muted { background: rgba(100,116,139,0.12); color: var(--text2); border-color: rgba(100,116,139,0.25); }
 
-  .hdr-sep { width: 1px; height: 26px; background: var(--border); flex-shrink: 0; }
-  .hdr-stat { display: flex; flex-direction: column; align-items: flex-end; }
-  .hdr-stat .hs-label { font-size: 9px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.8px; font-weight: 600; }
-  .hdr-stat .hs-val   { font-size: 12px; font-weight: 700; color: var(--white); font-family: var(--mono); letter-spacing: -0.3px; }
-  .hdr-stat .hs-chg   { font-size: 10px; font-family: var(--mono); }
+  .hdr-sep { width: 1px; height: 30px; background: var(--border); flex-shrink: 0; }
+  .hdr-stat { display: flex; flex-direction: column; align-items: flex-end; gap: 3px; }
+  /* --text2, not --muted: these label NIFTY 50 / ADV-DEC / MARKET TREND — data
+     headings the user reads, and --muted measured 2.2-2.7:1 on the header band in
+     BOTH themes (it was already failing on the old white header; the tint just made
+     it visible). --muted is decorative chrome only. */
+  .hdr-stat .hs-label { font-size: 9.5px; color: var(--text2); text-transform: uppercase; letter-spacing: 0.7px; font-weight: 600; }
+  .hdr-stat .hs-val   { font-size: 14px; font-weight: 600; color: var(--white); font-family: var(--mono); letter-spacing: -0.2px; line-height: 1; }
+  .hdr-stat .hs-chg   { font-size: 10px; font-family: var(--mono); font-weight: 500; }
 
   /* ── Theme toggle ── */
   .theme-toggle {
     margin-left: auto;
     background: var(--surface2);
     border: 1px solid var(--border);
-    border-radius: 8px;
+    border-radius: 6px;
     cursor: pointer;
-    padding: 5px 12px;
+    padding: 6px 12px;
     font-size: 12px;
     color: var(--text2);
     display: flex; align-items: center; gap: 6px;
     font-family: 'Inter', sans-serif;
-    transition: border-color 0.15s;
+    transition: border-color 0.15s, color 0.15s;
   }
   .theme-toggle:hover { border-color: var(--accent); color: var(--accent2); }
+
+  /* ── Cross-tab stock search ── */
+  .hdr-search { flex: 1 1 auto; max-width: 460px; min-width: 170px; position: relative; margin-left: 18px; }
+  /* Layout inside the search: [icon 10px] [blinking caret 30px] [text from 38px] */
+  .hdr-search input {
+    width: 100%; box-sizing: border-box;
+    background: var(--field); border: 1px solid var(--border);
+    border-radius: 7px; padding: 7px 12px 7px 38px; font-size: 12px;
+    color: var(--text); font-family: 'Inter', sans-serif; outline: none;
+    transition: border-color .15s;
+  }
+  .hdr-search input::placeholder { color: var(--muted); }
+  .hdr-search input:focus { border-color: var(--accent); }
+  .hdr-search-ic {
+    position: absolute; left: 11px; top: 50%; transform: translateY(-50%);
+    width: 14px; height: 14px; pointer-events: none;
+    fill: none; stroke: var(--muted); stroke-width: 2;
+    stroke-linecap: round; stroke-linejoin: round;
+  }
+  /* Blinking attention caret — draws the eye to the search. pointer-events:none so it
+     never intercepts a click on the input underneath. */
+  .search-caret {
+    position: absolute; left: 31px; top: 50%; transform: translateY(-50%);
+    width: 1.5px; height: 13px; background: var(--accent2);
+    animation: caretBlink 1.1s step-end infinite;
+    pointer-events: none;
+  }
+  .search-caret.hide { display: none; }
+  @keyframes caretBlink { 0%, 100% { opacity: 1; } 50% { opacity: 0; } }
+  @media (prefers-reduced-motion: reduce) { .search-caret { animation: none; } }
+  .search-results {
+    display: none; position: absolute; top: calc(100% + 7px); left: auto; right: 0;
+    width: 540px; max-width: 78vw;
+    background: var(--surface); border: 1px solid var(--border2);
+    border-radius: 9px; padding: 6px; z-index: 300;
+    max-height: 400px; overflow-y: auto;
+    box-shadow: 0 12px 34px rgba(0,0,0,0.32);
+  }
+  .search-results.open { display: block; }
+  .sr-head { font-size: 12px; font-weight: 800; color: var(--white); padding: 6px 8px 8px; border-bottom: 1px solid var(--border); margin-bottom: 4px; }
+  .sr-hit { display: flex; align-items: center; gap: 10px; padding: 7px 8px; border-radius: 6px; cursor: pointer; }
+  .sr-hit:hover { background: var(--surface2); }
+  .sr-tab { font-size: 12px; color: var(--text); font-weight: 700; white-space: nowrap; }
+  /* --text2, NOT --muted: this is real data (score / RS / rank) the user is reading,
+     and --muted only clears ~2.4:1 on a white card. --text2 clears 7:1 in both themes. */
+  .sr-sum { font-size: 10.5px; color: var(--text2); margin-left: auto; font-family: var(--mono); text-align: right; white-space: nowrap; }
+  .sr-empty { padding: 10px 8px; font-size: 12px; color: var(--text2); line-height: 1.5; }
+  .sr-note { padding: 7px 8px 3px; font-size: 10px; color: var(--text2); border-top: 1px solid var(--border); margin-top: 4px; }
+
+  /* ── Position Guardian bell ── */
+  .hdr-bell { position: relative; flex-shrink: 0; margin-left: 10px; }
+  .bell-btn {
+    background: var(--surface2); border: 1px solid var(--border); border-radius: 6px;
+    cursor: pointer; padding: 6px 10px; font-size: 13px; line-height: 1;
+    color: var(--text2); position: relative; transition: border-color .15s;
+  }
+  .bell-btn:hover { border-color: var(--accent); }
+  .bell-badge {
+    position: absolute; top: -6px; right: -6px; background: var(--red); color: #fff;
+    font-size: 9px; font-weight: 800; min-width: 15px; height: 15px; border-radius: 8px;
+    display: flex; align-items: center; justify-content: center; padding: 0 3px;
+  }
+  .bell-panel {
+    display: none; position: absolute; top: calc(100% + 7px); right: 0;
+    width: 390px; max-width: 78vw;
+    background: var(--surface); border: 1px solid var(--border2);
+    border-radius: 9px; padding: 6px; z-index: 300;
+    max-height: 400px; overflow-y: auto; box-shadow: 0 12px 34px rgba(0,0,0,0.32);
+  }
+  .bell-panel.open { display: block; }
+  .bell-head { font-size: 12px; font-weight: 800; color: var(--white); padding: 6px 8px 8px; border-bottom: 1px solid var(--border); margin-bottom: 4px; }
+  .bell-row { padding: 8px; border-radius: 6px; cursor: pointer; }
+  .bell-row:hover { background: var(--surface2); }
+  .bell-sym { font-size: 12px; font-weight: 700; color: var(--text); }
+  .bell-sev { font-size: 9px; font-weight: 800; padding: 1px 6px; border-radius: 4px; margin-left: 6px; text-transform: uppercase; }
+  .bell-sev.exit  { background: rgba(239,68,68,0.15); color: var(--red); }
+  .bell-sev.trim  { background: rgba(245,158,11,0.15); color: var(--gold); }
+  .bell-sev.watch { background: rgba(100,116,139,0.15); color: var(--muted); }
+  .bell-px { float: right; font-family: var(--mono); font-size: 10px; color: var(--muted); }
+  .bell-reason { font-size: 11px; color: var(--muted); margin-top: 3px; line-height: 1.45; }
+  .bell-empty { padding: 12px 8px; font-size: 12px; color: var(--muted); line-height: 1.5; }
 
   /* ── Data freshness bar ── */
   #dataFreshnessBar {
     background: var(--surface2);
     border-bottom: 1px solid var(--border);
-    padding: 5px 28px;
+    padding: 6px 26px;
     display: flex;
     align-items: center;
-    gap: 20px;
+    gap: 18px;
     font-size: 11px;
     color: var(--muted);
     flex-wrap: wrap;
@@ -191,6 +294,59 @@
   .freshness-dot.fresh { background: var(--green2); }
   .freshness-label { color: var(--muted); }
   .freshness-time  { color: var(--text2); font-weight: 600; font-family: var(--mono); font-size: 11px; }
+
+  /* ── 52-week-high ticker tape ── */
+  /* Always visible — this strip replaced the DATA SOURCE bar, so it carries the
+     bhavcopy status on the right even when there are no highs to scroll. */
+  /* ONLY the scrolling middle is black — a tape reads as a tape because it's black.
+     The two fixed ends (label, source chip) follow --surface so they sit flush with
+     the header/sidebar and bookend the moving part. */
+  .ticker-strip {
+    display: flex; align-items: center; height: 30px;
+    background: #000000; border-bottom: 1px solid var(--border);
+    overflow: hidden; white-space: nowrap; position: relative;
+  }
+  .ticker-src {
+    flex-shrink: 0; display: flex; align-items: center; gap: 5px;
+    padding: 0 14px; height: 100%; font-size: 11px; color: var(--text2);
+    background: var(--surface); border-left: 1px solid var(--border); z-index: 2;
+  }
+  .tk-note { font-size: 11px; color: #7d8ba3; padding-left: 26px; }
+  /* Width is pinned to --sidebar-w (not content) so this label's right edge lands on
+     the sidebar's border exactly — they read as one continuous column. */
+  .ticker-label {
+    flex-shrink: 0; padding: 0 12px; height: 100%;
+    width: var(--sidebar-w);
+    display: flex; align-items: center;
+    font-size: 9.5px; font-weight: 800; letter-spacing: 0.8px;
+    text-transform: uppercase; color: var(--green2);
+    background: var(--surface); border-right: 1px solid var(--border);
+    z-index: 2;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  /* The label/src are back on --surface, so their text must use TOKENS again, not the
+     light-on-black literals the all-black strip needed. */
+  .ticker-src .freshness-label { color: var(--text2); }
+  .ticker-viewport { flex: 1; overflow: hidden; }
+  .ticker-track {
+    display: inline-flex; align-items: center; gap: 26px; padding-left: 26px;
+    animation: tickerScroll 60s linear infinite; will-change: transform;
+  }
+  .ticker-strip:hover .ticker-track { animation-play-state: paused; }
+  @keyframes tickerScroll { from { transform: translateX(0); } to { transform: translateX(-50%); } }
+  /* Tape text is pinned to light values, NOT --text/--text2: the strip is black in
+     both themes, and in light mode those tokens are near-black = invisible on it. */
+  .tk-item { display: inline-flex; align-items: center; gap: 6px; font-size: 11.5px; white-space: nowrap; cursor: pointer; }
+  .tk-item:hover .tk-sym { color: #60a5fa; }
+  .tk-sym { font-weight: 700; color: #e8eef7; }
+  .tk-px  { font-family: var(--mono); color: #97a6bd; font-size: 11px; }
+  .tk-chg { font-family: var(--mono); font-size: 10.5px; }
+  .tk-vol { font-family: var(--mono); font-size: 9.5px; color: #fbbf24; background: rgba(245,158,11,0.16); padding: 1px 5px; border-radius: 3px; }
+  /* Respect users who ask the OS for less motion — show the tape, just static. */
+  @media (prefers-reduced-motion: reduce) {
+    .ticker-track { animation: none; }
+    .ticker-viewport { overflow-x: auto; }
+  }
 
   /* ── Tabs ── */
   .tab-bar { display: flex; gap: 4px; background: var(--surface); border-bottom: 2px solid var(--border); padding: 6px 16px 0; overflow-x: auto; flex-wrap: nowrap; }
@@ -229,6 +385,171 @@
   body.light .tab-btn.active { background: #fff; border-color: var(--accent); border-bottom-color: #fff; }
   .tab-content { display: none; }
   .tab-content.active { display: block; }
+  /* ── Ascent Wealth Labs — professional grouped sidebar navigation ──── */
+  .app-shell { display: flex; align-items: flex-start; }
+  .sidebar {
+    position: sticky; top: 0; align-self: flex-start;
+    width: var(--sidebar-w); flex: 0 0 var(--sidebar-w); height: 100vh; overflow-y: auto;
+    background: var(--surface); border-right: 1px solid var(--border);
+    padding: 10px 10px 30px;
+  }
+  /* Scrollbar must NOT use --border2 — that token is now near-black, which drew a
+     thick black bar down the sidebar edge. Keep it invisible until the sidebar is
+     hovered so it never reads as a gutter. */
+  .sidebar { scrollbar-width: thin; scrollbar-color: transparent transparent; }
+  .sidebar:hover { scrollbar-color: rgba(100,116,139,0.45) transparent; }
+  .sidebar::-webkit-scrollbar { width: 6px; }
+  .sidebar::-webkit-scrollbar-track { background: transparent; }
+  .sidebar::-webkit-scrollbar-thumb { background: transparent; border-radius: 3px; }
+  .sidebar:hover::-webkit-scrollbar-thumb { background: rgba(100,116,139,0.45); }
+  .app-main { flex: 1 1 auto; min-width: 0; }
+  /* The sidebar already separates content from chrome, so the old 28px page
+     gutter is redundant here — tighten it up. */
+  .app-main .container { padding-left: 16px; padding-right: 16px; }
+  .sb-label {
+    font-size: 10.5px; font-weight: 800; color: var(--text2);
+    text-transform: uppercase; letter-spacing: 1px;
+    padding: 13px 10px 7px; margin-top: 10px;
+    border-top: 1px solid var(--border2);
+  }
+  .sb-label:first-child { border-top: none; margin-top: 0; padding-top: 6px; }
+  .sidebar .tab-btn {
+    display: flex; align-items: center; gap: 9px; width: 100%;
+    text-align: left; justify-content: flex-start;
+    background: transparent; border: none; border-radius: 8px;
+    color: var(--text2); font-size: 12.5px; font-weight: 500;
+    padding: 8px 10px; margin: 1px 0; position: static; bottom: 0;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  /* Line icons. --ic carries the per-tab hue (set below); it falls back to
+     currentColor, so if :has() ever fails the icons still render in the row colour
+     rather than disappearing. */
+  .ic {
+    width: 18px; height: 18px; flex-shrink: 0;
+    /* Duotone: a translucent wash of the icon's own hue FILLS the shape so it no
+       longer looks hollow, while the solid-hue stroke keeps the crisp line detail. */
+    fill: var(--ic, currentColor); fill-opacity: 0.24;
+    stroke: var(--ic, currentColor); stroke-width: 1.85;
+    stroke-linecap: round; stroke-linejoin: round;
+    opacity: 0.97;
+  }
+  /* Button icons sit on a solid accent fill — a translucent wash muddies them, so
+     keep those outline-only. */
+  .ic-b { fill: none; }
+  .sidebar .tab-btn.active .ic,
+  .sidebar .tab-btn:hover .ic { opacity: 1; }
+  /* Heading icons sit INLINE inside existing <h2>s — vertical-align rather than
+     flex, so no <h2> layout changes and nothing reflows. */
+  .ic-h {
+    width: 15px; height: 15px;
+    vertical-align: -2.5px; margin-right: 7px;
+  }
+  /* Button icons inherit the button's own text colour (white on --accent), so they
+     must NOT pick up the per-tab --ic hue the sidebar rules set. */
+  .ic-b {
+    width: 14px; height: 14px;
+    vertical-align: -2.5px; margin-right: 7px;
+    stroke: currentColor;
+  }
+  .btn .ic-b, .theme-toggle .ic, .bell-btn .ic { --ic: currentColor; }
+  .theme-toggle { display: inline-flex; align-items: center; gap: 6px; }
+  .bell-btn { display: inline-flex; align-items: center; }
+
+  /* ── User menu (identity + sign out) ── */
+  .user-menu { position: relative; }
+  .user-btn {
+    display: inline-flex; align-items: center; gap: 7px; cursor: pointer;
+    background: var(--surface2); border: 1px solid var(--border);
+    border-radius: 6px; padding: 4px 10px 4px 5px; color: var(--text);
+    font-family: 'Inter', sans-serif; font-size: 12px; font-weight: 600;
+    transition: border-color .15s;
+  }
+  body.light .user-btn { background: var(--surface); }
+  .user-btn:hover { border-color: var(--accent); }
+  .user-av {
+    width: 22px; height: 22px; border-radius: 50%; flex-shrink: 0;
+    display: inline-flex; align-items: center; justify-content: center;
+    background: var(--accent); color: #fff; font-size: 11px; font-weight: 800;
+  }
+  .user-av.is-demo { background: var(--gold2); }
+  .user-name { max-width: 92px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .user-pop {
+    display: none; position: absolute; top: calc(100% + 8px); right: 0;
+    min-width: 190px; background: var(--surface); border: 1px solid var(--border);
+    border-radius: 9px; padding: 6px; z-index: 400;
+    box-shadow: 0 12px 34px rgba(0,0,0,0.32);
+  }
+  .user-pop.open { display: block; }
+  .user-pop-head { padding: 8px 10px 10px; border-bottom: 1px solid var(--border); margin-bottom: 5px; }
+  .user-pop-name { font-size: 13px; font-weight: 700; color: var(--white); }
+  .user-pop-role { font-size: 10.5px; font-weight: 700; text-transform: uppercase; letter-spacing: .5px; margin-top: 3px; }
+  .user-pop-role.admin { color: var(--green2); }
+  .user-pop-role.demo  { color: var(--gold2); }
+  .user-pop-note { font-size: 11px; color: var(--text2); padding: 2px 10px 8px; line-height: 1.5; }
+  .user-pop-out {
+    display: flex; align-items: center; gap: 8px; padding: 8px 10px; border-radius: 6px;
+    font-size: 13px; font-weight: 600; color: var(--text); text-decoration: none; cursor: pointer;
+  }
+  .user-pop-out:hover { background: var(--surface2); color: var(--red2); }
+  /* These chips default to --surface2 (#f1f5f9), which is ~1.03:1 against the light
+     blue header band — they'd dissolve into it. White reads as a control ON the band.
+     Dark mode already separates (--surface2 #162032 vs --header-bg #101a2e). */
+  body.light .theme-toggle,
+  body.light .bell-btn,
+  body.light .hdr-search input { background: var(--surface); }
+
+  /* Per-tab icon hues. Every tab now has a UNIQUE glyph AND a UNIQUE colour — no
+     repeats. Kept within the Tailwind 400/500 saturation band so 26 colours still
+     read as one designed set, not confetti; label text stays neutral so the colour
+     is an accent, not the content. */
+  /* — My Trades — */
+  .ic:has(use[href="#i-briefcase"]) { --ic: #60a5fa; }  /* portfolio    — blue     */
+  .ic:has(use[href="#i-target"])    { --ic: #f43f5e; }  /* strategy     — rose     */
+  .ic:has(use[href="#i-gem"])       { --ic: #22d3ee; }  /* invest grade — cyan     */
+  /* — Screeners — */
+  .ic:has(use[href="#i-umbrella"])  { --ic: #818cf8; }  /* all-weather  — indigo   */
+  .ic:has(use[href="#i-shield"])    { --ic: #2dd4bf; }  /* defensive    — teal     */
+  .ic:has(use[href="#i-flame"])     { --ic: #f97316; }  /* trending     — orange   */
+  .ic:has(use[href="#i-trend"])     { --ic: #10b981; }  /* momentum     — emerald  */
+  .ic:has(use[href="#i-zap"])       { --ic: #eab308; }  /* breakout     — yellow   */
+  .ic:has(use[href="#i-mountain"])  { --ic: #a78bfa; }  /* multi-yr     — violet   */
+  .ic:has(use[href="#i-sprout"])    { --ic: #22c55e; }  /* emerging     — green    */
+  .ic:has(use[href="#i-search"])    { --ic: #38bdf8; }  /* early mover  — sky      */
+  .ic:has(use[href="#i-sliders"])   { --ic: #f472b6; }  /* advanced     — pink     */
+  .ic:has(use[href="#i-bank"])      { --ic: #c084fc; }  /* institutional— purple   */
+  .ic:has(use[href="#i-rocket"])    { --ic: #ef4444; }  /* monster      — red      */
+  .ic:has(use[href="#i-leaf"])      { --ic: #84cc16; }  /* early growth — lime     */
+  .ic:has(use[href="#i-star"])      { --ic: #f59e0b; }  /* minervini    — amber    */
+  .ic:has(use[href="#i-sparkle"])   { --ic: #facc15; }  /* alpha        — gold-yel */
+  .ic:has(use[href="#i-cpu"])       { --ic: #14b8a6; }  /* edge engine  — teal-500 */
+  /* — Market — */
+  .ic:has(use[href="#i-activity"])  { --ic: #ec4899; }  /* breadth      — pink-500 */
+  .ic:has(use[href="#i-refresh"])   { --ic: #fb923c; }  /* rotation     — orange-4 */
+  .ic:has(use[href="#i-trophy"])    { --ic: #fbbf24; }  /* leaders      — gold     */
+  .ic:has(use[href="#i-layers"])    { --ic: #6366f1; }  /* industry     — indigo-5 */
+  .ic:has(use[href="#i-bars"])      { --ic: #34d399; }  /* vol spike    — emerald-4*/
+  /* — Tools — */
+  .ic:has(use[href="#i-gauge"])     { --ic: #f87171; }  /* risk&regime  — red-400  */
+  .ic:has(use[href="#i-filter"])    { --ic: #7dd3fc; }  /* screener     — sky-300  */
+  .ic:has(use[href="#i-medal"])     { --ic: #fcd34d; }  /* consensus    — amber-3  */
+  /* Those hues are tuned for the dark canvas; on white they'd wash out. */
+  body.light .ic { filter: saturate(1.35) brightness(0.72); }
+  .sidebar .tab-btn:hover { background: var(--surface2); color: var(--text); border: none; }
+  .sidebar .tab-btn.active {
+    background: var(--surface2); color: var(--accent2); font-weight: 700;
+    box-shadow: inset 3px 0 0 var(--accent); border: none;
+  }
+  body.light .sidebar .tab-btn { background: transparent; border: none; }
+  body.light .sidebar .tab-btn:hover { background: #eef2f7; border: none; }
+  body.light .sidebar .tab-btn.active { background: #eaf1ff; border: none; }
+  @media (max-width: 860px) {
+    .app-shell { flex-direction: column; }
+    .sidebar { position: static; width: 100%; flex: none; height: auto;
+      border-right: none; border-bottom: 1px solid var(--border);
+      display: flex; flex-wrap: wrap; gap: 3px; }
+    .sb-label { width: 100%; }
+    .sidebar .tab-btn { width: auto; }
+  }
 
   /* ── Sortable table headers ── */
   .th-sort {
@@ -281,18 +602,30 @@
     padding: 14px 18px;
     margin-bottom: 12px;
   }
+  /* Solid surface — was translucent + blur(8px) purely to cope with the photo
+     background. Flat is crisper AND cheaper: backdrop-filter forced GPU
+     compositing on every panel during scroll, which hurt the long tables. */
+  /* Cards read as RAISED off the near-black canvas: a drop shadow for depth plus a
+     1px top inner highlight (how light would catch a raised edge). On a dark canvas
+     a border alone reads as a drawn rectangle, not an object. */
   .panel {
-    background: rgba(14,21,32,0.72);
+    background: var(--surface);
     border: 1px solid var(--border);
     border-radius: 10px;
     margin-bottom: 12px;
     overflow: hidden;
-    backdrop-filter: blur(8px);
-    -webkit-backdrop-filter: blur(8px);
+    box-shadow: 0 1px 2px rgba(0,0,0,0.5), 0 6px 18px -6px rgba(0,0,0,0.6),
+                inset 0 1px 0 rgba(255,255,255,0.05);
   }
+  .panel-header { background: linear-gradient(180deg, rgba(255,255,255,0.035), transparent); }
+  /* Ivory canvas: cards are only ~4% off the page, so the shadow does real work here
+     rather than just seating them — but it must stay soft. The 0.35 black shadow this
+     replaced was tuned for white-on-navy and reads as a heavy 2010s drop shadow on a
+     light canvas. */
   body.light .panel {
-    background: rgba(255,255,255,0.78);
+    box-shadow: 0 1px 2px rgba(30,41,59,0.06), 0 4px 14px -6px rgba(30,41,59,0.14);
   }
+  body.light .panel-header { background: none; }
   .panel-header { display: flex; justify-content: space-between; align-items: center; padding: 12px 16px; border-bottom: 1px solid var(--border); }
   .panel-header h2 { font-size: 13px; font-weight: 700; color: var(--white); }
   .panel-body { padding: 16px; }
@@ -311,7 +644,7 @@
   /* ── Filters ── */
   .filters-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 12px; }
   .filter-group label { display: block; font-size: 10px; color: var(--muted); margin-bottom: 5px; text-transform: uppercase; letter-spacing: 0.7px; font-weight: 600; }
-  .filter-group input { width: 100%; background: var(--bg); border: 1px solid var(--border); color: var(--text); padding: 7px 10px; border-radius: 6px; font-size: 13px; font-family: 'Inter', sans-serif; transition: border-color 0.15s; }
+  .filter-group input { width: 100%; background: var(--field); border: 1px solid var(--border); color: var(--text); padding: 7px 10px; border-radius: 6px; font-size: 13px; font-family: 'Inter', sans-serif; transition: border-color 0.15s; }
   .filter-group input:focus { outline: none; border-color: var(--accent); }
 
   /* ── Buttons ── */
@@ -321,7 +654,9 @@
   .btn:disabled { opacity: 0.35; cursor: not-allowed; transform: none; }
   .btn-primary  { background: var(--accent); color: #fff; }
   .btn-secondary{ background: var(--surface2); border: 1px solid var(--border); color: var(--text); }
-  .btn-green    { background: var(--green); color: #fff; }
+  /* NOTE: there is deliberately no green button. In a trading UI green/red MEAN
+     up/down — spending green on a generic action dilutes the one signal users
+     scan for. Primary actions are --accent; green/red stay reserved for data. */
   /* BUG-016 FIX: btn-orange and btn-blue were used in HTML but never defined */
   .btn-orange   { background: #f97316; color: #fff; }
   .btn-blue     { background: #3b82f6; color: #fff; }
@@ -381,11 +716,32 @@
     color: var(--text);
   }
   td:first-child, td:nth-child(2) { text-align: left; font-family: 'Inter', sans-serif; }
-  tr:hover td { background: rgba(59,130,246,0.04); }
   tr:last-child td { border-bottom: none; }
 
-  /* Table wrap */
-  .table-wrap { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; overflow: hidden; overflow-x: auto; }
+  /* ── Table readability ──────────────────────────────────────────────────────
+     The tables ARE the product, so: tabular figures (digits share one width, so
+     price columns line up instead of jittering), zebra banding to track a row
+     across ~20 columns, and a sticky header. */
+  th, td { font-variant-numeric: tabular-nums; }
+  /* Neutral grey overlay works on BOTH themes — no per-theme rule needed. */
+  tbody tr:nth-child(even) > td { background: rgba(128,140,160,0.055); }
+  /* Hover must WIN over zebra: nth-child(even)>td scores (0,1,3), so a bare
+     `tr:hover td` at (0,1,2) would silently lose. Matched specificity + later. */
+  tbody tr:hover > td { background: rgba(59,130,246,0.10); }
+
+  /* Sticky header needs a scroll container to stick to, and capping the container
+     also fixes the real problem: a 960-row table made the PAGE ~21,800px tall.
+     max-height only engages when the table is actually long — short tables are
+     untouched.
+     NOTE: this targets .tbl-scroll, applied to the 15 real containers. The old
+     .table-wrap class appeared ZERO times in the markup — styling it did nothing. */
+  .tbl-scroll { max-height: 74vh; overflow: auto; }
+  .tbl-scroll thead th { position: sticky; top: 0; z-index: 5; }
+  /* Skip rendering work for offscreen rows. HAZARD: these tables use table-layout:auto,
+     where a skipped row can stop contributing to column width and make columns twitch
+     mid-scroll — measured stable here, so it stays. Revisit if columns ever jitter. */
+  .tbl-scroll tbody tr { content-visibility: auto; contain-intrinsic-size: auto 41px; }
+  .table-wrap { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; }
 
   /* ── Cell styles ── */
   .sym { font-weight: 700; color: var(--accent2); font-size: 13px; font-family: 'Inter', sans-serif; letter-spacing: -0.2px; }
@@ -429,16 +785,35 @@
   .mini-fill { height: 100%; border-radius: 2px; }
 
   /* ── Search / Export ── */
-  .search-box { background: var(--bg); border: 1px solid var(--border); color: var(--text); padding: 6px 10px; border-radius: 6px; font-size: 12px; width: 180px; font-family: 'Inter', sans-serif; transition: border-color 0.15s; }
+  .search-box { background: var(--field); border: 1px solid var(--border); color: var(--text); padding: 6px 10px; border-radius: 6px; font-size: 12px; width: 180px; font-family: 'Inter', sans-serif; transition: border-color 0.15s; }
   .search-box:focus { outline: none; border-color: var(--accent); }
   .export-btn { padding: 5px 12px; border-radius: 6px; background: transparent; border: 1px solid var(--border); color: var(--muted); cursor: pointer; font-size: 11px; transition: all 0.15s; font-family: 'Inter', sans-serif; }
   .export-btn:hover { border-color: var(--accent); color: var(--accent2); }
 
   /* ── Empty / Spinner ── */
-  .empty-state { text-align: center; padding: 60px 20px; color: var(--muted); }
+  .empty-state { text-align: center; padding: 60px 20px; color: var(--text2); }
   .empty-state .icon { font-size: 36px; margin-bottom: 10px; }
   .spinner { display: inline-block; width: 14px; height: 14px; border: 2px solid var(--border); border-top-color: var(--accent); border-radius: 50%; animation: spin 0.7s linear infinite; vertical-align: middle; margin-right: 6px; }
   @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* ── Skeleton loader ────────────────────────────────────────────────────────
+     A scan takes 15–25s. A bare card for that long reads as "hung"; skeleton rows
+     read as "working". Shown while a scan runs, replaced by the real table. */
+  .skel-row {
+    display: flex; align-items: center; gap: 14px;
+    padding: 11px 14px; border-bottom: 1px solid var(--border);
+  }
+  .skel {
+    height: 10px; border-radius: 4px;
+    background: linear-gradient(90deg,
+      rgba(128,140,160,0.10) 25%,
+      rgba(128,140,160,0.22) 37%,
+      rgba(128,140,160,0.10) 63%);
+    background-size: 400% 100%;
+    animation: skelShimmer 1.4s ease-in-out infinite;
+  }
+  @keyframes skelShimmer { 0% { background-position: 100% 50%; } 100% { background-position: 0 50%; } }
+  @media (prefers-reduced-motion: reduce) { .skel { animation: none; } }
 
   /* ── Sector heatmap ── */
   .inflow-bar-wrap { display: flex; align-items: center; gap: 8px; }
@@ -468,7 +843,10 @@
 
   /* ── Timestamp ── */
   .timestamp { font-size: 11px; color: var(--muted); font-family: var(--mono); }
-  .disclaimer { color: var(--muted); font-size: 11px; text-align: center; margin-top: 20px; padding-bottom: 30px; }
+  /* --on-bg, NOT --muted: this is the only text painted directly on the page canvas,
+     so it must track the CANVAS, not the cards. On --muted it measured 2.7:1 in dark
+     and slid toward failing as the light canvas got lighter. */
+  .disclaimer { color: var(--on-bg); font-size: 11px; text-align: center; margin-top: 20px; padding-bottom: 30px; }
 
   /* ── Breakout scanner ── */
   #breakoutTable th { cursor: pointer; }
@@ -500,20 +878,23 @@
   .ma-bad { color: var(--red2);   font-size: 10px; font-family: 'Inter', sans-serif; }
 
   /* ── Site footer — clean white, professional; shows under every tab ──────── */
+  /* --header-bg so the footer matches the header band — the page is bookended by the
+     same light-blue chrome top and bottom. --border stays near-black for the crisp
+     separating line. */
   .site-footer {
-    background: #ffffff;
+    background: var(--header-bg);
     text-align: center;
     padding: 30px 24px 36px;
     margin-top: auto;          /* flex column pins the footer to the bottom */
-    border-top: 1px solid #e5e7eb;
+    border-top: 1px solid var(--border);
   }
   .site-footer .ft-title {
-    font-size: 21px; font-weight: 800; color: #0f172a;
+    font-size: 21px; font-weight: 800; color: var(--white);
     letter-spacing: -0.3px; margin: 0 0 10px;
     font-family: 'Inter', sans-serif;
   }
   .site-footer .ft-line {
-    font-size: 13.5px; color: #374151; margin: 3px 0; font-weight: 500;
+    font-size: 13.5px; color: var(--text2); margin: 3px 0; font-weight: 500;
     font-family: 'Inter', sans-serif;
   }
   .site-footer .ft-heart { color: #ef4444; }
@@ -523,11 +904,16 @@
 
 <!-- ══ HEADER ══ -->
 <header>
-  <div class="logo">
-    <img class="logo-icon" src="/static/nse_logo.png" alt="NSE Logo">
-    <h1>NSE <span>Market</span> Dashboard</h1>
+  <div class="logo" style="display:flex;align-items:center;gap:11px">
+    <div style="width:36px;height:36px;border-radius:9px;background:var(--accent);display:flex;align-items:center;justify-content:center;flex-shrink:0">
+      <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M3 17l6-6 4 4 8-8"/><path d="M17 7h4v4"/></svg>
+    </div>
+    <div style="line-height:1.12">
+      <h1 style="font-size:16px;margin:0;font-weight:800;letter-spacing:-0.3px">Ascent Wealth Labs</h1>
+      <div style="font-size:9.5px;color:var(--text2);text-transform:uppercase;letter-spacing:1.2px;margin-top:2px;font-weight:700">AI Powered Analytics Platform</div>
+    </div>
   </div>
-  <div class="live-badge"><span class="live-dot"></span>LIVE</div>
+  <div class="live-badge" title="End-of-day data — this app runs on NSE's bhavcopy, published after market close. Not an intraday feed."><span class="live-dot"></span>EOD</div>
   <div class="hdr-sep"></div>
   <div class="hdr-stat">
     <span class="hs-label">Nifty 50</span>
@@ -537,7 +923,7 @@
   <div class="hdr-stat">
     <span class="hs-label">Adv / Dec</span>
     <span class="hs-val" id="hdrAdvDec">—</span>
-    <span class="hs-chg" id="hdrAdvDecRatio" style="font-size:10px;color:var(--muted)"></span>
+    <span class="hs-chg" id="hdrAdvDecRatio" style="font-size:10px;color:var(--text2)"></span>
   </div>
   <div class="hdr-stat">
     <span class="hs-label">Market Trend</span>
@@ -545,20 +931,51 @@
   </div>
   <div class="hdr-stat" title="Unique visitors active on the site in the last minute">
     <span class="hs-label">Users Online</span>
-    <span class="hs-val" id="usersOnline" style="color:#34d399">—</span>
+    <!-- var(--green2), not a literal: #34d399 is the DARK-theme green and measured
+         1.68:1 on the light header — effectively invisible. -->
+    <span class="hs-val" id="usersOnline" style="color:var(--green2)">—</span>
   </div>
-  <button class="theme-toggle" onclick="toggleTheme()" id="themeBtn">🌙 Dark</button>
+  <div class="hdr-search">
+    <svg class="hdr-search-ic" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-search"/></svg>
+    <input id="stockSearch" type="text" autocomplete="off" spellcheck="false"
+           placeholder="Search a stock — see every tab it appears in"
+           oninput="_stockSearchInput(event)" onkeydown="if(event.key==='Escape')_closeSearch()">
+    <!-- Attention caret: a fake blinking cursor sitting where the real one would go.
+         Purely decorative (aria-hidden) and pointer-events:none so it can never eat a
+         click on the input; JS hides it as soon as the field is focused or has text. -->
+    <span id="searchCaret" class="search-caret" aria-hidden="true"></span>
+    <div id="stockSearchResults" class="search-results"></div>
+  </div>
+  <div class="hdr-bell">
+    <button id="bellBtn" class="bell-btn" title="Position alerts — stops, trims and fades on what you own"
+            aria-label="Position alerts" onclick="event.stopPropagation();_toggleBell()"><svg class="ic"><use href="#i-bell"/></svg><span id="bellCount" class="bell-badge" style="display:none">0</span></button>
+    <div id="bellPanel" class="bell-panel"></div>
+  </div>
+  <button class="theme-toggle" onclick="toggleTheme()" id="themeBtn"><svg class="ic"><use href="#i-moon"/></svg><span>Dark</span></button>
+  <div class="user-menu">
+    <button class="user-btn" id="userBtn" title="Signed in as {{ user_display }}" onclick="event.stopPropagation();document.getElementById('userPop').classList.toggle('open')">
+      <span class="user-av {{ 'is-demo' if role == 'demo' else '' }}">{{ (user_display or '?')[0]|upper }}</span>
+      <span class="user-name">{{ user_display }}</span>
+    </button>
+    <div class="user-pop" id="userPop">
+      <div class="user-pop-head">
+        <div class="user-pop-name">{{ user_display }}</div>
+        <div class="user-pop-role {{ 'demo' if role == 'demo' else 'admin' }}">{{ 'Demo access' if role == 'demo' else 'Full access' }}</div>
+      </div>
+      {% if role == 'demo' %}<div class="user-pop-note">Personal positions are hidden in demo mode.</div>{% endif %}
+      <a class="user-pop-out" href="/logout"><svg class="ic" style="width:14px;height:14px"><use href="#i-refresh"/></svg>Sign out</a>
+    </div>
+  </div>
 </header>
 
+<!-- ══ POSITION GUARDIAN ALERT STRIP — visible on every tab ══ -->
+<div id="guardianStrip" style="display:none;padding:6px 18px;background:#7f1d1d;border-bottom:1px solid #ef4444;font-size:12px;color:#fecaca"></div>
+
 <!-- ══ DATA FRESHNESS BAR ══ -->
-<div id="dataFreshnessBar">
-  <span style="font-size:10px;font-weight:600;color:var(--text2);text-transform:uppercase;letter-spacing:0.6px">Data Source</span>
-  <div class="freshness-item">
-    <span class="freshness-dot" id="bhavDot" style="background:var(--muted)"></span>
-    <span class="freshness-label">NSE Bhavcopy:</span>
-    <span id="bhavLabel" style="font-size:11px;font-weight:600;color:var(--text);margin-left:4px">checking…</span>
-  </div>
-  <div class="hdr-sep" style="height:14px"></div>
+<!-- Per-scan fetch times — kept in the DOM (the scan JS writes into these) but
+     hidden: the DATA SOURCE line was merged into the ticker strip below, which
+     now carries the bhavcopy status on its right. -->
+<div id="dataFreshnessBar" style="display:none">
   <div class="freshness-item" id="freshnessBreakout" style="display:none">
     <span class="freshness-dot fresh" id="dotBreakout"></span>
     <span class="freshness-label">Breakout Scan:</span>
@@ -597,31 +1014,100 @@
   <span style="margin-left:auto;font-size:10px;color:var(--muted)" id="freshnessNote">Run any scan to see fetch times</span>
 </div>
 
-<!-- ══ TAB BAR ══ -->
-<div class="tab-bar">
-  <button class="tab-btn active" onclick="showTab('screener', this)">📊 Stock Screener</button>
-  {% if portfolio_enabled %}<button class="tab-btn" onclick="showTab('portfolio', this)" style="background:rgba(245,158,11,0.10);border-color:rgba(245,158,11,0.4)">📈 My Portfolio</button>{% endif %}
-  {% if investgrade_enabled %}<button class="tab-btn" onclick="showTab('investgrade', this)" style="background:rgba(16,185,129,0.10);border-color:rgba(16,185,129,0.4)">💎 Investment Grade</button>{% endif %}
-  <button class="tab-btn" onclick="showTab('trending', this)">🔥 Trending Stocks</button>
-  {% if strategy_enabled %}<button class="tab-btn" onclick="showTab('strategy', this)" style="background:rgba(245,158,11,0.12);border-color:rgba(245,158,11,0.6);color:#fbbf24;font-weight:700">⚔️ Strategy</button>{% endif %}
-  <button class="tab-btn" onclick="showTab('mbo', this)">🏔️ Multi-Yr Breakout</button>
-  <button class="tab-btn" onclick="showTab('breakout', this)">⚡ Breakout Stocks</button>
-  <button class="tab-btn" onclick="showTab('edge', this)">🎯 Edge Engine</button>
-  <button class="tab-btn" onclick="showTab('momentum', this)">🚀 Momentum</button>
-  <button class="tab-btn" onclick="showTab('emerging', this)" style="background:rgba(245,158,11,0.10);border-color:rgba(245,158,11,0.4)">🌋 Emerging Leaders</button>
-  <button class="tab-btn" onclick="showTab('sector', this)">🔄 Sector Rotation</button>
-  <button class="tab-btn" onclick="showTab('volspike', this)">📊 Vol Spike</button>
-  <button class="tab-btn" onclick="showTab('breadth', this)">📡 Market Breadth</button>
-  <button class="tab-btn" onclick="showTab('industry', this)">🏭 Industry Groups</button>
-  <button class="tab-btn" onclick="showTab('early-mover', this)">💎 Early Movers</button>
-  <button class="tab-btn" onclick="showTab('advanced', this)">🎯 Advanced Setups</button>
-  <button class="tab-btn" onclick="showTab('institutional', this)">🏛️ Institutional Edge</button>
-  {% if alpha_enabled %}<button class="tab-btn" onclick="showTab('alpha', this)" style="background:rgba(168,85,247,0.10);border-color:rgba(168,85,247,0.5);color:#c084fc">⚡ Alpha Engine</button>{% endif %}
-  {% if monster_enabled %}<button class="tab-btn" onclick="showTab('monster', this)" style="background:rgba(239,68,68,0.10);border-color:rgba(239,68,68,0.5);color:#f87171">🔥 Monster Growth</button>{% endif %}
-  {% if early_growth_enabled %}<button class="tab-btn" onclick="showTab('early-growth', this);egCheckCache()" style="background:rgba(34,197,94,0.10);border-color:rgba(34,197,94,0.5);color:#22c55e">🌱 Early Growth</button>{% endif %}
-  {% if vvv_enabled %}<button class="tab-btn" onclick="showTab('vvv', this);vvvCheckCache()" style="background:rgba(168,85,247,0.12);border-color:rgba(168,85,247,0.6);color:#c084fc;font-weight:700">🎯 Minervini VVV</button>{% endif %}
-  <button class="tab-btn" onclick="showTab('consensus', this);consensusLoad()" style="background:rgba(251,191,36,0.12);border-color:rgba(251,191,36,0.6);color:#fbbf24;font-weight:700">🎖️ Consensus Picks</button>
+<!-- ══ 52-WEEK-HIGH TICKER TAPE ══
+     The day's new 52W highs, scrolling. Deliberately NOT index levels: this is
+     an end-of-day fact (who closed at a 52W high on this bhavcopy date), so the
+     motion can't imply live intraday ticks. Click a name to search it. -->
+<div id="nhTicker" class="ticker-strip">
+  <div class="ticker-label"><span id="nhLabel">52W highs</span></div>
+  <div class="ticker-viewport"><div class="ticker-track" id="nhTrack"></div></div>
+  <div class="ticker-src" title="Source data for every scan on this site">
+    <span class="freshness-dot" id="bhavDot" style="background:var(--muted)"></span>
+    <span class="freshness-label">NSE Bhavcopy:</span>
+    <span id="bhavLabel" style="font-weight:600;color:var(--text);margin-left:3px">checking…</span>
+  </div>
 </div>
+
+<!-- ══ ICON SPRITE ══
+     Inline (not a CDN webfont) so icons never depend on an external host —
+     matters for the Cloudflare-Tunnel/offline plan. Lucide-style 24px strokes;
+     related tabs deliberately share a glyph. -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false">
+  <defs>
+    <symbol id="i-alert" viewBox="0 0 24 24"><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/><path d="M12 9v4"/><path d="M12 17h.01"/></symbol>
+    <symbol id="i-shield" viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></symbol>
+    <symbol id="i-flask" viewBox="0 0 24 24"><path d="M9 3h6"/><path d="M10 3v6.5L4.5 19A2 2 0 0 0 6.2 22h11.6a2 2 0 0 0 1.7-3L14 9.5V3"/><path d="M7.5 15h9"/></symbol>
+    <symbol id="i-list" viewBox="0 0 24 24"><path d="M8 6h13"/><path d="M8 12h13"/><path d="M8 18h13"/><path d="M3 6h.01"/><path d="M3 12h.01"/><path d="M3 18h.01"/></symbol>
+    <symbol id="i-bell" viewBox="0 0 24 24"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/></symbol>
+    <symbol id="i-moon" viewBox="0 0 24 24"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></symbol>
+    <symbol id="i-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></symbol>
+    <symbol id="i-filter" viewBox="0 0 24 24"><path d="M22 3H2l8 9.5V19l4 2v-8.5L22 3z"/></symbol>
+    <symbol id="i-briefcase" viewBox="0 0 24 24"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/></symbol>
+    <symbol id="i-gem" viewBox="0 0 24 24"><path d="M6 3h12l4 6-10 12L2 9z"/><path d="M2 9h20"/></symbol>
+    <symbol id="i-flame" viewBox="0 0 24 24"><path d="M12 2c1 4 5 5 5 9a5 5 0 0 1-10 0c0-2 1-3 2-4 0 2 1 3 2 3 0-3 1-6 1-8z"/></symbol>
+    <symbol id="i-target" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1.5"/></symbol>
+    <symbol id="i-mountain" viewBox="0 0 24 24"><path d="M8 3l4 8 5-5 5 13H2L8 3z"/></symbol>
+    <symbol id="i-zap" viewBox="0 0 24 24"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></symbol>
+    <symbol id="i-trend" viewBox="0 0 24 24"><path d="M3 17l6-6 4 4 8-8"/><path d="M17 7h4v4"/></symbol>
+    <symbol id="i-sprout" viewBox="0 0 24 24"><path d="M7 20h10"/><path d="M12 20V8"/><path d="M12 8C12 5 9 3 6 3c0 3 2 5 6 5z"/><path d="M12 10c0-2 2-4 5-4 0 2-2 4-5 4z"/></symbol>
+    <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></symbol>
+    <symbol id="i-bank" viewBox="0 0 24 24"><path d="M3 21h18"/><path d="M5 21V10l7-5 7 5v11"/><path d="M9 21v-6h6v6"/></symbol>
+    <symbol id="i-activity" viewBox="0 0 24 24"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></symbol>
+    <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M21 12a9 9 0 1 1-3-6.7"/><path d="M21 3v6h-6"/></symbol>
+    <symbol id="i-trophy" viewBox="0 0 24 24"><path d="M6 9H4a2 2 0 0 1 0-4h2"/><path d="M18 9h2a2 2 0 0 0 0-4h-2"/><path d="M6 3h12v6a6 6 0 0 1-12 0V3z"/><path d="M9 21h6"/><path d="M12 15v6"/></symbol>
+    <symbol id="i-layers" viewBox="0 0 24 24"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></symbol>
+    <symbol id="i-bars" viewBox="0 0 24 24"><path d="M12 20V10"/><path d="M18 20V4"/><path d="M6 20v-4"/></symbol>
+    <symbol id="i-cpu" viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12" rx="1"/><path d="M9 2v3M15 2v3M9 19v3M15 19v3M2 9h3M2 15h3M19 9h3M19 15h3"/></symbol>
+    <symbol id="i-medal" viewBox="0 0 24 24"><circle cx="12" cy="15" r="6"/><path d="M9 9L6 2h12l-3 7"/></symbol>
+    <symbol id="i-umbrella" viewBox="0 0 24 24"><path d="M22 12a10.06 10.06 0 0 0-20 0Z"/><path d="M12 12v8a2 2 0 0 0 4 0"/><path d="M12 2v1"/></symbol>
+    <symbol id="i-sliders" viewBox="0 0 24 24"><path d="M21 4h-7M10 4H3M21 12h-9M8 12H3M21 20h-5M12 20H3M14 2v4M8 10v4M16 18v4"/></symbol>
+    <symbol id="i-rocket" viewBox="0 0 24 24"><path d="M4.5 16.5c-1.5 1.26-2 5-2 5s3.74-.5 5-2c.71-.84.7-2.13-.09-2.91a2.18 2.18 0 0 0-2.91-.09z"/><path d="m12 15-3-3a22 22 0 0 1 2-3.95A12.88 12.88 0 0 1 22 2c0 2.72-.78 7.5-6 11a22.35 22.35 0 0 1-4 2z"/><path d="M9 12H4s.55-3.03 2-4c1.62-1.08 5 0 5 0"/><path d="M12 15v5s3.03-.55 4-2c1.08-1.62 0-5 0-5"/></symbol>
+    <symbol id="i-leaf" viewBox="0 0 24 24"><path d="M11 20A7 7 0 0 1 9.8 6.1C15.5 5 17 4.48 19 2c1 2 2 4.18 2 8 0 5.5-4.78 10-10 10Z"/><path d="M2 21c0-3 1.85-5.36 5.08-6C9.5 14.52 12 13 13 12"/></symbol>
+    <symbol id="i-star" viewBox="0 0 24 24"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></symbol>
+    <symbol id="i-gauge" viewBox="0 0 24 24"><path d="m12 14 4-4"/><path d="M3.34 19a10 10 0 1 1 17.32 0"/></symbol>
+    <symbol id="i-sparkle" viewBox="0 0 24 24"><path d="M12 3l1.9 4.8L18.7 9l-4.8 1.9L12 15l-1.9-4.1L5.3 9l4.8-1.2z"/><path d="M19 15l.9 2.1L22 18l-2.1.9L19 21l-.9-2.1L16 18l2.1-.9z"/><path d="M5 15l.6 1.4L7 17l-1.4.6L5 19l-.6-1.4L3 17l1.4-.6z"/></symbol>
+  </defs>
+</svg>
+
+<!-- ══ APP SHELL: grouped sidebar nav + main content ══ -->
+<div class="app-shell">
+<nav class="sidebar" aria-label="Sections">
+  <div class="sb-label">My Trades</div>
+  {% if portfolio_enabled %}<button class="tab-btn" onclick="showTab('portfolio', this)"><svg class="ic"><use href="#i-briefcase"/></svg>My Portfolio</button>{% endif %}
+  {% if strategy_enabled %}<button class="tab-btn" onclick="showTab('strategy', this)"><svg class="ic"><use href="#i-target"/></svg>Strategy</button>{% endif %}
+  {% if investgrade_enabled %}<button class="tab-btn" onclick="showTab('investgrade', this)"><svg class="ic"><use href="#i-gem"/></svg>Investment Grade</button>{% endif %}
+
+  <div class="sb-label">Screeners</div>
+  <button class="tab-btn" onclick="showTab('allweather', this)"><svg class="ic"><use href="#i-umbrella"/></svg>All-Weather Investing</button>
+  <button class="tab-btn" onclick="showTab('defensive', this)"><svg class="ic"><use href="#i-shield"/></svg>Defensive Leaders</button>
+  <button class="tab-btn" onclick="showTab('trending', this)"><svg class="ic"><use href="#i-flame"/></svg>Trending Stocks</button>
+  <button class="tab-btn" onclick="showTab('momentum', this)"><svg class="ic"><use href="#i-trend"/></svg>Momentum</button>
+  <button class="tab-btn" onclick="showTab('breakout', this)"><svg class="ic"><use href="#i-zap"/></svg>Breakout Stocks</button>
+  <button class="tab-btn" onclick="showTab('mbo', this)"><svg class="ic"><use href="#i-mountain"/></svg>Multi-Yr Breakout</button>
+  <button class="tab-btn" onclick="showTab('emerging', this)"><svg class="ic"><use href="#i-sprout"/></svg>Emerging Leaders</button>
+  <button class="tab-btn" onclick="showTab('early-mover', this)"><svg class="ic"><use href="#i-search"/></svg>Early Movers</button>
+  <button class="tab-btn" onclick="showTab('advanced', this)"><svg class="ic"><use href="#i-sliders"/></svg>Advanced Setups</button>
+  <button class="tab-btn" onclick="showTab('institutional', this)"><svg class="ic"><use href="#i-bank"/></svg>Institutional Edge</button>
+  {% if monster_enabled %}<button class="tab-btn" onclick="showTab('monster', this)"><svg class="ic"><use href="#i-rocket"/></svg>Monster Growth</button>{% endif %}
+  {% if early_growth_enabled %}<button class="tab-btn" onclick="showTab('early-growth', this);egCheckCache()"><svg class="ic"><use href="#i-leaf"/></svg>Early Growth</button>{% endif %}
+  {% if vvv_enabled %}<button class="tab-btn" onclick="showTab('vvv', this);vvvCheckCache()"><svg class="ic"><use href="#i-star"/></svg>Minervini VVV</button>{% endif %}
+  {% if alpha_enabled %}<button class="tab-btn" onclick="showTab('alpha', this)"><svg class="ic"><use href="#i-sparkle"/></svg>Alpha Engine</button>{% endif %}
+  <button class="tab-btn" onclick="showTab('edge', this)"><svg class="ic"><use href="#i-cpu"/></svg>Edge Engine</button>
+
+  <div class="sb-label">Market</div>
+  <button class="tab-btn" onclick="showTab('breadth', this)"><svg class="ic"><use href="#i-activity"/></svg>Market Breadth</button>
+  <button class="tab-btn" onclick="showTab('sector', this)"><svg class="ic"><use href="#i-refresh"/></svg>Sector Rotation</button>
+  <button class="tab-btn" onclick="showTab('sector-leaders', this)"><svg class="ic"><use href="#i-trophy"/></svg>Sector Leaders</button>
+  <button class="tab-btn" onclick="showTab('industry', this)"><svg class="ic"><use href="#i-layers"/></svg>Industry Groups</button>
+  <button class="tab-btn" onclick="showTab('volspike', this)"><svg class="ic"><use href="#i-bars"/></svg>Vol Spike</button>
+
+  <div class="sb-label">Tools</div>
+  <button class="tab-btn" onclick="showTab('risk', this);riskLoad()"><svg class="ic"><use href="#i-gauge"/></svg>Risk &amp; Regime</button>
+  <button class="tab-btn active" onclick="showTab('screener', this)"><svg class="ic"><use href="#i-filter"/></svg>Stock Screener</button>
+  <button class="tab-btn" onclick="showTab('consensus', this);consensusLoad()"><svg class="ic"><use href="#i-medal"/></svg>Consensus Picks</button>
+</nav>
+<main class="app-main">
+<!-- ══ TAB PANELS ══ -->
 
 <!-- ══════════════════════════════════════════════════════════ SCREENER TAB -->
 <div id="tab-screener" class="tab-content active">
@@ -655,7 +1141,7 @@
         </div>
       </div>
       <div class="actions">
-        <button class="btn btn-primary" id="scanBtn" onclick="startScan()">Run Screener</button>
+        <button class="btn btn-primary" id="scanBtn" onclick="startScan()"><svg class="ic ic-b"><use href="#i-filter"/></svg>Run Screener</button>
       </div>
       <!-- ── Scan progress block ── -->
       <div id="progressWrap" style="display:none; margin-top:14px;">
@@ -700,7 +1186,7 @@
     </div>
     <div id="tableContainer">
       <div class="empty-state">
-        <div class="icon">📊</div>
+        <div class="icon"><svg class="ic" style="width:34px;height:34px;--ic:var(--text2)"><use href="#i-bars"/></svg></div>
         <p>Configure filters and click <strong>Run Screener</strong>.</p>
         <p style="margin-top:6px;font-size:11px">Full scan takes ~90 seconds.</p>
       </div>
@@ -734,7 +1220,7 @@
     </div>
     <div class="panel-body">
       <div class="actions">
-        <button class="btn btn-green" id="sectorBtn" onclick="startSectorScan()">Load Sector Data</button>
+        <button class="btn btn-primary" id="sectorBtn" onclick="startSectorScan()"><svg class="ic ic-b"><use href="#i-refresh"/></svg>Load Sector Data</button>
         <div class="progress-bar-wrap" id="sectorProgressWrap" style="display:none">
           <div class="progress-bar" id="sectorProgressBar" style="width:0%"></div>
         </div>
@@ -762,11 +1248,9 @@
     <div class="panel-header" style="display:flex;align-items:center;gap:10px">
       <h2>Relative Rotation Graph <span style="font-size:11px;font-weight:400;color:var(--muted)">(RRG)</span></h2>
       <span style="font-size:11px;color:var(--text2);margin-left:4px">Weekly RS-Ratio vs RS-Momentum · 5-week trail · bhavcopy only</span>
-      <button onclick="loadRRG()" id="rrgRefreshBtn"
+      <button class="btn btn-primary" onclick="loadRRG()" id="rrgRefreshBtn"
         style="margin-left:auto;background:transparent;border:1px solid var(--border2);color:var(--text2);
-               padding:3px 10px;border-radius:5px;font-size:11px;cursor:pointer;font-family:inherit">
-        ↺ Refresh RRG
-      </button>
+               padding:3px 10px;border-radius:5px;font-size:11px;cursor:pointer;font-family:inherit"><svg class="ic ic-b"><use href="#i-refresh"/></svg>↺ Refresh RRG</button>
     </div>
     <div class="panel-body" style="padding:16px 20px">
       <div id="rrgLoading" style="font-size:12px;color:var(--muted);margin-bottom:10px;display:none">
@@ -802,7 +1286,7 @@
   <!-- ── Action Summary Panel (#3) ──────────────────────────────────────────── -->
   <div class="panel" id="rrgActionPanel" style="display:none;margin-top:16px">
     <div class="panel-header" style="display:flex;align-items:center;gap:12px">
-      <h2 style="font-size:15px">⚡ Action-Oriented Summary</h2>
+      <h2 style="font-size:15px"><svg class="ic ic-h"><use href="#i-zap"/></svg>Action-Oriented Summary</h2>
       <span style="font-size:11px;color:var(--muted)">Based on RRG quadrant position + momentum trail</span>
     </div>
     <div class="panel-body" style="padding:16px 20px">
@@ -813,11 +1297,11 @@
   <!-- ── Sector Rotation Table (#1) ─────────────────────────────────────────── -->
   <div class="panel" id="rrgTablePanel" style="display:none;margin-top:16px">
     <div class="panel-header" style="display:flex;align-items:center;gap:10px">
-      <h2 style="font-size:15px">📋 Sector Rotation Detail</h2>
+      <h2 style="font-size:15px"><svg class="ic ic-h"><use href="#i-list"/></svg>Sector Rotation Detail</h2>
       <span style="font-size:11px;color:var(--muted)">All 25 sectors · click column to sort</span>
     </div>
     <div class="panel-body" style="padding:0">
-      <div id="rrgTableContent" style="overflow-x:auto;max-height:600px;overflow-y:auto"></div>
+      <div class="tbl-scroll" id="rrgTableContent" style="overflow-x:auto;max-height:600px;overflow-y:auto"></div>
     </div>
   </div>
 
@@ -831,7 +1315,7 @@
   </div>
 
   <div id="sectorEmpty" class="empty-state">
-    <div class="icon">🔄</div>
+    <div class="icon"><svg class="ic" style="width:34px;height:34px;--ic:var(--text2)"><use href="#i-refresh"/></svg></div>
     <p>Click <strong>Load Sector Data</strong> to analyse NSE sectors.</p>
     <p style="margin-top:6px;font-size:11px">Fetches sector indices + top stocks (~90 seconds). Results cached 30 min.</p>
   </div>
@@ -850,7 +1334,7 @@
     <strong>Timeframes:</strong> D = 20-day high &bull; W = 13-week high &bull; M = 6-month high &bull; Y = 52-week / ATH &bull;
     <strong>Patterns:</strong> ATH breakout &bull; VCP (Volatility Contraction) &bull; Box / Flat Base &bull; Rectangular breakout
     <div style="margin-top:10px;display:flex;align-items:center;gap:12px;flex-wrap:wrap">
-      <button class="btn-primary" onclick="startBreakoutScan()" id="breakoutBtn">Run Breakout Scan</button>
+      <button class="btn btn-primary" onclick="startBreakoutScan()" id="breakoutBtn"><svg class="ic ic-b"><use href="#i-zap"/></svg>Run Breakout Scan</button>
       <span id="breakoutScanMeta" style="font-size:12px;color:var(--muted)"></span>
     </div>
   </div>
@@ -871,11 +1355,11 @@
 
     <!-- Stock search -->
     <div class="card" style="padding:10px 14px;margin-bottom:8px;display:flex;align-items:center;gap:10px">
-      <span style="font-size:16px">🔍</span>
+      <svg class="ic" style="width:15px;height:15px;--ic:var(--text2)"><use href="#i-search"/></svg>
       <input type="text" id="breakoutSearch"
              placeholder="Search stock symbol… e.g. DATAPATTNS, HDFCBANK"
              oninput="renderBreakoutTable()"
-             style="flex:1;background:var(--bg);border:1px solid var(--border);color:var(--text);
+             style="flex:1;background:var(--field);border:1px solid var(--border);color:var(--text);
                     padding:9px 14px;border-radius:6px;font-size:14px;font-weight:500;outline:none"
              onfocus="this.style.borderColor='var(--accent)'"
              onblur="this.style.borderColor='var(--border)'">
@@ -948,7 +1432,7 @@
   </div>
 
   <!-- Results table -->
-  <div class="card" id="breakoutTableWrap" style="display:none;overflow-x:auto">
+  <div class="tbl-scroll card" id="breakoutTableWrap" style="display:none;overflow-x:auto">
     <table id="breakoutTable">
       <thead><tr>
         <th style="text-align:left;cursor:default">#</th>
@@ -978,7 +1462,7 @@
   </div>
 
   <div id="breakoutEmpty" style="text-align:center;padding:60px 0;color:var(--muted);display:none">
-    <div style="font-size:48px">⚡</div>
+    <div style="font-size:48px"><svg class="ic" style="width:42px;height:42px;--ic:var(--text2)"><use href="#i-zap"/></svg></div>
     <p>Click <strong>Run Breakout Scan</strong> to find stocks with breakout potential</p>
   </div>
 
@@ -1023,7 +1507,7 @@
 
   <!-- Scan button + meta -->
   <div class="card" style="margin-bottom:14px;display:flex;align-items:center;gap:16px;flex-wrap:wrap">
-    <button class="btn-primary" onclick="startInstScan()" id="instBtn">Run Institutional Scan</button>
+    <button class="btn btn-primary" onclick="startInstScan()" id="instBtn"><svg class="ic ic-b"><use href="#i-bank"/></svg>Run Institutional Scan</button>
     <span id="instScanMeta" style="font-size:12px;color:var(--muted)"></span>
   </div>
 
@@ -1066,7 +1550,7 @@
   </div>
 
   <!-- Results table -->
-  <div class="card" id="instTableWrap" style="display:none;overflow-x:auto">
+  <div class="tbl-scroll card" id="instTableWrap" style="display:none;overflow-x:auto">
     <table id="instTable">
       <thead><tr>
         <th style="text-align:left">#</th>
@@ -1096,7 +1580,7 @@
   </div>
 
   <div id="instEmpty" style="text-align:center;padding:60px 0;color:var(--muted)">
-    <div style="font-size:48px">🏛️</div>
+    <div style="font-size:48px"><svg class="ic" style="width:42px;height:42px;--ic:var(--text2)"><use href="#i-bank"/></svg></div>
     <p>Click <strong>Run Institutional Scan</strong> to find stocks that institutions are accumulating.</p>
     <p style="margin-top:8px;font-size:12px">Scans all ~2500 NSE stocks for Pocket Pivots &amp; Earnings Season Setups</p>
   </div>
@@ -1136,7 +1620,7 @@
 
   <!-- Scan button -->
   <div class="card" style="margin-bottom:14px;display:flex;align-items:center;gap:16px;flex-wrap:wrap">
-    <button class="btn-primary" onclick="startAdvancedScan()" id="advBtn">Run Advanced Scan</button>
+    <button class="btn btn-primary" onclick="startAdvancedScan()" id="advBtn"><svg class="ic ic-b"><use href="#i-target"/></svg>Run Advanced Scan</button>
     <span id="advScanMeta" style="font-size:12px;color:var(--muted)"></span>
   </div>
 
@@ -1197,7 +1681,7 @@
   </div>
 
   <!-- Table -->
-  <div class="card" id="advTableWrap" style="display:none;overflow-x:auto">
+  <div class="tbl-scroll card" id="advTableWrap" style="display:none;overflow-x:auto">
     <table>
       <thead><tr>
         <th style="text-align:left">#</th>
@@ -1228,7 +1712,7 @@
   </div>
 
   <div id="advEmpty" style="text-align:center;padding:60px 0;color:var(--muted)">
-    <div style="font-size:48px">🎯</div>
+    <div style="font-size:48px"><svg class="ic" style="width:42px;height:42px;--ic:var(--text2)"><use href="#i-target"/></svg></div>
     <p>Click <strong>Run Advanced Scan</strong> to detect HTF, NR7, 3WT, RS Line New High patterns.</p>
   </div>
 
@@ -1261,7 +1745,7 @@
     </div>
     <div class="panel-body">
       <div class="actions">
-        <button class="btn btn-green" id="emBtn" onclick="startEmScan()">💎 Run Early Mover Scan</button>
+        <button class="btn btn-primary" id="emBtn" onclick="startEmScan()"><svg class="ic ic-b"><use href="#i-gem"/></svg>Run Early Mover Scan</button>
         <div class="progress-bar-wrap" id="emProgressWrap" style="display:none">
           <div class="progress-bar" id="emProgressBar" style="width:0%"></div>
         </div>
@@ -1274,11 +1758,11 @@
   <!-- Filters + Search -->
   <div id="emFiltersWrap" style="display:none;margin-bottom:10px">
     <div class="card" style="padding:10px 14px;margin-bottom:8px;display:flex;align-items:center;gap:10px">
-      <span style="font-size:16px">🔍</span>
+      <svg class="ic" style="width:15px;height:15px;--ic:var(--text2)"><use href="#i-search"/></svg>
       <input type="text" id="emSearch"
              placeholder="Search symbol… e.g. TATAPOWER, APAR"
              oninput="renderEmTable()"
-             style="flex:1;background:var(--bg);border:1px solid var(--border);color:var(--text);
+             style="flex:1;background:var(--field);border:1px solid var(--border);color:var(--text);
                     padding:9px 14px;border-radius:6px;font-size:14px;font-weight:500;outline:none"
              onfocus="this.style.borderColor='var(--accent)'"
              onblur="this.style.borderColor='var(--border)'">
@@ -1341,7 +1825,7 @@
         <h2 id="emResultsTitle">Early Mover Rankings</h2>
         <span style="font-size:11px;color:var(--muted)" id="emResultsCount"></span>
       </div>
-      <div style="overflow-x:auto">
+      <div class="tbl-scroll" style="overflow-x:auto">
         <table id="emTable">
           <thead>
             <tr>
@@ -1369,7 +1853,7 @@
   </div>
 
   <div id="emEmpty" class="empty-state">
-    <div class="icon">💎</div>
+    <div class="icon"><svg class="ic" style="width:34px;height:34px;--ic:var(--text2)"><use href="#i-gem"/></svg></div>
     <p>Click <strong>Run Early Mover Scan</strong> to find potential monster-move stocks.</p>
     <p style="margin-top:6px;font-size:11px">Looks for long bases + ADTV expansion + RS improvement · Bhavcopy only · No new API calls</p>
   </div>
@@ -1403,7 +1887,7 @@
     </div>
     <div class="panel-body">
       <div class="actions">
-        <button class="btn btn-green" id="momBtn" onclick="startMomScan()">🚀 Run Momentum Scan</button>
+        <button class="btn btn-primary" id="momBtn" onclick="startMomScan()"><svg class="ic ic-b"><use href="#i-trend"/></svg>Run Momentum Scan</button>
         <div class="progress-bar-wrap" id="momProgressWrap" style="display:none">
           <div class="progress-bar" id="momProgressBar" style="width:0%"></div>
         </div>
@@ -1418,11 +1902,11 @@
 
     <!-- Search -->
     <div class="card" style="padding:10px 14px;margin-bottom:8px;display:flex;align-items:center;gap:10px">
-      <span style="font-size:16px">🔍</span>
+      <svg class="ic" style="width:15px;height:15px;--ic:var(--text2)"><use href="#i-search"/></svg>
       <input type="text" id="momSearch"
              placeholder="Search symbol… e.g. HDFCBANK, BAJFINANCE"
              oninput="renderMomTable()"
-             style="flex:1;background:var(--bg);border:1px solid var(--border);color:var(--text);
+             style="flex:1;background:var(--field);border:1px solid var(--border);color:var(--text);
                     padding:9px 14px;border-radius:6px;font-size:14px;font-weight:500;outline:none"
              onfocus="this.style.borderColor='var(--accent)'"
              onblur="this.style.borderColor='var(--border)'">
@@ -1499,7 +1983,7 @@
         <h2 id="momResultsTitle">Momentum Rankings</h2>
         <span style="font-size:11px;color:var(--muted)" id="momResultsCount"></span>
       </div>
-      <div style="overflow-x:auto">
+      <div class="tbl-scroll" style="overflow-x:auto">
         <table id="momTable">
           <thead>
             <tr>
@@ -1529,7 +2013,7 @@
   </div>
 
   <div id="momEmpty" class="empty-state">
-    <div class="icon">🚀</div>
+    <div class="icon"><svg class="ic" style="width:34px;height:34px;--ic:var(--text2)"><use href="#i-trend"/></svg></div>
     <p>Click <strong>Run Momentum Scan</strong> to rank stocks by momentum strength.</p>
     <p style="margin-top:6px;font-size:11px">Reads cached bhavcopy data — no new NSE API calls · Results cached 1 hour</p>
   </div>
@@ -1556,7 +2040,7 @@
 
   <!-- Scan controls -->
   <div class="card" style="margin-bottom:14px;display:flex;align-items:center;gap:16px;flex-wrap:wrap">
-    <button class="btn-primary" onclick="startEmrgScan()" id="emrgBtn">Run Emerging Leaders Scan</button>
+    <button class="btn btn-primary" onclick="startEmrgScan()" id="emrgBtn"><svg class="ic ic-b"><use href="#i-sprout"/></svg>Run Emerging Leaders Scan</button>
     <span id="emrgTimestamp" style="font-size:12px;color:var(--muted)"></span>
     <span id="emrgMeta" style="font-size:12px;color:var(--muted)"></span>
     <span style="font-size:12px;color:var(--muted);margin-left:auto">Cached 1 hr · Uses bhavcopy, no NSE API calls</span>
@@ -1603,7 +2087,7 @@
         <h2 id="emrgResultsTitle">Emerging Leaders</h2>
         <span style="font-size:11px;color:var(--muted)" id="emrgResultsCount"></span>
       </div>
-      <div style="overflow-x:auto">
+      <div class="tbl-scroll" style="overflow-x:auto">
         <table id="emrgTable">
           <thead>
             <tr>
@@ -1628,7 +2112,7 @@
   </div>
 
   <div id="emrgEmpty" class="empty-state">
-    <div class="icon">🌋</div>
+    <div class="icon"><svg class="ic" style="width:34px;height:34px;--ic:var(--text2)"><use href="#i-sprout"/></svg></div>
     <p>Click <strong>Run Emerging Leaders Scan</strong> to find young leaders at their breakout.</p>
     <p style="margin-top:6px;font-size:11px">Reads cached bhavcopy — no new NSE calls · Results cached 1 hour</p>
   </div>
@@ -1643,7 +2127,7 @@
 
   <!-- Scan button -->
   <div class="card" style="margin-bottom:14px;display:flex;align-items:center;gap:16px;flex-wrap:wrap">
-    <button class="btn-primary" onclick="startBreadthScan()" id="breadthBtn">Load Market Breadth</button>
+    <button class="btn btn-primary" onclick="startBreadthScan()" id="breadthBtn"><svg class="ic ic-b"><use href="#i-activity"/></svg>Load Market Breadth</button>
     <span id="breadthMeta" style="font-size:12px;color:var(--muted)"></span>
     <span style="font-size:12px;color:var(--muted);margin-left:auto">Cached 30 min · Uses bhavcopy, no Yahoo</span>
   </div>
@@ -1739,7 +2223,7 @@
   <div id="breadthBacktest" style="display:none;margin-bottom:14px">
     <div class="panel">
       <div class="panel-header">
-        <h2>🔬 Score Validation — Walk-Forward</h2>
+        <h2><svg class="ic ic-h"><use href="#i-flask"/></svg>Score Validation — Walk-Forward</h2>
         <span style="font-size:11px;color:var(--muted)" id="bktMeta"></span>
       </div>
       <div class="panel-body">
@@ -1770,7 +2254,7 @@
   <!-- Follow-Through Day card -->
   <div id="ftdCard" style="display:none;margin-bottom:14px">
     <div class="panel">
-      <div class="panel-header"><h2>📈 Follow-Through Day (IBD Signal)</h2></div>
+      <div class="panel-header"><h2><svg class="ic ic-h"><use href="#i-trend"/></svg>Follow-Through Day (IBD Signal)</h2></div>
       <div class="panel-body">
         <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:12px">
           <div class="stat-card">
@@ -1812,7 +2296,7 @@
       <strong style="color:var(--text)">🔝 Stocks at 52-Week Highs Today</strong>
       <span style="font-size:11px;color:var(--muted);margin-left:8px">sorted by volume ratio — institutional conviction</span>
     </div>
-    <div class="card" style="overflow-x:auto">
+    <div class="tbl-scroll card" style="overflow-x:auto">
       <table>
         <thead><tr>
           <th>#</th>
@@ -1828,7 +2312,7 @@
   </div>
 
   <div id="breadthEmpty" style="text-align:center;padding:60px 0;color:var(--muted)">
-    <div style="font-size:48px">📊</div>
+    <div style="font-size:48px"><svg class="ic" style="width:42px;height:42px;--ic:var(--text2)"><use href="#i-bars"/></svg></div>
     <p>Click <strong>Load Market Breadth</strong> to see the health of the NSE market.</p>
     <p style="margin-top:8px;font-size:12px">Analyses all ~2500 NSE stocks · Cached 30 minutes</p>
   </div>
@@ -1853,7 +2337,7 @@
       <h2>Industry Group Rankings</h2>
       <div style="display:flex;gap:10px;align-items:center">
         <span id="indMeta" class="timestamp"></span>
-        <button class="btn btn-primary" id="indBtn" onclick="startIndustry()">Load Industry Groups</button>
+        <button class="btn btn-primary" id="indBtn" onclick="startIndustry()"><svg class="ic ic-b"><use href="#i-layers"/></svg>Load Industry Groups</button>
       </div>
     </div>
     <div id="indProgress" style="display:none;padding:14px 16px">
@@ -1869,7 +2353,7 @@
       <div class="icon">🏭</div>
       <p>Click "Load Industry Groups" to rank all 55+ NSE sectors by relative strength.</p>
     </div>
-    <div id="indTableWrap" style="display:none;overflow-x:auto">
+    <div class="tbl-scroll" id="indTableWrap" style="display:none;overflow-x:auto">
       <table>
         <thead><tr>
           <th>Rank</th><th>Industry Group</th>
@@ -1906,7 +2390,7 @@
       <h2>Unusual Volume Signals</h2>
       <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
         <span id="volMeta" class="timestamp"></span>
-        <button class="btn btn-green" id="volBtn" onclick="startVolScan()">📊 Run Volume Scan</button>
+        <button class="btn btn-primary" id="volBtn" onclick="startVolScan()"><svg class="ic ic-b"><use href="#i-bars"/></svg>Run Volume Scan</button>
       </div>
     </div>
 
@@ -1968,7 +2452,7 @@
     </div>
 
     <!-- Table -->
-    <div id="volTableWrap" style="display:none;overflow-x:auto;margin-top:8px">
+    <div class="tbl-scroll" id="volTableWrap" style="display:none;overflow-x:auto;margin-top:8px">
       <table style="width:100%;border-collapse:collapse;font-size:13px">
         <thead>
           <tr style="border-bottom:2px solid var(--border)">
@@ -2036,7 +2520,7 @@
     </div>
     <div class="panel-body">
       <div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap;margin-bottom:10px">
-        <button class="btn btn-green" id="mboBtn" onclick="startMboScan()">🔍 Scan Multi-Year Breakouts</button>
+        <button class="btn btn-primary" id="mboBtn" onclick="startMboScan()"><svg class="ic ic-b"><use href="#i-mountain"/></svg>Scan Multi-Year Breakouts</button>
         <div class="progress-bar-wrap" id="mboProgressWrap" style="display:none;flex:1;min-width:200px">
           <div class="progress-bar" id="mboProgressBar" style="width:0%"></div>
         </div>
@@ -2090,7 +2574,7 @@
       </span>
     </div>
 
-    <div style="overflow-x:auto">
+    <div class="tbl-scroll" style="overflow-x:auto">
       <table id="mboTable" style="width:100%;font-size:12px;border-collapse:collapse">
         <thead id="mboTableHead">
           <!-- rendered by renderMboTableHead() -->
@@ -2136,7 +2620,7 @@
   </style>
 
   <div id="mboEmpty" class="empty-state">
-    <div class="icon">🏔️</div>
+    <div class="icon"><svg class="ic" style="width:34px;height:34px;--ic:var(--text2)"><use href="#i-mountain"/></svg></div>
     <p>Click <strong>Scan Multi-Year Breakouts</strong> to find stocks breaking out of long bases.</p>
     <p style="margin-top:6px;font-size:11px;color:var(--muted)">
       Uses NSE bhavcopy archive (~73 monthly samples covering 6 years). First scan ~30 sec, subsequent scans instant.
@@ -2147,12 +2631,12 @@
   <div style="margin-top:28px">
     <div class="panel">
       <div class="panel-header">
-        <h2>🎯 Near Multi-Year Breakout</h2>
+        <h2><svg class="ic ic-h"><use href="#i-target"/></svg>Near Multi-Year Breakout</h2>
         <span class="timestamp" id="nearTimestamp"></span>
       </div>
       <div class="panel-body">
         <div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap;margin-bottom:10px">
-          <button class="btn btn-blue" id="nearBtn" onclick="startNearScan()">🎯 Scan Near-Breakout Candidates</button>
+          <button class="btn btn-primary" id="nearBtn" onclick="startNearScan()"><svg class="ic ic-b"><use href="#i-target"/></svg>Scan Near-Breakout Candidates</button>
           <div class="progress-bar-wrap" id="nearProgressWrap" style="display:none;flex:1;min-width:200px">
             <div class="progress-bar" id="nearProgressBar" style="width:0%"></div>
           </div>
@@ -2206,7 +2690,7 @@
         </span>
       </div>
 
-      <div style="overflow-x:auto">
+      <div class="tbl-scroll" style="overflow-x:auto">
         <table id="nearTable" style="width:100%;font-size:12px;border-collapse:collapse">
           <thead id="nearTableHead">
             <!-- rendered by renderNearTableHead() -->
@@ -2217,7 +2701,7 @@
     </div>
 
     <div id="nearEmpty" class="empty-state" style="display:none">
-      <div class="icon">🎯</div>
+      <div class="icon"><svg class="ic" style="width:34px;height:34px;--ic:var(--text2)"><use href="#i-target"/></svg></div>
       <p>No stocks found within 10% of a multi-year resistance level.</p>
     </div>
   </div>
@@ -2247,10 +2731,10 @@
       <h2>Edge Engine Status</h2>
       <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
         <span id="edgeMeta" class="timestamp"></span>
-        <button class="btn btn-blue" id="edgeRefreshFundBtn" onclick="refreshFundamentals()" title="Quarterly refresh — runs in background, won't get blocked">
+        <button class="btn btn-primary" id="edgeRefreshFundBtn" onclick="refreshFundamentals()" title="Quarterly refresh — runs in background, won't get blocked">
           📊 Refresh Fundamentals
         </button>
-        <button class="btn btn-green" id="edgeBtn" onclick="startEdgeEngine()">🎯 Run Edge Engine</button>
+        <button class="btn btn-primary" id="edgeBtn" onclick="startEdgeEngine()"><svg class="ic ic-b"><use href="#i-cpu"/></svg>Run Edge Engine</button>
       </div>
     </div>
 
@@ -2264,7 +2748,7 @@
 
     <div id="fundRefreshProgress" style="display:none;padding:12px 14px;border:1px solid var(--border);border-radius:6px;margin:10px 0;background:var(--surface2)">
       <strong style="font-size:13px">📊 Fundamentals — screener.in background scraper</strong>
-      <div style="background:var(--bg);border-radius:6px;height:6px;overflow:hidden;margin:8px 0 4px">
+      <div style="background:var(--surface2);border-radius:6px;height:6px;overflow:hidden;margin:8px 0 4px">
         <div id="fundBar" style="height:6px;background:#3b82f6;border-radius:6px;width:0%;transition:width .5s"></div>
       </div>
       <span id="fundMsg" style="font-size:11px;color:var(--text2)"></span><br>
@@ -2278,14 +2762,14 @@
 
   <!-- Market Regime Banner -->
   <div id="edgeRegimePanel" class="panel" style="display:none">
-    <div class="panel-header"><h2>📊 Market Regime</h2></div>
+    <div class="panel-header"><h2><svg class="ic ic-h"><use href="#i-activity"/></svg>Market Regime</h2></div>
     <div id="edgeRegimeBody" style="padding:14px"></div>
   </div>
 
   <!-- Tier Counts + Master Ranking -->
   <div id="edgeRankPanel" class="panel" style="display:none">
     <div class="panel-header">
-      <h2>🏆 Master Ranking — Top 200 by Setup Quality Score</h2>
+      <h2><svg class="ic ic-h"><use href="#i-trophy"/></svg>Master Ranking — Top 200 by Setup Quality Score</h2>
       <div id="edgeTierBadges" style="display:flex;gap:8px;flex-wrap:wrap"></div>
     </div>
 
@@ -2318,7 +2802,7 @@
     </div>
 
     <!-- Master Table -->
-    <div style="overflow-x:auto">
+    <div class="tbl-scroll" style="overflow-x:auto">
       <table style="width:100%;border-collapse:collapse;font-size:13px">
         <thead>
           <tr style="border-bottom:2px solid var(--border)">
@@ -2345,7 +2829,7 @@
 
   <!-- Backtest Statistics — Phase 1 + 3: honest alpha + IS/OOS overfit harness -->
   <div id="edgeBacktestPanel" class="panel" style="display:none">
-    <div class="panel-header"><h2>📈 Backtest — Alpha vs NIFTYBEES (net of real costs)</h2></div>
+    <div class="panel-header"><h2><svg class="ic ic-h"><use href="#i-trend"/></svg>Backtest — Alpha vs NIFTYBEES (net of real costs)</h2></div>
     <div id="edgeBacktestBody" style="padding:14px"></div>
     <div style="padding:0 14px 14px;font-size:11px;color:var(--text2)">
       Survivorship-free universe · chronological event-driven sim · 20-position cap · gap-through stop fills ·
@@ -2355,7 +2839,7 @@
 
   <!-- Score Validation Panel — Phase 2: does Setup Score predict alpha? -->
   <div id="edgeScoreValPanel" class="panel" style="display:none">
-    <div class="panel-header"><h2>🔬 Score Validation — Does Setup Score Predict Forward Alpha?</h2></div>
+    <div class="panel-header"><h2><svg class="ic ic-h"><use href="#i-flask"/></svg>Score Validation — Does Setup Score Predict Forward Alpha?</h2></div>
     <div id="edgeScoreValBody" style="padding:14px"></div>
     <div style="padding:0 14px 14px;font-size:11px;color:var(--text2)">
       Walk-forward Information Coefficient: at each historical snapshot we score every stock using ONLY data
@@ -2367,7 +2851,7 @@
 
   <!-- Score Component IC Panel — evidence base for redesigning the score -->
   <div id="edgeScoreCompPanel" class="panel" style="display:none">
-    <div class="panel-header"><h2>🧪 Score Components — Which Raw Features Actually Predict Alpha?</h2></div>
+    <div class="panel-header"><h2><svg class="ic ic-h"><use href="#i-flask"/></svg>Score Components — Which Raw Features Actually Predict Alpha?</h2></div>
     <div id="edgeScoreCompBody" style="padding:14px"></div>
     <div style="padding:0 14px 14px;font-size:11px;color:var(--text2)">
       Per-feature walk-forward IC: each candidate input (r3m, r6m, MA alignment, distance from 52W high, etc.)
@@ -2379,21 +2863,21 @@
   <!-- F4: FII/DII Flow Panel -->
   <div id="edgeFiiPanel" class="panel" style="display:none">
     <div class="panel-header">
-      <h2>🏦 FII / DII Market-wide Daily Flow</h2>
-      <button class="btn btn-blue" onclick="loadFiiDii()" style="font-size:12px;padding:4px 12px">↻ Refresh</button>
+      <h2><svg class="ic ic-h"><use href="#i-bank"/></svg>FII / DII Market-wide Daily Flow</h2>
+      <button class="btn btn-primary" onclick="loadFiiDii()" style="font-size:12px;padding:4px 12px">↻ Refresh</button>
     </div>
     <div id="edgeFiiBody" style="padding:14px"><em style="color:var(--text2)">Click Refresh to load FII/DII data from NSE</em></div>
   </div>
 
   <!-- F9: Sector Concentration Panel -->
   <div id="edgeConcentrationPanel" class="panel" style="display:none">
-    <div class="panel-header"><h2>🎯 Sector Concentration Risk — Top 50 Ranked Stocks</h2></div>
+    <div class="panel-header"><h2><svg class="ic ic-h"><use href="#i-target"/></svg>Sector Concentration Risk — Top 50 Ranked Stocks</h2></div>
     <div id="edgeConcentrationBody" style="padding:14px"></div>
   </div>
 
   <!-- Exit Signal Checker -->
   <div id="edgeExitPanel" class="panel" style="display:none">
-    <div class="panel-header"><h2>⚠️ Failed Breakout / Exit Signal Checker</h2></div>
+    <div class="panel-header"><h2><svg class="ic ic-h"><use href="#i-alert"/></svg>Failed Breakout / Exit Signal Checker</h2></div>
     <div style="padding:14px">
       <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px">
         <input type="text" id="exitCheckSymbol" placeholder="Enter symbol (e.g. RELIANCE)"
@@ -2432,10 +2916,10 @@
   <!-- Control bar -->
   <div class="panel">
     <div class="panel-header">
-      <h2>🔥 Trending Stocks — {{ universe_label }} Universe</h2>
+      <h2><svg class="ic ic-h"><use href="#i-flame"/></svg>Trending Stocks — {{ universe_label }} Universe</h2>
       <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
         <span id="trendTimestamp" class="timestamp"></span>
-        <button class="btn btn-green" id="trendScanBtn" onclick="startTrendScan()">▶ Run Scan</button>
+        <button class="btn btn-primary" id="trendScanBtn" onclick="startTrendScan()"><svg class="ic ic-b"><use href="#i-flame"/></svg>Run Scan</button>
       </div>
     </div>
     <div id="trendProgress" style="display:none;padding:12px 0">
@@ -2453,10 +2937,18 @@
   <!-- Results section -->
   <div id="trendResults" style="display:none">
 
+    <!-- ── Market Regime banner — DISPLAY-ONLY context (C1) ───────────
+         The IBD-method regime read (D-days / follow-through) for the whole
+         market. It is CONTEXT, not a filter: prove-before-keep testing
+         (regime_evidence.py) showed these picks kept working across every
+         regime we sampled, so the list is never gated, reordered or trimmed
+         by it. In a Correction we add one caveat about extended names. -->
+    <div id="trendRegimeBanner" style="display:none"></div>
+
     <!-- ── Sector RS Heatmap ─────────────────────────────────────── -->
     <div class="panel">
       <div class="panel-header">
-        <h2>📊 Sector RS Heatmap — Leading vs Lagging</h2>
+        <h2><svg class="ic ic-h"><use href="#i-bars"/></svg>Sector RS Heatmap — Leading vs Lagging</h2>
         <span style="font-size:11px;color:var(--muted)">Click any sector to see all stocks ↓</span>
       </div>
       <div id="trendHeatmap" style="padding:10px 14px 14px;display:flex;flex-wrap:wrap;gap:8px"></div>
@@ -2468,7 +2960,7 @@
         <h2 id="sectorDrillTitle">Sector Stocks</h2>
         <button onclick="closeSectorDrill()" style="background:none;border:none;color:var(--muted);font-size:18px;cursor:pointer;padding:0 4px;line-height:1" title="Close">✕</button>
       </div>
-      <div class="panel-body" style="overflow-x:auto;padding-bottom:6px">
+      <div class="tbl-scroll panel-body" style="overflow-x:auto;padding-bottom:6px">
         <table style="width:100%;border-collapse:collapse;font-size:12px;min-width:640px">
           <thead>
             <tr style="border-bottom:2px solid var(--border);background:var(--surface2)">
@@ -2527,10 +3019,21 @@
         <button onclick="trendToggleCrit(9)"  id="trendC-9"  class="tag" style="cursor:pointer;font-size:11px" title="Price > MA200 — bedrock long-term filter (weight 1.0)">P&gt;MA200</button>
         <button onclick="trendClearCrit()" id="trendC-clear" style="cursor:pointer;font-size:11px;padding:3px 8px;border-radius:4px;border:1px solid var(--border);background:none;color:var(--muted);display:none">✕ Clear</button>
       </div>
+      <!-- Row 2b: Entry-window filter (filters by r.entry_window) -->
+      <div style="padding:0 0 6px;display:flex;gap:6px;flex-wrap:wrap;align-items:center">
+        <span style="font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-right:2px">Entry:</span>
+        <button onclick="trendToggleEntryWin('pullback')"       id="trendEW-pullback"       class="tag" style="cursor:pointer;font-size:11px" title="At MA20 support in an uptrend — defined-risk dip entry">🟢 Pullback</button>
+        <button onclick="trendToggleEntryWin('fresh_breakout')" id="trendEW-fresh_breakout" class="tag" style="cursor:pointer;font-size:11px" title="New 52W high within 5d, ≤15% above MA50 — buyable breakout">🟢 Breakout</button>
+        <button onclick="trendToggleEntryWin('extended')"       id="trendEW-extended"       class="tag" style="cursor:pointer;font-size:11px" title="More than 15% above MA50 — tail risk, size small or wait for a pullback">🟠 Extended</button>
+        <button onclick="trendToggleEntryWin('weakening')"      id="trendEW-weakening"      class="tag" style="cursor:pointer;font-size:11px" title="Strength fading — retraced sharply from its recent high. Not a dip-buy">🔴 Weakening</button>
+        <button onclick="trendToggleEntryWin('in_range')"       id="trendEW-in_range"       class="tag" style="cursor:pointer;font-size:11px" title="No defined entry edge right now">⚪ In-range</button>
+        <button onclick="trendToggleEntryWin(null)" id="trendEW-clear" style="cursor:pointer;font-size:11px;padding:3px 8px;border-radius:4px;border:1px solid var(--border);background:none;color:var(--muted);display:none">✕ Clear</button>
+      </div>
       <!-- Row 3: Tier 3I — quick-action presets -->
       <div style="padding:0 0 10px;display:flex;gap:6px;flex-wrap:wrap;align-items:center;border-top:1px solid var(--border);margin-top:4px;padding-top:8px">
         <span style="font-size:11px;font-weight:700;color:var(--gold2);text-transform:uppercase;letter-spacing:.5px;margin-right:2px">Presets:</span>
         <button onclick="trendApplyPreset('all')"           id="trendPS-all"        class="tag" style="cursor:pointer;font-size:11px;background:var(--accent);color:#fff;border-color:var(--accent)">All</button>
+        <button onclick="trendApplyPreset('sustained')"     id="trendPS-sustained"  class="tag" style="cursor:pointer;font-size:11px;border-color:var(--green);color:var(--green);font-weight:700" title="VALIDATED buy list: trending + broke out to a new high in the last ~25 sessions + STILL HOLDING it (within 8% of the high, above MA20, not fading). Backtested: +1.36% forward alpha vs +0.99% for all trending names (survivorship-free, point-in-time, dividend-adjusted), and it holds out-of-sample (+1.26% vs +0.09%) while excluding the faders that turn negative.">🚀 Sustained Breakouts</button>
         <button onclick="trendApplyPreset('breakout')"      id="trendPS-breakout"   class="tag" style="cursor:pointer;font-size:11px" title="Score ≥ 8 + new 52W high in last 5 days + volume > 1.5×">🚀 Just Broke Out</button>
         <button onclick="trendApplyPreset('quiet')"         id="trendPS-quiet"      class="tag" style="cursor:pointer;font-size:11px" title="Score ≥ 9 + at MA20 support + top-15 sector">💪 Quiet Strength</button>
         <button onclick="trendApplyPreset('institutional')" id="trendPS-inst"       class="tag" style="cursor:pointer;font-size:11px" title="Score ≥ 7 + MFI ≥ 75 + delivery % rising">🏛️ Institutional Stalking</button>
@@ -2543,7 +3046,7 @@
       <!-- v3 evidence loop: honest forward-return scorecard of past picks -->
       <div id="trendScorecard" style="display:none;margin:0 0 10px;padding:8px 12px;border:1px solid var(--border);border-radius:8px;background:var(--surface2);font-size:11px"></div>
 
-      <div style="overflow-x:auto">
+      <div class="tbl-scroll" style="overflow-x:auto">
         <table style="width:100%;border-collapse:collapse;font-size:12px">
           <thead>
             <tr style="background:var(--surface2)">
@@ -2559,11 +3062,11 @@
               <th onclick="trendSort('adx')"           class="th-sort" id="trendTh-adx" title="ADX trend strength. ≥25 = trending, ≥40 = very strong">ADX</th>
               <th onclick="trendSort('r1m')"           class="th-sort" id="trendTh-r1m">1M Ret</th>
               <th onclick="trendSort('r3m')"           class="th-sort" id="trendTh-r3m">3M Ret</th>
-              <th onclick="trendSort('rs_composite')"  class="th-sort" id="trendTh-rs_composite">RS</th>
+              <th onclick="trendSort('rs_composite')"  class="th-sort" id="trendTh-rs_composite" title="RS vs Nifty — excess return over Nifty in percentage points (weighted 1M/3M/6M blend). NOT the 1–99 RS Rating used on other tabs: +12% means it beat Nifty by 12pts, −3% means it lagged by 3pts.">RS vs Nifty</th>
               <th onclick="trendSort('trend_age')"     class="th-sort" id="trendTh-trend_age" title="Days continuously above MA50. Sweet spot: 30-60d (Tier 2G)">Age</th>
               <th onclick="trendSort('avg_deliv')"     class="th-sort" id="trendTh-avg_deliv" title="Avg Delivery % — institutional buying signal (strongest validated factor: IC +0.087)">Deliv%</th>
               <th onclick="trendSort('adtv_cr')"       class="th-sort" id="trendTh-adtv_cr" title="Avg daily traded value ₹Cr (20d) — hover shows realistic round-trip cost. Below ₹3Cr costs eat the edge.">ADTV</th>
-              <th onclick="trendSort('ext_ma50')"      class="th-sort" id="trendTh-entry" title="Entry window: 🟢 pullback to MA20 / 🟢 fresh breakout (not extended) / 🟠 extended >15% above MA50 (wait) / ⚪ in-range">Entry</th>
+              <th onclick="trendSort('ext_ma50')"      class="th-sort" id="trendTh-entry" title="Entry window: 🟢 pullback to MA20 / 🟢 fresh breakout (not extended) / 🟠 extended >15% above MA50 (tail risk — size small) / 🔴 weakening (fading off highs — not a dip-buy) / ⚪ in-range">Entry</th>
               <th onclick="trendSort('r_squared')"     class="th-sort" id="trendTh-r_squared" title="R² trend consistency: 1.0 = perfectly linear uptrend">R²</th>
               <th style="padding:8px 10px;font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.4px;color:var(--text2);border-bottom:2px solid var(--border)" title="Tier 2H/3K: Stage transition badges + don't-buy warnings">Flags</th>
             </tr>
@@ -2587,6 +3090,10 @@
 {% if early_growth_enabled %}{% include 'early_growth_tab.html' ignore missing %}{% endif %}
 {% if vvv_enabled %}{% include 'vvv_tab.html' ignore missing %}{% endif %}
 {% include 'consensus_tab.html' ignore missing %}
+{% include 'sector_leaders_tab.html' ignore missing %}
+{% include 'risk_tab.html' ignore missing %}
+{% include 'all_weather_tab.html' ignore missing %}
+{% include 'defensive_tab.html' ignore missing %}
 
 <!-- ══════════════════════════════════════════════════════════ JAVASCRIPT -->
 <script>
@@ -2642,11 +3149,48 @@ function updateFreshness(scanId, unixSec) {
 }
 
 // ── Tab switching ──────────────────────────────────────────────────────────
-function showTab(name, btn) {
+// ── Per-tab URL routing (deep-linking) ──────────────────────────────────────
+// Each tab maps to a clean URL slug so every tab is bookmarkable/shareable and
+// Back/Forward work. Same code runs locally and on the live site. This is URL
+// routing, NOT microservices — one app, one process.
+const TAB_SLUGS = {
+  screener:'screener', portfolio:'portfolio', investgrade:'investment_grade',
+  trending:'trending_stocks', strategy:'strategy', mbo:'multiyear_breakout',
+  breakout:'breakout_stocks', edge:'edge_engine', momentum:'momentum',
+  emerging:'emerging_leaders', sector:'sector_rotation', volspike:'volume_spike',
+  breadth:'market_breadth', industry:'industry_groups', advanced:'advanced_setups',
+  institutional:'institutional_edge', alpha:'alpha_engine', monster:'monster_growth',
+  vvv:'minervini_vvv', consensus:'consensus', risk:'risk_regime', defensive:'defensive_leaders',
+  allweather:'all_weather',
+  'early-mover':'early_movers', 'early-growth':'early_growth', 'sector-leaders':'sector_leaders'
+};
+const SLUG_TABS = Object.fromEntries(Object.entries(TAB_SLUGS).map(([t, s]) => [s, t]));
+function _tabExists(name) { return !!document.getElementById('tab-' + name); }
+function _slugToTab(path) {
+  const slug = (path || '/').replace(/^\/+|\/+$/g, '');
+  const tab = SLUG_TABS[slug] || (_tabExists(slug) ? slug : null);
+  return (tab && _tabExists(tab)) ? tab : 'screener';
+}
+
+function showTab(name, btn, push) {
+  if (!_tabExists(name)) name = 'screener';   // guard: unknown / disabled tab
   document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
   document.querySelectorAll('.tab-btn').forEach(el => el.classList.remove('active'));
   document.getElementById('tab-' + name).classList.add('active');
-  if (btn) btn.classList.add('active');
+  // Activate the matching nav button (passed on click, else resolved by name)
+  const b = btn || document.querySelector('.tab-btn[onclick*="showTab(\'' + name + '\'"]');
+  if (b) b.classList.add('active');
+  // Reflect the tab in the URL — skip when the change was DRIVEN by the URL
+  // (popstate / initial load) so we don't create duplicate history entries.
+  if (push !== false) {
+    const url = '/' + (TAB_SLUGS[name] || name);
+    if (window.location.pathname !== url) history.pushState({ tab: name }, '', url);
+  }
+  // Risk & Regime: (re)load its live data whenever the tab is shown — covers
+  // deep-links and back/forward, not just the sidebar click.
+  if (name === 'risk' && typeof riskLoad === 'function') riskLoad();
+  if (name === 'defensive' && typeof defScan === 'function') defScan(false);
+  if (name === 'allweather' && typeof awLoad === 'function') awLoad(false);
   // Auto-load sector results if tab opened and data already available
   if (name === 'sector' && !sectorResult) {
     fetch('/api/sector/status').then(r => r.json()).then(d => {
@@ -2668,6 +3212,199 @@ function showTab(name, btn) {
     });
   }
 }
+
+// ── Cross-tab stock search ──────────────────────────────────────────────────
+// Type a symbol → see EVERY tab that currently lists it, with one line of why,
+// and jump straight there. Answers "where does this stock show up?" without
+// opening 20 tabs. Reads cached scans only, so it's instant.
+let _searchTimer = null;
+function _closeSearch() {
+  const r = document.getElementById('stockSearchResults');
+  if (r) r.classList.remove('open');
+}
+// The blinking caret is an attention cue for an UNTOUCHED search box — the moment the
+// user focuses or types, the real caret takes over and ours must get out of the way.
+function _syncSearchCaret() {
+  const i = document.getElementById('stockSearch');
+  const c = document.getElementById('searchCaret');
+  if (!i || !c) return;
+  const busy = (document.activeElement === i) || i.value.length > 0;
+  c.classList.toggle('hide', busy);
+}
+(function _initSearchCaret() {
+  const i = document.getElementById('stockSearch');
+  if (!i) return;
+  ['focus', 'blur', 'input'].forEach(ev => i.addEventListener(ev, _syncSearchCaret));
+  _syncSearchCaret();
+})();
+function _stockSearchInput(e) {
+  clearTimeout(_searchTimer);
+  _syncSearchCaret();
+  const q = e.target.value.trim();
+  if (q.length < 2) { _closeSearch(); return; }
+  _searchTimer = setTimeout(() => _runStockSearch(q), 200);
+}
+function _runStockSearch(q) {
+  fetch('/api/stock-search?q=' + encodeURIComponent(q))
+    .then(r => r.json())
+    .then(d => {
+      const el = document.getElementById('stockSearchResults');
+      if (!el) return;
+      const pending = (d.not_scanned || []).length;
+      const note = pending
+        ? `<div class="sr-note">${pending} tab${pending === 1 ? '' : 's'} not scanned today — run their scan to include them.</div>` : '';
+      if (!d.symbol) {
+        el.innerHTML = `<div class="sr-empty">No match for <b>${q}</b> in any scanned tab.</div>` + note;
+        el.classList.add('open'); return;
+      }
+      const hits = (d.hits || []).map(h =>
+        `<div class="sr-hit" onclick="_searchJump('${h.tab}')">
+           <svg class="ic"><use href="#${h.icon || 'i-filter'}"/></svg>
+           <span class="sr-tab">${h.label}</span>
+           <span class="sr-sum">${h.summary || ''}</span>
+         </div>`).join('');
+      // ONE canonical market-wide RS Rating in the header (percentile of 3-month
+      // return across the full universe). The per-tab "RS N" ranks were removed
+      // from the rows because each was a rank within a different scan set.
+      const rsM = (typeof d.rs_market === 'number')
+        ? `<span title="Market-wide RS Rating (1–99): percentile of 3-month relative strength across the whole NSE universe. The single, consistent RS — unlike each tab's within-scan rank." style="margin-left:8px;font-family:var(--mono);font-size:11px;padding:1px 7px;border-radius:8px;background:${d.rs_market>=80?'#10b98122':d.rs_market>=50?'#eab30822':'#f8717122'};color:${d.rs_market>=80?'var(--green2)':d.rs_market>=50?'var(--gold2)':'var(--red2)'};border:1px solid ${d.rs_market>=80?'#10b98166':d.rs_market>=50?'#eab30866':'#f8717166'};font-weight:700">RS ${d.rs_market}</span>`
+        : '';
+      el.innerHTML =
+        `<div class="sr-head">${d.symbol}${rsM} — appears in ${d.hits.length} tab${d.hits.length === 1 ? '' : 's'}</div>`
+        + (hits || '<div class="sr-empty">Not listed on any scanned tab right now.</div>') + note;
+      el.classList.add('open');
+    })
+    .catch(() => _closeSearch());
+}
+function _searchJump(slug) {
+  showTab(SLUG_TABS[slug] || slug);
+  _closeSearch();
+  const i = document.getElementById('stockSearch');
+  if (i) i.blur();
+}
+
+// ── Position Guardian bell ──────────────────────────────────────────────────
+// Surfaces guardian.py's exit/trim/watch alerts on what you OWN from every tab,
+// not just the strip you can scroll past. Fed by /api/header's guardian_alerts
+// (already polled every 60s) — no extra endpoint, no extra polling.
+function _closeBell() {
+  const p = document.getElementById('bellPanel');
+  if (p) p.classList.remove('open');
+}
+function _toggleBell() {
+  const p = document.getElementById('bellPanel');
+  if (!p) return;
+  _closeSearch();
+  p.classList.toggle('open');
+}
+function _renderBell(alerts) {
+  alerts = alerts || [];
+  const badge = document.getElementById('bellCount');
+  const panel = document.getElementById('bellPanel');
+  if (!badge || !panel) return;
+  const n = alerts.length;
+  badge.textContent = n > 9 ? '9+' : String(n);
+  badge.style.display = n ? 'flex' : 'none';
+  if (!n) {
+    panel.innerHTML = '<div class="bell-empty">No position alerts — nothing on your holdings needs attention.</div>';
+    return;
+  }
+  const rows = alerts.map(a => {
+    const sev = String(a.severity || 'watch').toLowerCase();
+    const px  = (a.price != null) ? '₹' + a.price : '';
+    const st  = (a.stop != null) ? ' · stop ₹' + a.stop : '';
+    const tab = (a.kind === 'watchlist') ? 'trending' : 'portfolio';
+    return `<div class="bell-row" onclick="_bellJump('${tab}')">
+      <div><span class="bell-sym">${a.symbol}</span><span class="bell-sev ${sev}">${sev}</span>
+        <span class="bell-px">${px}${st}</span></div>
+      <div class="bell-reason">${a.reason || ''}</div>
+    </div>`;
+  }).join('');
+  const exits = alerts.filter(a => String(a.severity) === 'exit').length;
+  panel.innerHTML = `<div class="bell-head">${n} position alert${n === 1 ? '' : 's'}`
+    + (exits ? ` · ${exits} ${exits === 1 ? 'needs' : 'need'} action now` : '') + `</div>` + rows;
+}
+function _bellJump(tab) { showTab(tab); _closeBell(); }
+
+// ── 52-week-high ticker tape ────────────────────────────────────────────────
+// The day's new 52W highs, scrolling. Source = the cached Market Breadth
+// new_highs_list, which is an END-OF-DAY fact, so the label carries the as-of
+// date and the motion never implies live intraday ticks. Click a name to search
+// it across every tab.
+let _nhSig = null;
+function _tickerJump(sym) {
+  const i = document.getElementById('stockSearch');
+  if (!i) return;
+  i.value = sym; i.focus();
+  _runStockSearch(sym);
+}
+function _loadNewHighTicker() {
+  fetch('/api/new-highs').then(r => r.json()).then(d => {
+    const strip = document.getElementById('nhTicker');
+    const track = document.getElementById('nhTrack');
+    const label = document.getElementById('nhLabel');
+    if (!strip || !track || !label) return;
+    const list = d.stocks || [];
+    if (!list.length) {
+      if (d.pending) {
+        // The breadth scan hasn't run for this bhavcopy yet (boot, or a NEW
+        // bhavcopy just landed and the prewarm is recomputing). Keep whatever
+        // tape is already showing — it carries its own as-of date, so it isn't
+        // misleading — rather than blanking the line mid-refresh.
+        if (!_nhSig) {
+          label.textContent = '52W highs';
+          track.innerHTML = '<span class="tk-note">Scanning for today’s 52-week highs…</span>';
+          track.style.animation = 'none';
+        }
+        return;
+      }
+      _nhSig = 'none';
+      label.textContent = '52W highs' + (d.as_of ? ' · ' + d.as_of : '');
+      track.innerHTML = '<span class="tk-note">No new 52-week highs today.</span>';
+      track.style.animation = 'none';
+      return;
+    }
+    // Re-render ONLY when the data actually changed — otherwise the CSS
+    // animation restarts and the tape visibly jumps back to the start. A new
+    // bhavcopy changes as_of, so the tape swaps to the new names automatically.
+    const sig = (d.as_of || '') + ':' + list.length + ':' + (list[0] || {}).symbol;
+    if (sig === _nhSig) return;
+    _nhSig = sig;
+    const item = s => {
+      const up = (s.r3m >= 0);
+      const vol = (s.vol_ratio >= 1.5) ? `<span class="tk-vol">${s.vol_ratio}×vol</span>` : '';
+      return `<span class="tk-item" onclick="_tickerJump('${s.symbol}')" title="${s.symbol} — closed at a new 52-week high. Click to see every tab it appears in.">
+        <span class="tk-sym">${s.symbol}</span>
+        <span class="tk-px">₹${s.price}</span>
+        <span class="tk-chg" style="color:${up ? '#22c55e' : '#f87171'}">${up ? '+' : ''}${s.r3m}% 3m</span>
+        ${vol}</span>`;
+    };
+    const once = list.map(item).join('');
+    track.innerHTML = once + once;   // duplicated → the -50% translate loops seamlessly
+    label.textContent = `▲ ${d.count} new 52W highs` + (d.as_of ? ' · ' + d.as_of : '');
+    track.style.animation = '';      // clear any 'none' set by an empty state
+    track.style.animationDuration = Math.max(35, list.length * 3.4) + 's';
+  }).catch(() => {});
+}
+
+document.addEventListener('click', (e) => {
+  const s = document.querySelector('.hdr-search');
+  if (s && !s.contains(e.target)) _closeSearch();
+  const b = document.querySelector('.hdr-bell');
+  if (b && !b.contains(e.target)) _closeBell();
+  const u = document.querySelector('.user-menu');
+  if (u && !u.contains(e.target)) document.getElementById('userPop')?.classList.remove('open');
+});
+
+// Back/Forward buttons → switch to the tab named by the URL (no new history entry).
+window.addEventListener('popstate', () =>
+  showTab(_slugToTab(window.location.pathname), null, false));
+// On initial load, open the tab named by the URL (deep link like /trending_stocks).
+(function _initTabRouting() {
+  const open = () => showTab(_slugToTab(window.location.pathname), null, false);
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', open);
+  else open();
+})();
 
 // ══════════════════════════════════════════════════════════════════════════
 // SCREENER
@@ -3741,7 +4478,7 @@ let _instPoll = null;
 
 function startInstScan() {
   document.getElementById('instBtn').disabled = true;
-  document.getElementById('instBtn').textContent = 'Scanning…';
+  document.getElementById('instBtn').innerHTML = '<span class=\"spinner\"></span>Scanning…';
   document.getElementById('instProgressWrap').style.display = 'block';
   document.getElementById('instStatsRow').style.display    = 'none';
   document.getElementById('instFiltersWrap').style.display = 'none';
@@ -3770,7 +4507,7 @@ function pollInstStatus() {
         clearInterval(_instPoll);
         document.getElementById('instProgressWrap').style.display = 'none';
         document.getElementById('instBtn').disabled    = false;
-        document.getElementById('instBtn').textContent = 'Run Institutional Scan';
+        document.getElementById('instBtn').innerHTML = '<svg class=\"ic ic-b\"><use href=\"#i-bank\"/></svg>Run Institutional Scan';
 
         if (d.error) {
           document.getElementById('instEmpty').style.display = 'block';
@@ -3813,7 +4550,7 @@ function pollInstStatus() {
     .catch(err => {
       clearInterval(_instPoll); _instPoll = null;
       document.getElementById('instBtn').disabled = false;
-      document.getElementById('instBtn').textContent = 'Run Institutional Scan';
+      document.getElementById('instBtn').innerHTML = '<svg class=\"ic ic-b\"><use href=\"#i-bank\"/></svg>Run Institutional Scan';
       document.getElementById('instProgressWrap').style.display = 'none';
       document.getElementById('instEmpty').style.display = 'block';
       document.getElementById('instEmpty').innerHTML = `<div style="color:var(--red)">Network error: ${err}</div>`;
@@ -3929,7 +4666,7 @@ let _advPoll = null;
 
 function startAdvancedScan() {
   document.getElementById('advBtn').disabled = true;
-  document.getElementById('advBtn').textContent = 'Scanning…';
+  document.getElementById('advBtn').innerHTML = '<span class=\"spinner\"></span>Scanning…';
   document.getElementById('advProgressWrap').style.display = 'block';
   document.getElementById('advStatsRow').style.display    = 'none';
   document.getElementById('advFiltersWrap').style.display = 'none';
@@ -3950,7 +4687,7 @@ function pollAdvStatus() {
       clearInterval(_advPoll);
       document.getElementById('advProgressWrap').style.display = 'none';
       document.getElementById('advBtn').disabled = false;
-      document.getElementById('advBtn').textContent = 'Run Advanced Scan';
+      document.getElementById('advBtn').innerHTML = '<svg class=\"ic ic-b\"><use href=\"#i-target\"/></svg>Run Advanced Scan';
 
       if (d.error) {
         document.getElementById('advEmpty').innerHTML = `<div style="color:var(--red)">Error: ${d.error}</div>`;
@@ -4105,7 +4842,7 @@ let _breadthPoll = null;
 
 function startBreadthScan() {
   document.getElementById('breadthBtn').disabled = true;
-  document.getElementById('breadthBtn').textContent = 'Loading…';
+  document.getElementById('breadthBtn').innerHTML = '<span class=\"spinner\"></span>Loading…';
   document.getElementById('breadthProgress').style.display = 'block';
   document.getElementById('breadthEmpty').style.display = 'none';
 
@@ -4119,7 +4856,7 @@ function pollBreadthStatus() {
       clearInterval(_breadthPoll);
       document.getElementById('breadthProgress').style.display = 'none';
       document.getElementById('breadthBtn').disabled = false;
-      document.getElementById('breadthBtn').textContent = 'Refresh Breadth';
+      document.getElementById('breadthBtn').innerHTML = '<svg class=\"ic ic-b\"><use href=\"#i-activity\"/></svg>Refresh Breadth';
 
       if (d.error) {
         document.getElementById('breadthEmpty').style.display = 'block';
@@ -4133,7 +4870,7 @@ function pollBreadthStatus() {
   .catch(err => {
     clearInterval(_breadthPoll); _breadthPoll = null;
     document.getElementById('breadthBtn').disabled = false;
-    document.getElementById('breadthBtn').textContent = 'Refresh Breadth';
+    document.getElementById('breadthBtn').innerHTML = '<svg class=\"ic ic-b\"><use href=\"#i-activity\"/></svg>Refresh Breadth';
     document.getElementById('breadthProgress').style.display = 'none';
     document.getElementById('breadthEmpty').style.display = 'block';
     document.getElementById('breadthEmpty').innerHTML = `<div style="color:var(--red)">Network error: ${err}</div>`;
@@ -4159,14 +4896,39 @@ function renderBreadth(data) {
   };
   const colMap = {
     'Bull Market':       'var(--green)',
+    'Uptrend':           'var(--green)',
     'Uptrend (Caution)': 'var(--yellow)',
+    'Sideways':          'var(--yellow)',
     'Correction':        'var(--red)',
+    'Downtrend':         'var(--red)',
     'Bear Market':       'var(--red)',
   };
 
-  inner.style.background = bgMap[t.status] || '';
-  statusEl.style.color   = colMap[t.status] || 'var(--text)';
-  statusEl.textContent   = t.status;
+  // ── HEADLINE = CANONICAL REGIME, not the breadth score ──────────────────────
+  // These are two different engines: the 0-15 breadth score said "Uptrend" (10/15)
+  // on the same screen where the header said "Sideways", because the header was
+  // fixed on 2026-07-08 to use the canonical regime while this tab kept headlining
+  // its own score. Same mapping as header_data._resolve_trend, so the two can no
+  // longer disagree. The breadth score is still shown below — as a score, not as a
+  // competing verdict on the market.
+  const REGIME_HEADLINE = {
+    'Confirmed Uptrend':      ['Uptrend',   'var(--green)',  '#3fb95020'],
+    'Uptrend Under Pressure': ['Sideways',  'var(--yellow)', '#d2992220'],
+    'Correction':             ['Downtrend', 'var(--red)',    '#f8514920'],
+    'Downtrend':              ['Downtrend', 'var(--red)',    '#f8514930'],
+  };
+  const _rg = data.regime || {};
+  const head = REGIME_HEADLINE[_rg.regime];
+  const headline  = head ? head[0] : t.status;
+  const headColor = head ? head[1] : (colMap[t.status] || 'var(--text)');
+  const headBg    = head ? head[2] : (bgMap[t.status] || '');
+
+  inner.style.background = headBg;
+  statusEl.style.color   = headColor;
+  statusEl.textContent   = headline;
+  statusEl.title = head
+    ? `Canonical market regime: ${_rg.regime} (IBD distribution-day method) — the same read the header uses.`
+    : 'Breadth timing score (canonical regime not computed yet).';
   detailEl.textContent   = `Timing score: ${t.score}/${t.max} · ${b.total_stocks} NSE stocks analysed`;
   timingEl.style.display = 'block';
 
@@ -4327,7 +5089,7 @@ let _indPoll = null;
 
 function startIndustry() {
   document.getElementById('indBtn').disabled = true;
-  document.getElementById('indBtn').textContent = 'Loading…';
+  document.getElementById('indBtn').innerHTML = '<span class=\"spinner\"></span>Loading…';
   document.getElementById('indProgress').style.display = 'block';
   document.getElementById('indEmpty').style.display    = 'none';
 
@@ -4345,7 +5107,7 @@ function pollIndustryStatus() {
       clearInterval(_indPoll);
       document.getElementById('indProgress').style.display = 'none';
       document.getElementById('indBtn').disabled = false;
-      document.getElementById('indBtn').textContent = 'Refresh';
+      document.getElementById('indBtn').innerHTML = '<svg class=\"ic ic-b\"><use href=\"#i-layers\"/></svg>Refresh';
       if (d.error) {
         document.getElementById('indEmpty').style.display = 'block';
         document.getElementById('indEmpty').innerHTML = `<div style="color:var(--red)">Error: ${d.error}</div>`;
@@ -5204,31 +5966,73 @@ function renderEmrgTable() {
 })();
 
 // ── Theme toggle (light mode is default, dark only when user opts in) ─────
+// Must write innerHTML, not textContent: the button holds an <svg> icon, and
+// textContent would silently delete it and leave a bare word.
+function _setThemeBtn(isDark) {
+  const btn = document.getElementById('themeBtn');
+  if (!btn) return;
+  btn.innerHTML = isDark
+    ? '<svg class="ic"><use href="#i-sun"/></svg><span>Light</span>'
+    : '<svg class="ic"><use href="#i-moon"/></svg><span>Dark</span>';
+}
 function toggleTheme() {
   const isDark = document.body.classList.toggle('dark');
   document.body.classList.toggle('light', !isDark);
-  const btn = document.getElementById('themeBtn');
-  btn.textContent = isDark ? '🌞 Light' : '🌙 Dark';
+  _setThemeBtn(isDark);
   localStorage.setItem('theme', isDark ? 'dark' : 'light');
 }
 (function() {
-  // Default = light. Only switch to dark if user has explicitly chosen dark.
+  // Default = dark (trading-terminal look). Only go light if the user explicitly
+  // chose it — an existing 'light' in localStorage still wins, so anyone already
+  // on light mode is not yanked into dark by this default flipping.
   const saved = localStorage.getItem('theme');
-  if (saved === 'dark') {
-    document.body.classList.add('dark');
-    document.body.classList.remove('light');
-    document.getElementById('themeBtn').textContent = '🌞 Light';
-  } else {
+  if (saved === 'light') {
     document.body.classList.add('light');
     document.body.classList.remove('dark');
-    document.getElementById('themeBtn').textContent = '🌙 Dark';
+    _setThemeBtn(false);
+  } else {
+    document.body.classList.add('dark');
+    document.body.classList.remove('light');
+    _setThemeBtn(true);
   }
 })();
+
+// ── Position Guardian strip — held/watched symbols that need action ──────────
+function _renderGuardianStrip(alerts) {
+  const el = document.getElementById('guardianStrip');
+  if (!el) return;
+  if (!alerts || !alerts.length) { el.style.display = 'none'; return; }
+  const sevMeta = {
+    exit: ['🚨 EXIT', '#fca5a5'],
+    trim: ['⚠️ TRIM', '#fdba74'],
+    watch: ['👀 WATCH', '#fde68a'],
+  };
+  el.innerHTML = alerts.map(a => {
+    const [lbl, col] = sevMeta[a.severity] || sevMeta.watch;
+    const px = a.price != null ? ` @₹${a.price}` : '';
+    const kind = a.kind === 'watchlist' ? ' (watchlist)' : '';
+    return `<span style="margin-right:16px;white-space:nowrap">`
+      + `<b style="color:${col}">${lbl}</b> `
+      + `<b style="cursor:pointer;text-decoration:underline" onclick="showTab('portfolio', document.querySelector('.tab-btn'))" title="Open Portfolio tab">${a.symbol}</b>`
+      + `${kind}${px} — ${a.reason} <span style="color:#f87171">· since ${a.since || '—'}</span> `
+      + `<span style="cursor:pointer;opacity:.7" title="Dismiss this episode (re-arms if it escalates)" onclick="_guardianDismiss('${a.symbol}')">✕</span>`
+      + `</span>`;
+  }).join('');
+  el.style.display = '';
+}
+
+function _guardianDismiss(sym) {
+  fetch('/api/guardian/dismiss', {method:'POST', headers:{'Content-Type':'application/json'},
+         body: JSON.stringify({symbol: sym})})
+    .then(() => _refreshHeader());
+}
 
 // ── Header live data (Nifty 50 + Adv/Dec + Market Trend) ──────────────────────
 function _refreshHeader() {
   fetch('/api/header').then(r => r.json()).then(d => {
     if (!d || d.error) return;
+    _renderGuardianStrip(d.guardian_alerts);
+    _renderBell(d.guardian_alerts);
     const niftyEl = document.getElementById('hdrNifty');
     const chgEl   = document.getElementById('hdrNiftyChg');
     const adEl    = document.getElementById('hdrAdvDec');
@@ -5238,15 +6042,18 @@ function _refreshHeader() {
     if (d.nifty != null) {
       niftyEl.textContent = d.nifty.toLocaleString('en-IN', {minimumFractionDigits:2, maximumFractionDigits:2});
     }
+    // --green2/--red2, not --green/--red: on the light header band --green (#059669)
+    // measures 3.29:1, under the 4.5 floor for this 14px text. The *2 variants resolve
+    // DARKER in light mode (#047857 -> 4.68:1) and BRIGHTER in dark — correct on both.
     if (d.change_pct != null) {
       const up = d.change_pct >= 0;
       chgEl.textContent = (up ? '+' : '') + d.change_pct.toFixed(2) + '%';
-      chgEl.style.color = up ? 'var(--green)' : 'var(--red)';
+      chgEl.style.color = up ? 'var(--green2)' : 'var(--red2)';
     }
     if (d.advances != null && d.declines != null) {
       adEl.textContent = d.advances + ' / ' + d.declines;
       const upWin = d.advances >= d.declines;
-      adEl.style.color = upWin ? 'var(--green)' : 'var(--red)';
+      adEl.style.color = upWin ? 'var(--green2)' : 'var(--red2)';
       if (d.adv_decl_ratio != null) {
         adrEl.textContent = 'A/D ' + d.adv_decl_ratio.toFixed(2);
       }
@@ -5256,9 +6063,12 @@ function _refreshHeader() {
       trEl.className = 'hdr-trend ' + cls;
       const arrow = cls === 'up' ? '▲' : cls === 'down' ? '▼' : cls === 'flat' ? '●' : '⏳';
       trEl.textContent = arrow + ' ' + d.trend;
-      trEl.title = d.trend_source === 'breadth'
-        ? 'Authoritative — from Market Breadth tab (matches that signal)'
-        : 'Computing breadth signal in background — will refresh in <30s';
+      trEl.title = d.trend_source === 'computing'
+        ? 'Computing the market regime in background — will refresh in <30s'
+        : 'Market regime over a ~5-week window: ▲ Uptrend (healthy) · ● Sideways '
+          + '(distribution creeping in — be selective) · ▼ Downtrend (protect capital). '
+          + 'A single day does not flip it; today\'s move is the NIFTY change % shown '
+          + 'left. Matches the Edge & Breadth tabs (single source of truth).';
     }
   }).catch((err) => {
     // BUG-022 FIX: Log error and dim header values to indicate stale/unavailable data
@@ -5271,6 +6081,10 @@ function _refreshHeader() {
 }
 _refreshHeader();
 setInterval(_refreshHeader, 60000);
+// 52W-high tape: load now, then retry periodically — on a cold start the breadth
+// cache may still be warming (boot prewarm), and a new bhavcopy refreshes it.
+_loadNewHighTicker();
+setInterval(_loadNewHighTicker, 60000);
 
 // ── Unusual Volume Scanner ────────────────────────────────────────────────────
 let _volData = [], _volSort = { col: 'rvol', asc: false }, _volPoll = null;
@@ -5471,7 +6285,7 @@ function startMboScan() {
   .then(d => {
     if (d.status === 'started' || d.status === 'already_running') {
       document.getElementById('mboBtn').disabled = true;
-      document.getElementById('mboBtn').textContent = '⏳ Scanning…';
+      document.getElementById('mboBtn').innerHTML = '<span class="spinner"></span>Scanning…';
       document.getElementById('mboProgressWrap').style.display = '';
       document.getElementById('mboEmpty').style.display = 'none';
       _mboPoll = setInterval(pollMboStatus, 3000);
@@ -5493,7 +6307,8 @@ function pollMboStatus() {
         clearInterval(_mboPoll); _mboPoll = null;
         const btn = document.getElementById('mboBtn');
         btn.disabled = false;
-        btn.textContent = '🔍 Scan Multi-Year Breakouts';
+        // innerHTML, not textContent — this label carries an <svg> icon.
+        btn.innerHTML = '<svg class="ic ic-b"><use href="#i-mountain"/></svg>Scan Multi-Year Breakouts';
         document.getElementById('mboProgressWrap').style.display = 'none';
         if (d.error) {
           document.getElementById('mboEmpty').style.display = '';
@@ -5520,7 +6335,7 @@ function renderMboResults(data) {
 
   if (!rows.length) {
     empty.style.display = '';
-    empty.innerHTML = '<div class="icon">🔍</div><p>No multi-year breakouts found with current filter. Try lowering the min base duration.</p>';
+    empty.innerHTML = '<div class="icon"><svg class="ic" style="width:34px;height:34px;--ic:var(--text2)"><use href="#i-search"/></svg></div><p>No multi-year breakouts found with current filter. Try lowering the min base duration.</p>';
     wrap.style.display = 'none';
     return;
   }
@@ -5702,7 +6517,7 @@ function startNearScan() {
   .then(d => {
     if (d.status === 'started' || d.status === 'already_running') {
       document.getElementById('nearBtn').disabled = true;
-      document.getElementById('nearBtn').textContent = '⏳ Scanning…';
+      document.getElementById('nearBtn').innerHTML = '<span class=\"spinner\"></span>Scanning…';
       document.getElementById('nearProgressWrap').style.display = '';
       _nearPoll = setInterval(pollNearStatus, 3000);
     }
@@ -5723,7 +6538,7 @@ function pollNearStatus() {
         clearInterval(_nearPoll); _nearPoll = null;
         const btn = document.getElementById('nearBtn');
         btn.disabled = false;
-        btn.textContent = '🎯 Scan Near-Breakout Candidates';
+        btn.innerHTML = '<svg class=\"ic ic-b\"><use href=\"#i-target\"/></svg>Scan Near-Breakout Candidates';
         document.getElementById('nearProgressWrap').style.display = 'none';
         if (d.error) {
           document.getElementById('nearEmpty').style.display = '';
@@ -6037,7 +6852,7 @@ function renderEdgeBacktestSection(result) {
   // No backtest yet — show the trigger button, and check the 6h cache.
   document.getElementById('edgeBacktestBody').innerHTML = `
     <div style="text-align:center;padding:18px 14px">
-      <button class="btn-primary" id="edgeBtBtn" onclick="startEdgeBacktest()">▶ Run Backtest &amp; Score Validation</button>
+      <button class="btn btn-primary" id="edgeBtBtn" onclick="startEdgeBacktest()"><svg class="ic ic-b"><use href="#i-flask"/></svg>Run Backtest &amp; Score Validation</button>
       <div style="font-size:11px;color:var(--text2);margin-top:8px;max-width:620px;margin-left:auto;margin-right:auto;line-height:1.5">
         Heavy walk-forward backtest on the survivorship-free universe (~3-5 min, alpha vs NIFTYBEES net of costs,
         IS/OOS overfit harness, per-component IC). Run separately so it never slows the regime + ranking scan.
@@ -6560,32 +7375,40 @@ function refreshFundamentals() {
 }
 
 // ── Bhavcopy freshness — poll on load and every 2 minutes ──────────────────
-// UX policy: the app itself is always LIVE (the dashboard runs continuously
-// on the latest bhavcopy NSE has published). NSE's EOD bhavcopy may lag the
-// real market by a few hours — that lag is acceptable and surfaced in the
-// per-tab data-as-of labels and in the bhavDot/bhavLabel below. The top-level
-// LIVE badge therefore stays green LIVE in all states; bhavLabel carries the
-// honest freshness text for users who want to see the exact data date.
+// The dot pulses to show the feed is current, but the LABEL stays EOD: this app
+// runs on NSE's END-OF-DAY bhavcopy, there is no intraday feed, and the badge sits
+// inches from a chip that can read "1d old". A blinking green LIVE next to that
+// contradiction is what makes users distrust everything else on the page.
+// On a stale session the badge goes amber AND the pulse stops — a pulse that keeps
+// blinking over day-old data is the exact claim we must not make.
 function pollBhavcopuStatus() {
   fetch('/api/bhavcopy/status').then(r => r.json()).then(d => {
     const dot   = document.getElementById('bhavDot');
     const label = document.getElementById('bhavLabel');
     if (!dot || !label) return;
 
-    // Always keep the top-right LIVE badge in green LIVE state.
     const liveBadge = document.querySelector('.live-badge');
     if (liveBadge) {
-      liveBadge.style.background  = 'rgba(16,185,129,0.18)';
-      liveBadge.style.borderColor = 'rgba(16,185,129,0.45)';
-      liveBadge.style.color       = 'var(--green)';
-      liveBadge.innerHTML         = '<span class="live-dot"></span>LIVE';
+      const fresh = (d.status === 'today');
+      liveBadge.style.background  = fresh ? 'rgba(16,185,129,0.10)' : 'rgba(245,158,11,0.10)';
+      liveBadge.style.borderColor = fresh ? 'rgba(16,185,129,0.30)' : 'rgba(245,158,11,0.30)';
+      liveBadge.style.color       = fresh ? 'var(--green2)' : 'var(--gold2)';
+      liveBadge.classList.toggle('stale', !fresh);
+      liveBadge.title = fresh
+        ? 'End-of-day data — today’s NSE bhavcopy is loaded.'
+        : 'End-of-day data — still on a prior session’s bhavcopy; auto-checking for the latest.';
+      liveBadge.innerHTML = '<span class="live-dot" style="background:'
+        + (fresh ? '#10b981' : '#f59e0b') + '"></span>EOD';
     }
 
     // The bhavcopy DOT + LABEL below still reflects the real freshness so the
     // user can see exactly which trading day's data is loaded.
+    // Colours are TOKENS, not literals: this chip sits on --surface (white in light
+    // mode), where the old #f59e0b amber measured ~2.2:1 and #94a3b8 ~2.4:1 — both
+    // failing AA. --gold2/--text2 resolve dark on white and bright on the dark card.
     if (!d.latest_date) {
-      dot.style.background = '#94a3b8';
-      label.style.color    = '#94a3b8';
+      dot.style.background = 'var(--text2)';
+      label.style.color    = 'var(--text2)';
       label.textContent    = 'Waiting for NSE bhavcopy…';
       return;
     }
@@ -6594,9 +7417,9 @@ function pollBhavcopuStatus() {
       label.style.color    = 'var(--green2)';
       label.textContent    = d.label;
     } else {
-      // Bhavcopy is from a prior trading day — note it honestly but keep LIVE.
-      dot.style.background = '#f59e0b';
-      label.style.color    = '#f59e0b';
+      // Bhavcopy is from a prior trading day — say so honestly.
+      dot.style.background = 'var(--gold2)';
+      label.style.color    = 'var(--gold2)';
       const now = new Date();
       const isWeekend = now.getDay() === 0 || now.getDay() === 6;
       const suffix = isWeekend
@@ -6604,6 +7427,17 @@ function pollBhavcopuStatus() {
         : ' · auto-checking every 20 min';
       label.textContent = d.label + suffix;
     }
+    // This chip now shares the ticker line (it replaced the DATA SOURCE bar), so
+    // display a compact form — date + staleness — and keep the full freshness
+    // text (fetch time, auto-check cadence) on hover. No information is lost.
+    const full = label.textContent;
+    label.title = full;
+    label.textContent = full
+      .replace(/^Last trading day:\s*/, '')
+      .replace(/^Today's data\s*·\s*/, 'Today · ')
+      .replace(/\s*·\s*fetched[^·]*/, ' ')
+      .replace(/\s*·\s*auto-checking every 20 min/, '')
+      .replace(/\s*\(market closed[^)]*\)/, '');
   }).catch(() => {
     const label = document.getElementById('bhavLabel');
     if (label) label.textContent = 'unavailable';
@@ -6651,19 +7485,74 @@ let _trendScoreMin   = 5;
 let _trendSortCol    = 'score_with_sector';   // Tier 1D: final-rank score after sector tailwind
 let _trendSortAsc    = false;
 let _trendSpecial    = null;   // 'new_high' | 'pullback' | null
+let _trendEntryWin   = null;   // entry-window filter: pullback|fresh_breakout|extended|weakening|in_range|null
+
+// ── Watchlist state (Guardian coverage for non-held symbols) ──
+let _watchSet = new Set();
+function _watchLoad() {
+  fetch('/api/watchlist').then(r => r.json())
+    .then(d => { _watchSet = new Set(d.symbols || []); })
+    .catch(() => {});
+}
+function _watchToggle(sym) {
+  fetch('/api/watchlist/toggle', {method:'POST', headers:{'Content-Type':'application/json'},
+         body: JSON.stringify({symbol: sym})})
+    .then(r => r.json())
+    .then(d => {
+      if (d.watched) _watchSet.add(d.symbol); else _watchSet.delete(d.symbol);
+      if (typeof trendRender === 'function' && _trendData) trendRender();
+    })
+    .catch(() => {});
+}
+_watchLoad();
 let _trendCritFilt   = new Set();  // indices 0-9 that must be true
 
 // ── Scan lifecycle ──────────────────────────────────────────────
+// Skeleton rows for the 15–25s a scan takes — "working", not "hung". Widths vary so
+// it reads as data rather than a progress bar.
+function _skeletonRows(n) {
+  const W = [[54, 92], [70, 58], [46, 64], [80, 50], [60, 74], [52, 86]];
+  let h = '';
+  for (let i = 0; i < n; i++) {
+    const w = W[i % W.length];
+    h += '<div class="skel-row">'
+       + `<div class="skel" style="width:${w[0]}px"></div>`
+       + `<div class="skel" style="width:${w[1]}px"></div>`
+       + '<div class="skel" style="flex:1"></div>'
+       + `<div class="skel" style="width:${w[1] - 12}px"></div>`
+       + `<div class="skel" style="width:${w[0]}px"></div>`
+       + '</div>';
+  }
+  return h;
+}
+// The skeleton borrows #trendEmpty's box, so stash its real content once and put it
+// back on any path that ends without a table — otherwise the "Click Run Scan" empty
+// state is destroyed by the first scan and never comes back.
+let _trendEmptyHTML = null;
+function _trendShowEmpty() {
+  const empty = document.getElementById('trendEmpty');
+  if (!empty) return;
+  if (_trendEmptyHTML !== null) empty.innerHTML = _trendEmptyHTML;
+  empty.style.display = '';
+}
 function startTrendScan() {
   const btn = document.getElementById('trendScanBtn');
-  btn.disabled = true; btn.textContent = 'Scanning…';
+  btn.disabled = true; btn.innerHTML = '<span class="spinner"></span>Scanning…';
   document.getElementById('trendProgress').style.display = '';
   document.getElementById('trendResults').style.display  = 'none';
-  document.getElementById('trendEmpty').style.display    = 'none';
+  const empty = document.getElementById('trendEmpty');
+  if (_trendEmptyHTML === null) _trendEmptyHTML = empty.innerHTML;
+  empty.style.display = '';
+  empty.innerHTML = _skeletonRows(9);
   fetch('/api/trending/scan', { method: 'POST' })
     .then(r => r.json())
     .then(() => { _trendPollTimer = setInterval(_trendPoll, 1800); })
-    .catch(e => { btn.disabled = false; btn.textContent = '▶ Run Scan'; alert('Scan failed: ' + e); });
+    .catch(e => {
+      btn.disabled = false; btn.innerHTML = '<svg class=\"ic ic-b\"><use href=\"#i-flame\"/></svg>Run Scan';
+      document.getElementById('trendProgress').style.display = 'none';
+      _trendShowEmpty();   // never leave the skeleton shimmering after a failure
+      alert('Scan failed: ' + e);
+    });
 }
 
 function _trendPoll() {
@@ -6675,10 +7564,13 @@ function _trendPoll() {
     }
     clearInterval(_trendPollTimer);
     const btn = document.getElementById('trendScanBtn');
-    btn.disabled = false; btn.textContent = '▶ Run Scan';
+    btn.disabled = false; btn.innerHTML = '<svg class=\"ic ic-b\"><use href=\"#i-flame\"/></svg>Run Scan';
     document.getElementById('trendProgress').style.display = 'none';
-    if (d.error) { alert('Scan error: ' + d.error); return; }
-    if (!d.result) return;
+    // Clear the skeleton on EVERY exit path — shimmering rows left on screen would
+    // read as a scan still running. Failures fall back to the real empty state.
+    if (d.error) { _trendShowEmpty(); alert('Scan error: ' + d.error); return; }
+    if (!d.result) { _trendShowEmpty(); return; }
+    document.getElementById('trendEmpty').style.display = 'none';
     _trendData = d.result;
 
     // Populate sector dropdown
@@ -6698,13 +7590,84 @@ function _trendPoll() {
       new Date(_trendData.computed_at * 1000).toLocaleString('en-IN', {day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'});
 
     document.getElementById('trendResults').style.display = '';
+    _renderTrendRegime();
     _renderHeatmap();
     _renderTrendScorecard();
     trendSetFilter('score', 'all');
   });
 }
 
-// ── v3 Scorecard panel — honest forward-return tracking of past picks ──
+// ── Market Regime → 3-STATE PROTECTIVE POSTURE ────────────────────────
+// Plain-English Uptrend / Sideways / Downtrend (matches the header) driven by
+// the canonical regime. Its job is capital protection: tell the user what
+// POSTURE to take. In a downtrend the honest edge is losing less — protect
+// capital, don't force buys. Guidance, not personalised advice; it never
+// silently reorders the list (the user chooses the Sustained Breakouts filter).
+// ── Expected-value chip (idea 4) ─────────────────────────────────────────────
+// Every pick shows its VALIDATED forward-return bucket (survivorship-free), so a
+// "10/10" is read alongside its real historical win-rate instead of in a vacuum.
+// Buckets fetched once from /api/risk/scorecard; mirrors validation_registry.
+let _scBuckets = null;
+(function _loadScorecard(){ fetch('/api/risk/scorecard').then(r=>r.ok?r.json():null)
+  .then(d=>{ if(d) _scBuckets = d.buckets; }).catch(()=>{}); })();
+function _bucketFor(r){
+  if (r.sustained_breakout) return 'SUSTAINED_BREAKOUT';
+  const pfh = r.pct_from_high;
+  if (typeof pfh === 'number' && pfh <= -8) return 'FADED_BREAKOUT';
+  if (r.days_since_high != null && r.days_since_high <= 25)
+    return (typeof pfh === 'number' && pfh < -6) ? 'FADED_BREAKOUT' : 'TRENDING_NO_BREAKOUT';
+  return 'TRENDING_NO_BREAKOUT';
+}
+function _evChip(r){
+  if (!_scBuckets) return '';
+  const b = _scBuckets[_bucketFor(r)]; if (!b) return '';
+  const col = b.oos_alpha >= 0.9 ? '#10b981' : b.oos_alpha >= 0.5 ? '#eab308' : '#f87171';
+  return `<span style="font-size:10px;padding:2px 6px;border-radius:8px;background:${col}22;color:${col};border:1px solid ${col}66;font-weight:700;font-family:var(--mono)" title="Validated forward-return bucket: ${b.label}. Historical (survivorship-free) 21-bar alpha vs NIFTYBEES: mean ${b.mean_alpha>=0?'+':''}${b.mean_alpha}%, win ${b.win_pct}%, downside tail ${b.tail_p10}%, out-of-sample ${b.oos_alpha>=0?'+':''}${b.oos_alpha}%. This is what stocks in this state did historically — NOT a prediction for this one.">${b.win_pct}% win</span>`;
+}
+
+function _renderTrendRegime() {
+  const el = document.getElementById('trendRegimeBanner');
+  if (!el) return;
+  const rg = _trendData && _trendData.regime;
+  if (!rg || !rg.regime || rg.regime === 'Unknown') { el.style.display = 'none'; return; }
+  const dd  = (rg.dday_count != null) ? rg.dday_count : '—';
+  const ftd = rg.ftd_active ? `· ✓ follow-through ${rg.ftd_day || ''}` : '';
+  const POSTURE = {
+    'Confirmed Uptrend': { name: '▲ Uptrend', color: '#22c55e', bg: 'rgba(34,197,94,.10)', cta: true,
+      action: 'Buy mode — surface Sustained Breakouts and size normally per your plan.' },
+    'Uptrend Under Pressure': { name: '● Sideways', color: '#eab308', bg: 'rgba(234,179,8,.10)', cta: true,
+      action: `Be selective — distribution is creeping in (${dd} of 6 D-days). Stick to Sustained Breakouts only, and consider half size.` },
+    'Correction': { name: '▼ Downtrend', color: '#ef4444', bg: 'rgba(239,68,68,.10)', cta: false,
+      action: `Protect capital — ${dd} distribution days. Avoid new buys, honor your stops, raise cash. Losing less now is how you beat the next up-leg.` },
+    'Downtrend': { name: '▼ Downtrend', color: '#ef4444', bg: 'rgba(239,68,68,.10)', cta: false,
+      action: 'Protect capital — avoid new buys, honor your stops, raise cash.' },
+  };
+  const p = POSTURE[rg.regime] || POSTURE['Uptrend Under Pressure'];
+  const cta = p.cta
+    ? `<button onclick="trendApplyPreset('sustained')" class="tag" style="cursor:pointer;font-size:11px;border-color:${p.color};color:${p.color};font-weight:700;margin-left:auto;white-space:nowrap">🚀 Show Sustained Breakouts →</button>`
+    : `<span class="tag" style="margin-left:auto;font-size:10px;color:#fca5a5;white-space:nowrap">🛡️ Capital-protection mode</span>`;
+  el.style.display = '';
+  el.innerHTML =
+    `<div class="panel" style="border-left:4px solid ${p.color};background:${p.bg};margin-bottom:10px">
+       <div style="padding:10px 14px;display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+         <span style="font-weight:800;color:${p.color};font-size:15px;white-space:nowrap">${p.name}</span>
+         <span style="color:var(--text);font-size:12px;flex:1;min-width:220px">${p.action}</span>
+         ${cta}
+       </div>
+       <div style="padding:0 14px 9px;font-size:10px;color:var(--muted)">
+         Market regime over a ~5-week window · ${dd} distribution day${dd === 1 ? '' : 's'}/25 ${ftd} · a single day doesn't flip it. Guidance, not personalised advice.
+       </div>
+     </div>`;
+}
+
+// ── Report Card panel — honest forward-return tracking of past picks ──
+// Four bucket groups × three horizons, incl. worst-decile alpha (tail risk).
+let _scGroup   = 'by_entry_window';
+let _scHorizon = null;   // auto-picked: longest horizon with enough data
+
+function _scSetGroup(g)   { _scGroup = g;   _renderTrendScorecard(); }
+function _scSetHorizon(h) { _scHorizon = h; _renderTrendScorecard(); }
+
 function _renderTrendScorecard() {
   const el = document.getElementById('trendScorecard');
   if (!el) return;
@@ -6712,28 +7675,53 @@ function _renderTrendScorecard() {
   if (!sc || sc.error) { el.style.display = 'none'; return; }
   el.style.display = '';
   const bench = _trendData.bench_source === 'NIFTYBEES'
-    ? '<span style="color:var(--green)" title="Relative strength measured vs the real Nifty 50 ETF">✓ vs real NIFTYBEES</span>'
+    ? '<span style="color:var(--green)" title="Alpha measured vs the real Nifty 50 ETF">✓ vs real NIFTYBEES</span>'
     : '<span style="color:#fb923c" title="NIFTYBEES unavailable — using 20-stock proxy">⚠ vs proxy Nifty</span>';
-  let html = `<b style="color:var(--gold2)">📋 Scorecard</b> — tracking ${sc.rows_logged || 0} picks `
-    + `across ${sc.scan_dates || 0} scan day(s)${sc.first_scan ? ` since ${sc.first_scan}` : ''} · `
-    + `${sc.rows_measured || 0} with 20d outcomes measured · ${bench}`;
-  const rows = (sc.by_conviction || []);
-  if (rows.length) {
-    html += `<table style="margin-top:6px;border-collapse:collapse;font-size:11px">`
+
+  const mbh = sc.measured_by_horizon || {};
+  // default horizon: the longest one with >= 200 measured outcomes
+  if (_scHorizon == null || !(mbh[_scHorizon] > 0)) {
+    _scHorizon = ['20', '10', '5'].find(h => (mbh[h] || 0) >= 200) || '5';
+  }
+
+  const groups = {
+    by_entry_window: '🎯 Entry window',
+    by_rank:         '# Rank band',
+    by_conviction:   '🎯 Conviction',
+    by_score:        'Score band',
+  };
+  const groupBtns = Object.entries(groups).map(([k, lbl]) =>
+    `<button onclick="_scSetGroup('${k}')" class="tag" style="cursor:pointer;font-size:10px;padding:2px 8px;${k === _scGroup ? 'border-color:var(--gold2);color:var(--gold2);font-weight:700' : ''}">${lbl}</button>`).join(' ');
+  const horizonBtns = ['5', '10', '20'].map(h =>
+    `<button onclick="_scSetHorizon('${h}')" class="tag" style="cursor:pointer;font-size:10px;padding:2px 8px;${h === _scHorizon ? 'border-color:var(--accent2);color:var(--accent2);font-weight:700' : ''}" title="${mbh[h] || 0} outcomes measured">${h}d${(mbh[h] || 0) === 0 ? ' (0)' : ''}</button>`).join(' ');
+
+  let html = `<b style="color:var(--gold2)">📊 Report Card</b> — how past picks ACTUALLY did. `
+    + `${sc.rows_logged || 0} picks over ${sc.scan_dates || 0} scan days since ${sc.first_scan || '—'} · ${bench}`
+    + `<div style="margin:6px 0 4px">${groupBtns} <span style="color:var(--muted);margin:0 6px">·</span> horizon: ${horizonBtns}</div>`;
+
+  const rows = (sc[_scGroup] || []);
+  const cells = rows.map(b => ({b, h: (b.horizons || {})[_scHorizon]})).filter(x => x.h);
+  if (cells.length) {
+    const ewNames = {pullback: '🟢 Pullback', fresh_breakout: '🟢 Breakout', extended: '🟠 Extended', weakening: '🔴 Weakening', in_range: '⚪ In-range'};
+    html += `<table style="margin-top:4px;border-collapse:collapse;font-size:11px">`
       + `<tr style="color:var(--muted)"><td style="padding:1px 14px 1px 0">Bucket</td>`
-      + `<td style="padding:1px 14px 1px 0">n</td><td style="padding:1px 14px 1px 0">Avg 20d ret</td>`
-      + `<td style="padding:1px 14px 1px 0">Avg 20d alpha</td><td>Beat Nifty</td></tr>`
-      + rows.map(b => {
-          const ac = (b.avg_alpha20 ?? 0) >= 0 ? 'var(--green)' : 'var(--red)';
-          return `<tr><td style="padding:1px 14px 1px 0;color:var(--text2)">${b.bucket}</td>`
-            + `<td style="padding:1px 14px 1px 0;font-family:var(--mono)">${b.n}</td>`
-            + `<td style="padding:1px 14px 1px 0;font-family:var(--mono)">${b.avg_fwd20 != null ? b.avg_fwd20 + '%' : '—'}</td>`
-            + `<td style="padding:1px 14px 1px 0;font-family:var(--mono);color:${ac};font-weight:700">${b.avg_alpha20 != null ? (b.avg_alpha20 >= 0 ? '+' : '') + b.avg_alpha20 + '%' : '—'}</td>`
-            + `<td style="font-family:var(--mono)">${b.beat_bench_pct != null ? b.beat_bench_pct + '%' : '—'}</td></tr>`;
+      + `<td style="padding:1px 14px 1px 0">n</td><td style="padding:1px 14px 1px 0">Avg ${_scHorizon}d ret</td>`
+      + `<td style="padding:1px 14px 1px 0">Avg alpha</td><td style="padding:1px 14px 1px 0">Beat Nifty</td>`
+      + `<td style="padding:1px 14px 1px 0" title="Worst-decile alpha — 1 pick in 10 did this badly or worse. The GVT&D stat.">Tail (p10)</td></tr>`
+      + cells.map(({b, h}) => {
+          const ac = h.avg_alpha >= 0 ? 'var(--green)' : 'var(--red)';
+          const low = h.low_sample ? ` <span style="color:var(--muted)" title="Under ${sc.min_bucket_n} measured rows — not evidence yet">(low n)</span>` : '';
+          const name = ewNames[b.bucket] || b.bucket;
+          return `<tr style="${h.low_sample ? 'opacity:.55' : ''}"><td style="padding:1px 14px 1px 0;color:var(--text2)">${name}${low}</td>`
+            + `<td style="padding:1px 14px 1px 0;font-family:var(--mono)">${h.n}</td>`
+            + `<td style="padding:1px 14px 1px 0;font-family:var(--mono)">${h.avg_fwd}%</td>`
+            + `<td style="padding:1px 14px 1px 0;font-family:var(--mono);color:${ac};font-weight:700">${h.avg_alpha >= 0 ? '+' : ''}${h.avg_alpha}%</td>`
+            + `<td style="padding:1px 14px 1px 0;font-family:var(--mono)">${h.win_pct}%</td>`
+            + `<td style="font-family:var(--mono);color:${h.p10_alpha <= -8 ? 'var(--red)' : 'var(--text2)'}">${h.p10_alpha}%</td></tr>`;
         }).join('')
       + `</table>`;
   } else {
-    html += `<div style="margin-top:4px;color:var(--muted)">Outcomes fill in automatically as future trading days arrive (20d horizon needs ~4 weeks of scans). Keep scanning daily — this panel will show whether high-Conviction picks actually beat the market.</div>`;
+    html += `<div style="margin-top:4px;color:var(--muted)">No outcomes measured at the ${_scHorizon}d horizon yet — they fill in automatically as future trading days arrive. Keep scanning daily.</div>`;
   }
   el.innerHTML = html;
 }
@@ -6856,6 +7844,21 @@ function trendToggleSpecial(key) {
   trendRender();
 }
 
+// Entry-window filter — single-select over r.entry_window (click active to clear).
+const _TREND_EW_KEYS = ['pullback', 'fresh_breakout', 'extended', 'weakening', 'in_range'];
+function trendToggleEntryWin(key) {
+  _trendEntryWin = (key == null || _trendEntryWin === key) ? null : key;
+  _TREND_EW_KEYS.forEach(k => {
+    const b = document.getElementById('trendEW-' + k);
+    if (!b) return;
+    const on = _trendEntryWin === k;
+    b.style.cssText += `;background:${on?'var(--accent2)':'var(--surface2)'};color:${on?'#fff':'var(--text2)'};border-color:${on?'var(--accent2)':'var(--border)'}`;
+  });
+  const clr = document.getElementById('trendEW-clear');
+  if (clr) clr.style.display = _trendEntryWin ? '' : 'none';
+  trendRender();
+}
+
 function trendToggleCrit(i) {
   if (_trendCritFilt.has(i)) _trendCritFilt.delete(i);
   else _trendCritFilt.add(i);
@@ -6896,7 +7899,7 @@ let _trendPreset = 'all';
 
 function trendApplyPreset(name) {
   _trendPreset = name;
-  ['all','breakout','quiet','institutional','leader','fresh','tradeready'].forEach(k => {
+  ['all','sustained','breakout','quiet','institutional','leader','fresh','tradeready'].forEach(k => {
     const el = document.getElementById('trendPS-' + (k === 'institutional' ? 'inst' : k));
     if (!el) return;
     const on = k === name;
@@ -6907,6 +7910,7 @@ function trendApplyPreset(name) {
   // Brief explanation under the chips
   const explain = {
     'all':           '',
+    'sustained':     '🚀 Strongest sustainable breakouts — trending + broke out (new high ≤~25d) + STILL HOLDING it (within 8% of high · above MA20 · not fading), sorted strongest-first. Backtested +1.36% fwd α vs +0.99% for all trending (survivorship-free, point-in-time; holds OOS +1.26% vs +0.09%), faders excluded. ⚠ The most-extended winners run furthest but have the FATTEST downside tail — size small, honor the stop (📋), and cut size further when the regime is Sideways/Downtrend.',
     'breakout':      'Score ≥ 8 · new 52W high in last 5d · vol > 1.5×',
     'quiet':         'Score ≥ 9 · at MA20 support · top-15 sector',
     'institutional': 'Score ≥ 7 · MFI ≥ 75 · delivery rising',
@@ -6933,12 +7937,16 @@ function trendRender() {
     if (search && !r.symbol.includes(search)) return false;
     if (_trendSpecial === 'new_high'  && !r.new_high_flag) return false;
     if (_trendSpecial === 'pullback'  && !r.at_support)    return false;
+    if (_trendEntryWin && r.entry_window !== _trendEntryWin) return false;
     if (_trendCritFilt.size > 0) {
       const c = r.criteria || [];
       for (const idx of _trendCritFilt) { if (!c[idx]) return false; }
     }
     // Tier 3I: preset filters
-    if (_trendPreset === 'breakout') {
+    if (_trendPreset === 'sustained') {
+      // VALIDATED buy gate — trending + broke out + still holding it.
+      if (!r.sustained_breakout) return false;
+    } else if (_trendPreset === 'breakout') {
       if ((r.score_int ?? r.score) < 8) return false;
       if (!r.new_high_flag || (r.new_high_days != null && r.new_high_days > 5)) return false;
       if (r.vol_ratio == null || r.vol_ratio < 1.5) return false;
@@ -7066,12 +8074,36 @@ function trendRender() {
     return `<span style="color:${col};font-family:var(--mono);font-size:11px" title="₹${r.adtv_cr}Cr avg daily turnover${cost}">₹${r.adtv_cr}Cr</span>`;
   };
 
+  // Watchlist star — watched symbols get Guardian fade-alerts without holding
+  const watchStar = sym => {
+    const on = _watchSet.has(sym);
+    return `<span onclick="event.stopPropagation();_watchToggle('${sym}')" `
+      + `style="cursor:pointer;margin-right:4px;color:${on ? 'var(--gold2)' : 'var(--muted)'};opacity:${on ? 1 : .45}" `
+      + `title="${on ? 'Watching — Guardian alerts on strength fade. Click to remove.' : 'Add to watchlist — Guardian will alert if this stock starts fading'}">${on ? '★' : '☆'}</span>`;
+  };
+
+  // Rank-momentum chip: Δrank vs ~5 scans ago. Positive = climbed the list.
+  // GVT&D fell 19→55 over four sessions while the chart still looked fine —
+  // this makes that deterioration visible at a glance.
+  const rankDeltaChip = r => {
+    const d = r.rank_delta_5d;
+    if (d == null || d === 0) return '';
+    const up = d > 0;
+    const col = up ? '#10b981' : (d <= -20 ? '#ef4444' : '#fb923c');
+    const arrow = up ? '▲' : '▼';
+    const label = `${arrow}${Math.abs(d)}`;
+    const t = `Rank ${up ? 'improved' : 'slipped'} ${Math.abs(d)} places vs ~5 scans ago` +
+              (d <= -20 ? ' — losing strength relative to peers' : '');
+    return `<br><span style="font-size:9px;color:${col};font-weight:700" title="${t}">${label}</span>`;
+  };
+
   // Entry-window chip
   const entryCell = r => {
     const map = {
+      'weakening':      ['🔴 Weakening', '#ef4444', 'Strength fading — retraced sharply from its recent high (or below MA20 and falling). Not a dip-buy; backtest: fading names made +0.6% fwd vs +2.4% for the rest'],
       'pullback':       ['🟢 Pullback',  '#10b981', 'At MA20 support in an uptrend — defined-risk entry'],
       'fresh_breakout': ['🟢 Breakout',  '#10b981', 'New 52W high within 5d, ≤15% above MA50 — buyable breakout'],
-      'extended':       ['🟠 Extended',  '#fb923c', 'More than 15% above MA50 — chasing; wait for a pullback'],
+      'extended':       ['🟠 Extended',  '#fb923c', 'More than 15% above MA50 — higher average return but far fatter left tail (worst-5%: -19% vs -15%); size small or wait for a pullback'],
       'in_range':       ['⚪ In-range',  '#94a3b8', 'No defined entry edge right now'],
     };
     const m = map[r.entry_window] || map['in_range'];
@@ -7088,6 +8120,8 @@ function trendRender() {
   tbody.innerHTML = rows.map(r => {
     // Tier 2H: Stage 2 fresh-entry badge + existing flags
     const badges = [
+      _evChip(r),
+      r.sustained_breakout ? `<span style="font-size:10px;padding:2px 6px;border-radius:8px;background:#10b98140;color:#10b981;border:1px solid #10b981;font-weight:700" title="Sustained breakout (VALIDATED buy gate): broke out to a new high ≤~25 sessions ago and is still holding it (within 8% of high, above MA20, not fading). Backtested +1.36% forward alpha vs +0.99% for all trending names (survivorship-free, point-in-time, dividend-adjusted), holds out-of-sample (+1.26% vs +0.09%).">🚀 Sustained</span>` : '',
       r.fresh_stage2 ? `<span style="font-size:10px;padding:2px 6px;border-radius:8px;background:#10b98140;color:#10b981;border:1px solid #10b98199;font-weight:700" title="Just transitioned into Stage 2 in last ${r.stage_log_days_ago}d (from S${r.stage_log_prev})">🆕 Fresh S2</span>` : '',
       r.new_high_flag ? `<span style="font-size:10px;padding:2px 6px;border-radius:8px;background:#10b98122;color:#10b981;border:1px solid #10b98155" title="New 52W high in last ${r.new_high_days} session(s)">🆕 New High</span>` : '',
       r.at_support    ? `<span style="font-size:10px;padding:2px 6px;border-radius:8px;background:#f59e0b22;color:#f59e0b;border:1px solid #f59e0b55" title="Price at MA20 support — potential entry">🎯 Support</span>` : '',
@@ -7110,11 +8144,17 @@ function trendRender() {
       ? `Score ${(r.score ?? 0).toFixed(1)}/10 — ranked ${r.sector_rank ? '#' + r.sector_rank : ''} in sector (+${(r.sector_tailwind*100).toFixed(0)}% tailwind applied to sort)`
       : `Score ${(r.score ?? 0).toFixed(1)}/10`;
 
+    const planBtn = r.trade_plan
+      ? `<span onclick="event.stopPropagation();toggleTrendPlan(${r.rank})" id="tplanbtn-${r.rank}"
+             title="If You Buy This — entry, stop, size, targets"
+             style="cursor:pointer;margin-left:6px;font-size:11px;opacity:.75;user-select:none">📋</span>`
+      : '';
+
     return `<tr style="border-bottom:1px solid var(--border)"
         onmouseover="this.style.background='var(--surface2)'"
         onmouseout="this.style.background=''">
-      <td style="padding:7px 10px;color:var(--muted);font-family:var(--mono);font-size:11px">#${r.rank}</td>
-      <td style="padding:7px 10px;font-weight:700;color:var(--white);white-space:nowrap">${r.symbol}</td>
+      <td style="padding:7px 10px;color:var(--muted);font-family:var(--mono);font-size:11px">#${r.rank}${rankDeltaChip(r)}</td>
+      <td style="padding:7px 10px;font-weight:700;color:var(--white);white-space:nowrap">${watchStar(r.symbol)}${r.symbol}${planBtn}</td>
       <td style="padding:7px 10px;max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${sectorCell(r)}</td>
       <td style="padding:7px 10px;text-align:center" title="${scoreTitle}">
         <span style="font-size:14px;font-weight:800;color:${scoreColor(displayScore)};font-family:var(--mono)">${displayScore.toFixed(1)}/10</span>
@@ -7134,15 +8174,63 @@ function trendRender() {
       <td style="padding:7px 10px">${entryCell(r)}</td>
       <td style="padding:7px 10px;font-family:var(--mono);color:${r2Color(r.r_squared)}">${r.r_squared != null ? r.r_squared.toFixed(2) : '—'}</td>
       <td style="padding:7px 10px"><div class="trend-flags">${flagsCell || '<span style="color:var(--muted)">—</span>'}</div></td>
-    </tr>`;
+    </tr>${r.trade_plan ? `<tr id="tplanrow-${r.rank}" style="display:none"><td colspan="19" style="padding:0;border-bottom:1px solid var(--border)">${_trendPlanCard(r)}</td></tr>` : ''}`;
   }).join('');
+}
+
+// ── C2: "If You Buy This" — mechanical entry/stop/size/targets per row ─────────
+// Renders trending row `r.trade_plan` (computed in trending.py `trade_plan()`).
+// Purely mechanical trade arithmetic (2.5×ATR stop, 1%-risk sizing, +2R/+3R) —
+// it is education, NOT personalised advice; the disclaimer says so.
+function toggleTrendPlan(rank) {
+  const row = document.getElementById('tplanrow-' + rank);
+  const btn = document.getElementById('tplanbtn-' + rank);
+  if (!row) return;
+  const open = row.style.display === 'none';
+  row.style.display = open ? '' : 'none';
+  if (btn) btn.style.opacity = open ? '1' : '.75';
+}
+
+function _trendPlanCard(r) {
+  const p = r.trade_plan;
+  if (!p) return '';
+  const rup = x => (x == null ? '—' : '₹' + Number(x).toLocaleString('en-IN'));
+  const tgt = (p.targets || []).map(t =>
+    `<span style="margin-right:14px"><b style="color:var(--green)">${t.label}</b> ${rup(t.price)} <span style="color:var(--muted)">(+${t.gain_pct}%)</span></span>`).join('');
+  const capNote = p.size_capped
+    ? `<span style="color:#fb923c" title="A 1%-risk position would exceed the single-name cap, so size is capped. Actual capital at risk on a full stop is ${p.risk_pct_of_capital}%.">· capped, risks ${p.risk_pct_of_capital}% at stop</span>`
+    : `<span style="color:var(--muted)">· risks ${p.risk_pct_of_capital}% of capital at stop</span>`;
+  return `
+    <div style="background:var(--surface2);padding:12px 16px;font-size:12px">
+      <div style="font-weight:800;color:var(--gold2);margin-bottom:8px">📋 If You Buy ${r.symbol} — the mechanical plan</div>
+      <div style="display:flex;flex-wrap:wrap;gap:10px 26px;align-items:baseline">
+        <div><span style="color:var(--muted)">Entry</span> <b style="font-family:var(--mono)">${rup(p.entry)}</b></div>
+        <div><span style="color:var(--muted)">Initial stop</span>
+             <b style="font-family:var(--mono);color:var(--red)">${rup(p.stop_price)}</b>
+             <span style="color:var(--red)">(−${p.stop_pct}%)</span>
+             <span style="color:var(--muted);font-size:11px">${p.stop_basis}</span></div>
+        <div><span style="color:var(--muted)">Risk/share</span> <b style="font-family:var(--mono)">${rup(p.risk_per_share)}</b></div>
+        <div><span style="color:var(--muted)">Buy size</span>
+             <b style="font-family:var(--mono);color:var(--accent2)">${p.size_pct}% of capital</b> ${capNote}</div>
+      </div>
+      <div style="margin-top:8px">${tgt}
+        <span style="color:var(--muted);margin-left:6px">round-trip cost ~${p.cost_pct != null ? p.cost_pct + '%' : '—'}</span></div>
+      <div style="margin-top:8px;color:var(--text2);font-size:11px;line-height:1.5;max-width:820px">
+        <b>Manage:</b> ${p.manage}</div>
+      <div style="margin-top:6px;color:var(--muted);font-size:10px;font-style:italic">
+        Mechanical arithmetic (2.5×ATR stop, 1%-risk sizing) for education — not personalised advice. Your call.</div>
+    </div>`;
 }
 
 
 </script>
 
+</main>
+</div>
+<!-- ══ /APP SHELL ══ -->
+
 <footer class="site-footer">
-  <div class="ft-title">Stock analysis and screening tool</div>
+  <div class="ft-title">Stock screening and analytics platform</div>
   <div class="ft-line">Made with <span class="ft-heart">❤️</span> for equity markets</div>
   <div class="ft-line">Data provided by NSE bhavcopy</div>
 </footer>

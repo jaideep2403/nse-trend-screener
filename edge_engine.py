@@ -379,14 +379,17 @@ def _build_nifty_proxy(stocks: dict) -> pd.DataFrame | None:
 # 1. MARKET REGIME — Distribution Day count + Follow-Through Day
 # ──────────────────────────────────────────────────────────────────────────────
 
-def detect_market_regime(nifty: pd.DataFrame) -> dict:
+def detect_market_regime(nifty: pd.DataFrame, stocks: dict | None = None) -> dict:
     """
     Delegates to the CANONICAL regime module (regime.py) — the same
-    implementation Market Breadth uses, so the two tabs can never disagree.
+    implementation AND the same inputs Market Breadth uses, so the two tabs can
+    never disagree.
 
-    Inputs: real NIFTYBEES close for price (proxy close as fallback) +
-    the proxy basket's summed volume (NIFTYBEES ETF volume does not reflect
-    institutional index activity; true index volume isn't in the bhavcopy).
+    Inputs: real NIFTYBEES close for price (proxy close as fallback) + the
+    canonical BROAD market volume (`regime.build_market_volume`, the SAME series
+    Breadth passes). Pre-fix this used the nifty frame's own volume, so after the
+    broad-volume change Edge showed a different distribution-day count than
+    Breadth on the same day (5 vs 4) — the single-source-of-truth broke.
     """
     import regime as regime_mod
 
@@ -397,7 +400,10 @@ def detect_market_regime(nifty: pd.DataFrame) -> dict:
         price, bench_src = _BENCH, "NIFTYBEES"
     else:
         price, bench_src = nifty["Close"], "proxy"
-    volume = nifty["Volume"] if "Volume" in nifty.columns else None
+    # Canonical broad volume when the caller passes the loaded universe; fall back
+    # to the nifty frame's own volume only if stocks are unavailable.
+    volume = regime_mod.build_market_volume(stocks) if stocks else (
+        nifty["Volume"] if hasattr(nifty, "columns") and "Volume" in nifty.columns else None)
 
     r = regime_mod.market_regime(price, volume)
 
@@ -1523,7 +1529,7 @@ def run_edge_engine(progress_callback=None, include_backtests=False) -> dict:
     # Market regime
     if progress_callback:
         progress_callback(30, 100, "Detecting market regime (D-Day / FTD)…")
-    regime = detect_market_regime(nifty)
+    regime = detect_market_regime(nifty, stocks)
 
     # Sector quadrants (RRG)
     if progress_callback:

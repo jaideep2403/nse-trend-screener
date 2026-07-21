@@ -45,9 +45,31 @@ PRESSURE_DDAYS      = 4
 
 
 def build_market_volume(stocks: dict) -> pd.Series | None:
-    """Summed daily volume of the canonical 20-stock basket.
-    Pass the same `stocks` dict any scanner already loaded — no extra I/O."""
-    vols = [stocks[s]["Volume"].dropna() for s in NIFTY_PROXY_SYMS
+    """Summed daily volume of the BROAD market — the representative tape volume
+    the IBD distribution-day test needs. Sums the Nifty Total Market universe
+    (~750) intersected with the passed `stocks`, so every caller that loads a
+    superset reproduces the SAME series (canonical). Falls back to the fixed
+    20-stock NIFTY_PROXY basket only if the broad universe can't be resolved.
+
+    WHY BROAD (fix 2026-07-08): the old 20-stock large-cap basket diverged from
+    the tape on broad sell-offs. On 08-Jul-2026 total market volume rose +20.7%
+    on a −2.12% NIFTY day (a textbook institutional distribution day) while the
+    20-stock basket volume FELL 10.7% — so the D-day volume gate silently missed
+    a real distribution day, the regime stayed "Under Pressure" instead of
+    tipping toward "Correction", and Regime-Safe never armed. Distribution shows
+    up in the WHOLE market's volume, not in 20 large-caps that can stay quiet
+    while mid/small-caps are being sold. Pass the `stocks` dict already loaded —
+    no extra I/O.
+    """
+    syms = None
+    try:
+        from nse_stocks import get_universe_symbols
+        syms = [s for s in get_universe_symbols() if s in stocks]
+    except Exception:
+        syms = None
+    if not syms or len(syms) < 50:                       # broad universe unavailable
+        syms = [s for s in NIFTY_PROXY_SYMS if s in stocks]
+    vols = [stocks[s]["Volume"].dropna() for s in syms
             if s in stocks and len(stocks[s]) >= 60]
     if len(vols) < 5:
         return None

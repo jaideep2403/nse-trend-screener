@@ -26,6 +26,25 @@ from data_fetcher import _weekdays_back, _download_one_day
 BENCH_SYMBOL     = "NIFTYBEES"
 FALLBACK_SYMBOLS = ["SETFNIF50", "NIFTY1"]
 
+# ── Dividend asymmetry correction ────────────────────────────────────────────
+# NIFTYBEES is a TOTAL-return proxy — the ETF reinvests the index's dividends — but
+# stock returns come from PRICE-only bhavcopy. Comparing a price-only stock return
+# to a dividend-reinvested benchmark handicaps every stock by ~the Nifty dividend
+# yield (~1.2–1.4%/yr), biasing alpha DOWN (worst against high-yield names). To
+# compare like with like, subtract the pro-rated dividend from the benchmark return.
+# ~1.3%/yr is the Nifty 50 trailing yield; adjust here if it drifts.
+NIFTY_ANNUAL_DIV_YIELD = 0.013
+
+
+def dividend_drag(bars: int) -> float:
+    """Pro-rated NIFTY dividend yield over `bars` trading days, as a FRACTION.
+    Subtract from a NIFTYBEES total-return to get a price-comparable benchmark."""
+    try:
+        return NIFTY_ANNUAL_DIV_YIELD * (max(0, int(bars)) / 252.0)
+    except Exception:
+        return 0.0
+
+
 _cache: dict = {"series": None, "ts": 0.0, "days": 0}
 CACHE_TTL = 6 * 3600   # 6 h — same cadence as the rest of the EOD pipeline
 

@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sign in · Ascent Wealth Labs</title>
+<link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
+<style>
+  :root{
+    /* Light "positive green" theme — soft mint field, white card, slate-green ink. */
+    --bg1:#eef8f1; --bg2:#dbeee2; --card:#ffffff; --card2:#ffffff;
+    --border:#cee3d6; --text:#123024; --text2:#4c6558;
+    --muted:#84988b; --accent:#059669; --accent2:#0d9488;
+    --green:#059669; --green2:#047857; --red:#dc2626; --field:#f3faf6;
+    --mono:'JetBrains Mono','Courier New',monospace;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{
+    font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+    min-height:100vh; color:var(--text);
+    background:
+      radial-gradient(1100px 600px at 15% -10%, rgba(16,185,129,0.20), transparent 60%),
+      radial-gradient(900px 520px at 110% 15%, rgba(45,212,191,0.16), transparent 55%),
+      radial-gradient(800px 500px at 50% 120%, rgba(5,150,105,0.10), transparent 60%),
+      linear-gradient(160deg, var(--bg1), var(--bg2));
+    display:flex; align-items:center; justify-content:center; padding:24px;
+    position:relative; overflow:hidden;
+  }
+  /* Faint market grid + a drifting "price line" behind the card — pure CSS/SVG,
+     no external assets, so it works offline / behind a tunnel. */
+  .bg-grid{
+    position:absolute; inset:0; z-index:0; opacity:.5;
+    background-image:
+      linear-gradient(rgba(16,110,74,0.055) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(16,110,74,0.055) 1px, transparent 1px);
+    background-size:44px 44px; mask-image:radial-gradient(circle at 50% 40%, #000 55%, transparent 100%);
+  }
+  .bg-line{ position:absolute; inset:0; z-index:0; width:100%; height:100%; opacity:.4; }
+  .bg-line path{ fill:none; stroke:url(#lg); stroke-width:2; }
+
+  .wrap{ position:relative; z-index:1; width:100%; max-width:400px; }
+
+  .brand{ display:flex; align-items:center; gap:12px; justify-content:center; margin-bottom:22px; }
+  .brand-logo{
+    width:44px; height:44px; border-radius:11px; flex-shrink:0;
+    background:linear-gradient(135deg,#2563eb,#1d4ed8);
+    display:flex; align-items:center; justify-content:center;
+    box-shadow:0 6px 20px -4px rgba(37,99,235,.6);
+  }
+  .brand-txt h1{ font-size:19px; font-weight:800; letter-spacing:-.3px; line-height:1.1; }
+  .brand-txt p{ font-size:9.5px; font-weight:700; letter-spacing:1.4px; text-transform:uppercase; color:var(--text2); margin-top:3px; }
+
+  .card{
+    background:linear-gradient(180deg, var(--card2), var(--card));
+    border:1px solid var(--border); border-radius:16px;
+    padding:28px 26px 26px;
+    box-shadow:0 20px 48px -22px rgba(6,78,59,.30), 0 2px 8px -3px rgba(6,78,59,.10);
+  }
+  .card h2{ font-size:16px; font-weight:700; margin-bottom:4px; }
+  .card .sub{ font-size:12.5px; color:var(--text2); margin-bottom:20px; }
+
+  .field{ margin-bottom:14px; }
+  .field label{ display:block; font-size:11px; font-weight:600; letter-spacing:.4px; text-transform:uppercase; color:var(--text2); margin-bottom:6px; }
+  .field input{
+    width:100%; background:var(--field); border:1px solid var(--border);
+    border-radius:9px; padding:11px 13px; font-size:14px; color:var(--text);
+    font-family:inherit; outline:none; transition:border-color .15s, box-shadow .15s;
+  }
+  .field input::placeholder{ color:var(--muted); }
+  .field input:focus{ border-color:var(--accent); box-shadow:0 0 0 3px rgba(16,185,129,.20); }
+
+  .btn{
+    width:100%; margin-top:6px; padding:12px; border:none; border-radius:9px;
+    background:linear-gradient(135deg,#10b981,#059669); color:#fff;
+    font-size:14px; font-weight:700; letter-spacing:.2px; cursor:pointer;
+    font-family:inherit; transition:filter .15s, transform .05s;
+    box-shadow:0 10px 24px -8px rgba(5,150,105,.55);
+  }
+  .btn:hover{ filter:brightness(1.08); }
+  .btn:active{ transform:translateY(1px); }
+
+  .err{
+    display:none; margin-bottom:14px; padding:9px 12px; border-radius:8px;
+    background:rgba(248,113,113,.12); border:1px solid rgba(248,113,113,.32);
+    color:var(--red); font-size:12.5px;
+  }
+  .err.show{ display:block; }
+
+  .signed-in{
+    margin-bottom:18px; padding:12px 14px; border-radius:10px;
+    background:rgba(16,185,129,.10); border:1px solid rgba(16,185,129,.32);
+  }
+  .si-row{ font-size:13px; color:#0e1a14; font-weight:600; }
+  .si-row b{ color:#081410; }
+  .si-go{
+    display:inline-block; margin-top:9px; padding:8px 15px; border-radius:8px;
+    background:linear-gradient(135deg,#10b981,#059669); color:#fff; font-size:13px;
+    font-weight:700; text-decoration:none; box-shadow:0 8px 20px -8px rgba(5,150,105,.55);
+  }
+  .si-go:hover{ filter:brightness(1.07); }
+  .si-alt{ font-size:11px; color:#0e1a14; margin-top:10px; line-height:1.5; }
+  .si-alt a{ color:#065f46; font-weight:700; }
+
+  .demo-hint{
+    margin-top:18px; padding:11px 13px; border-radius:9px;
+    background:rgba(16,185,129,.07); border:1px solid rgba(16,185,129,.22);
+    font-size:11.5px; color:#0e1a14; line-height:1.6;
+  }
+  .demo-hint b{ color:#081410; font-weight:700; }
+  .demo-hint code{ font-family:var(--mono); color:#081410; font-size:11px; }
+  .demo-fill{
+    background:none; border:none; color:#081410; font-size:11.5px;
+    font-weight:700; cursor:pointer; padding:0; text-decoration:underline; font-family:inherit;
+  }
+  .demo-feats{
+    display:flex; flex-wrap:wrap; gap:6px;
+    margin-top:12px; padding-top:11px; border-top:1px solid rgba(16,185,129,.18);
+  }
+  .demo-feats span{
+    font-size:10.5px; font-weight:700; letter-spacing:.2px; color:#0e1a14;
+    background:rgba(16,185,129,.12); border:1px solid rgba(16,185,129,.30);
+    border-radius:999px; padding:3px 9px; white-space:nowrap;
+  }
+
+  .foot{ text-align:center; margin-top:20px; font-size:10.5px; color:var(--muted); line-height:1.6; }
+</style>
+</head>
+<body>
+  <div class="bg-grid"></div>
+  <svg class="bg-line" viewBox="0 0 1440 900" preserveAspectRatio="xMidYMid slice" aria-hidden="true">
+    <defs><linearGradient id="lg" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#10b981" stop-opacity="0"/>
+      <stop offset=".5" stop-color="#34d399" stop-opacity=".7"/>
+      <stop offset="1" stop-color="#3b82f6" stop-opacity="0"/>
+    </linearGradient></defs>
+    <path d="M-50 640 L160 600 L320 660 L470 500 L640 560 L800 380 L980 460 L1150 250 L1320 330 L1500 150"/>
+  </svg>
+
+  <div class="wrap">
+    <div class="brand">
+      <div class="brand-logo">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3 17l6-6 4 4 8-8"/><path d="M17 7h4v4"/></svg>
+      </div>
+      <div class="brand-txt">
+        <h1>Ascent Wealth Labs</h1>
+        <p>AI Powered Analytics Platform</p>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Sign in</h2>
+      <div class="sub">Access the NSE analytics workspace.</div>
+
+      {% if signed_in_as %}
+      <div class="signed-in">
+        <div class="si-row">✓ You're already signed in as <b>{{ signed_in_as }}</b>.</div>
+        <a class="si-go" href="{{ url_for('index') }}">Continue to dashboard →</a>
+        <div class="si-alt">Not you? Sign in below to switch accounts, or <a href="{{ url_for('logout') }}">sign out</a>.</div>
+      </div>
+      {% endif %}
+
+      <div class="err {{ 'show' if error else '' }}" id="err">{{ error or '' }}</div>
+
+      <form method="POST" action="{{ url_for('login') }}{{ ('?next=' + next_url) if next_url else '' }}" autocomplete="off">
+        <div class="field">
+          <label for="username">Username</label>
+          <input id="username" name="username" type="text" placeholder="jai" autofocus spellcheck="false" value="{{ last_user or '' }}">
+        </div>
+        <div class="field">
+          <label for="password">Password</label>
+          <input id="password" name="password" type="password" placeholder="••••••••">
+        </div>
+        <button class="btn" type="submit">Sign in →</button>
+      </form>
+
+      <div class="demo-hint">
+        <b>Try the demo</b> — explore every screener without the owner's positions.<br>
+        Username <code>demo</code> · password <code>demo123</code>
+        &nbsp;<button type="button" class="demo-fill" onclick="fillDemo()">use demo login</button>
+        <div class="demo-feats">
+          <span>20+ screeners</span>
+          <span>750-stock NSE universe</span>
+          <span>All-Weather regime engine</span>
+          <span>Survivorship-free backtests</span>
+          <span>Daily bhavcopy · EOD</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="foot">
+      Not financial advice · Bhavcopy OHLCV analytics · End-of-day data<br>
+      Analytics are mechanical &amp; rule-based — consult a SEBI-registered advisor for personal decisions.
+    </div>
+  </div>
+
+<script>
+  function fillDemo(){
+    document.getElementById('username').value = 'demo';
+    document.getElementById('password').value = 'demo123';
+    document.getElementById('password').focus();
+  }
+</script>
+</body>
+</html>

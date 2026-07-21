@@ -232,11 +232,26 @@ def _detect_pocket_pivot(df: pd.DataFrame):
         atr14    = _atr(df)
         base_low = round(float(low.iloc[-12:].min()), 2)
         sl       = round(max(ma50 * 0.975, cur - 2.5 * atr14, base_low * 0.985), 2)
-        sl       = round(max(sl, entry * 0.92), 2)   # hard cap 8%
+        sl       = round(max(sl, entry * 0.92), 2)   # floor: never risk more than 8%
+
+        # P0 FIX — a stop MUST sit below the entry.
+        # The entry gate admits price down to ma50*0.97, but the stop candidate above
+        # is ma50*0.975, and max() takes the HIGHEST candidate. Solving
+        # ma50*0.975 > cur*1.002 shows a permanently-open band: whenever price closes
+        # between 3.00% and 2.69% under its 50-DMA, the "stop" lands ABOVE the buy
+        # price. The old code then HID it — `if risk <= 0: risk = entry * 0.04`
+        # invented a 4% risk, and rr / risk_pct / t1 / t2 / t3 were all priced off
+        # that fiction. Real case: TEGA entry 1644.78, "stop" 1649.12, shown with
+        # rr 2.5 and risk 4.0% (observed ratio 1.00264 vs 1.00263 predicted here).
+        # Clamping (rather than re-gating) keeps the SAME stocks selected — this is
+        # an arithmetic fix, not a selection change.
+        sl       = round(min(sl, entry * 0.98), 2)   # ceiling: at least 2% of room
 
         risk     = entry - sl
         if risk <= 0:
-            risk = entry * 0.04
+            # Unreachable after the clamp. Refuse to emit a plan we cannot price
+            # honestly rather than fabricate a risk number.
+            return False, {}
 
         t1 = round(entry + risk * 1.5, 2)
         t2 = round(entry + risk * 2.5, 2)
@@ -341,17 +356,24 @@ def _detect_earnings_setup(df: pd.DataFrame):
         base_lo  = round(post_lo, 2)
         atr14    = _atr(df)
         sl       = round(max(post_lo * 0.985, cur - 2.5 * atr14), 2)
-        sl       = round(max(sl, entry * 0.92), 2)
+        sl       = round(max(sl, entry * 0.92), 2)   # floor: never risk more than 8%
+        # Same invariant as the pocket-pivot path. This one is not currently
+        # reachable (both candidates sit below entry by construction), but the
+        # fabrication guard below was identical, so the clamp goes in here too —
+        # the class of bug is what we're closing, not one instance of it.
+        sl       = round(min(sl, entry * 0.98), 2)
 
         risk     = entry - sl
         if risk <= 0:
-            risk = entry * 0.04
+            return False, {}
 
         base_ht  = post_hi - post_lo
-        t1       = round(entry + base_ht, 2)
-        t2       = round(entry + 2.0 * risk, 2)
         prior_ath = float(close.iloc[:-1].max()) if len(close) > 1 else float(close.max())
-        t3       = round(max(prior_ath * 1.005, entry + 3.0 * risk), 2)
+        # Monotonic ladder t1<t2<t3 (same guard as breakout/advanced) so the
+        # measured move can't sit above the 2R target.
+        t1       = round(entry + base_ht, 2)
+        t2       = round(max(entry + 2.0 * risk, t1 + risk), 2)
+        t3       = round(max(prior_ath * 1.005, entry + 3.0 * risk, t2 + risk), 2)
 
         return True, {
             "entry":          entry,

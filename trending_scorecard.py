@@ -46,10 +46,21 @@ CREATE INDEX IF NOT EXISTS idx_scorecard_pending
     ON scorecard (scan_date) WHERE alpha20 IS NULL;
 """
 
+# Columns added after the initial schema shipped. sqlite has no
+# ADD COLUMN IF NOT EXISTS, so each is applied best-effort on connect.
+_MIGRATIONS = [
+    "ALTER TABLE scorecard ADD COLUMN retrace_10d REAL",   # fade state at scan time
+]
+
 
 def _conn() -> sqlite3.Connection:
     c = sqlite3.connect(DB_PATH, timeout=10)
     c.executescript(_SCHEMA)
+    for mig in _MIGRATIONS:
+        try:
+            c.execute(mig)
+        except sqlite3.OperationalError:
+            pass   # column already exists
     return c
 
 
@@ -68,14 +79,15 @@ def log_scan(results: list[dict], scan_date: str) -> int:
         r.get("adtv_cr"),
         r.get("sector"),
         r.get("entry_window"),
+        r.get("retrace_10d"),
         int(time.time()),
     ) for r in results if r.get("symbol")]
     with _conn() as c:
         cur = c.executemany(
             "INSERT OR IGNORE INTO scorecard "
             "(scan_date, symbol, rank, score, conviction, price, adtv_cr, "
-            " sector, entry_window, logged_at) "
-            "VALUES (?,?,?,?,?,?,?,?,?,?)", rows)
+            " sector, entry_window, retrace_10d, logged_at) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?,?)", rows)
         return cur.rowcount
 
 
@@ -135,60 +147,128 @@ def fill_forward_returns(stocks: dict, bench: pd.Series | None) -> int:
         return filled
 
 
-def summary() -> dict:
-    """Bucketed honest performance of past trending picks.
+# Buckets with fewer measured rows than this are flagged low_sample — the UI
+# must present them as "insufficient data", not as evidence.
+MIN_BUCKET_N = 30
 
-    Buckets by conviction quartile (the v3 rank we now sort by) AND by
-    legacy score band, each with n / avg fwd20 / avg alpha20 / win rate.
+
+def summary() -> dict:
+    """Bucketed honest performance of past trending picks — the report card.
+
+    Four bucket groups (entry_window, rank band, conviction band, score band),
+    each measured at EVERY horizon (5/10/20 trading days) with:
+      n, avg fwd ret, avg alpha, win rate (alpha>0), and p10 alpha (the
+      worst-decile outcome — the tail-risk stat the GVT&D episode taught us
+      matters more than the mean).
     """
     with _conn() as c:
-        total, measured = c.execute(
-            "SELECT COUNT(*), COUNT(alpha20) FROM scorecard").fetchone()
+        df = pd.read_sql_query(
+            "SELECT rank, score, conviction, entry_window, "
+            "       fwd5, fwd10, fwd20, alpha5, alpha10, alpha20 "
+            "FROM scorecard", c)
         dates = c.execute(
             "SELECT COUNT(DISTINCT scan_date), MIN(scan_date), MAX(scan_date) "
             "FROM scorecard").fetchone()
 
-        def _bucket(where: str, label: str) -> dict | None:
-            row = c.execute(
-                f"SELECT COUNT(alpha20), AVG(fwd20), AVG(alpha20), "
-                f"       AVG(CASE WHEN alpha20 > 0 THEN 1.0 ELSE 0.0 END), "
-                f"       AVG(fwd5), AVG(alpha5) "
-                f"FROM scorecard WHERE alpha20 IS NOT NULL AND ({where})"
-            ).fetchone()
-            n = row[0] or 0
-            if n == 0:
-                return None
-            return {
-                "bucket":     label,
-                "n":          n,
-                "avg_fwd20":  round(row[1], 2),
-                "avg_alpha20": round(row[2], 2),
-                "beat_bench_pct": round(row[3] * 100, 1),
-                "avg_fwd5":   round(row[4], 2) if row[4] is not None else None,
-                "avg_alpha5": round(row[5], 2) if row[5] is not None else None,
-            }
+    total = int(len(df))
+    measured_by_h = {h: int(df[f"alpha{h}"].notna().sum()) for h in _HORIZONS}
 
-        by_conviction = [b for b in (
-            _bucket("conviction >= 75", "Conviction 75-100"),
-            _bucket("conviction >= 50 AND conviction < 75", "Conviction 50-75"),
-            _bucket("conviction >= 25 AND conviction < 50", "Conviction 25-50"),
-            _bucket("conviction < 25", "Conviction 0-25"),
-        ) if b]
-        by_score = [b for b in (
-            _bucket("score >= 8", "Score 8-10"),
-            _bucket("score >= 6 AND score < 8", "Score 6-8"),
-            _bucket("score < 6", "Score < 6"),
-        ) if b]
+    def _stats(sub: pd.DataFrame, label: str) -> dict | None:
+        if not len(sub):
+            return None
+        out = {"bucket": label, "horizons": {}}
+        best_n = 0
+        for h in _HORIZONS:
+            a = sub[f"alpha{h}"].dropna()
+            f = sub[f"fwd{h}"].dropna()
+            n = int(len(a))
+            best_n = max(best_n, n)
+            if n == 0:
+                out["horizons"][str(h)] = None
+                continue
+            out["horizons"][str(h)] = {
+                "n":          n,
+                "avg_fwd":    round(float(f.mean()), 2),
+                "avg_alpha":  round(float(a.mean()), 2),
+                "win_pct":    round(float((a > 0).mean()) * 100, 1),
+                "p10_alpha":  round(float(a.quantile(0.10)), 2),
+                "low_sample": n < MIN_BUCKET_N,
+            }
+        return out if best_n > 0 else None
+
+    ew_order = ["pullback", "fresh_breakout", "in_range", "extended", "weakening"]
+    seen_ew = [e for e in ew_order if e in set(df["entry_window"].dropna())]
+    seen_ew += sorted(set(df["entry_window"].dropna()) - set(ew_order))
+    by_entry_window = [b for b in (
+        _stats(df[df["entry_window"] == e], e) for e in seen_ew) if b]
+
+    by_rank = [b for b in (
+        _stats(df[df["rank"] <= 10], "Rank 1-10"),
+        _stats(df[(df["rank"] > 10) & (df["rank"] <= 25)], "Rank 11-25"),
+        _stats(df[(df["rank"] > 25) & (df["rank"] <= 50)], "Rank 26-50"),
+        _stats(df[df["rank"] > 50], "Rank 51+"),
+    ) if b]
+
+    by_conviction = [b for b in (
+        _stats(df[df["conviction"] >= 75], "Conviction 75-100"),
+        _stats(df[(df["conviction"] >= 50) & (df["conviction"] < 75)], "Conviction 50-75"),
+        _stats(df[(df["conviction"] >= 25) & (df["conviction"] < 50)], "Conviction 25-50"),
+        _stats(df[df["conviction"] < 25], "Conviction 0-25"),
+    ) if b]
+
+    by_score = [b for b in (
+        _stats(df[df["score"] >= 8], "Score 8-10"),
+        _stats(df[(df["score"] >= 6) & (df["score"] < 8)], "Score 6-8"),
+        _stats(df[df["score"] < 6], "Score < 6"),
+    ) if b]
 
     return {
         "rows_logged":    total,
-        "rows_measured":  measured,
+        "rows_measured":  measured_by_h.get(20, 0),   # back-compat: 20d count
+        "measured_by_horizon": {str(h): n for h, n in measured_by_h.items()},
+        "min_bucket_n":   MIN_BUCKET_N,
         "scan_dates":     dates[0],
         "first_scan":     dates[1],
         "last_scan":      dates[2],
-        "by_conviction":  by_conviction,
-        "by_score":       by_score,
-        "note": ("Forward returns are close-to-close vs scan-date close; "
-                 "alpha vs NIFTYBEES; no costs. Fills in as future data "
-                 "arrives — needs ≥20 trading days of history to populate."),
+        "by_entry_window": by_entry_window,
+        "by_rank":         by_rank,
+        "by_conviction":   by_conviction,
+        "by_score":        by_score,
+        "note": ("All picks logged since first_scan. Forward returns are "
+                 "close-to-close vs scan-date close; alpha vs NIFTYBEES; no "
+                 "costs. p10 = worst-decile alpha (tail risk). Buckets under "
+                 f"{MIN_BUCKET_N} measured rows are low-sample — not evidence."),
     }
+
+
+def rank_deltas(current_scan_date: str, lookback_days: int = 5) -> dict[str, dict]:
+    """{symbol: {rank_prev, delta_rank, delta_score, prev_date}} comparing the
+    latest logged scan at/before `current_scan_date` with the scan closest to
+    `lookback_days` TRADING days earlier (by distinct scan_date ordering).
+    Symbols absent from the earlier scan (new entrants) are omitted."""
+    with _conn() as c:
+        ds = [r[0] for r in c.execute(
+            "SELECT DISTINCT scan_date FROM scorecard "
+            "WHERE scan_date <= ? ORDER BY scan_date DESC "
+            "LIMIT ?", (current_scan_date, lookback_days + 1)).fetchall()]
+        if len(ds) < 2:
+            return {}
+        cur_d, prev_d = ds[0], ds[-1]
+        rows = c.execute(
+            "SELECT a.symbol, a.rank, b.rank, a.score, b.score "
+            "FROM scorecard a JOIN scorecard b "
+            "  ON a.symbol = b.symbol AND a.scan_date = ? AND b.scan_date = ?",
+            (cur_d, prev_d)).fetchall()
+    out = {}
+    for sym, r_now, r_prev, s_now, s_prev in rows:
+        if r_now is None or r_prev is None:
+            continue
+        out[sym] = {
+            "rank_prev":   int(r_prev),
+            # positive = improved (moved UP the list), negative = slipping
+            "delta_rank":  int(r_prev) - int(r_now),
+            "delta_score": (round(float(s_now) - float(s_prev), 1)
+                            if s_now is not None and s_prev is not None else None),
+            "prev_date":   prev_d,
+        }
+    return out

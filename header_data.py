@@ -119,23 +119,43 @@ def _load_bhav(p: Path) -> pd.DataFrame | None:
 
 def _resolve_trend(change_pct, adr) -> tuple[str, str, str]:
     """
-    Return (trend_label, color_key, source). ONLY uses Market Breadth's signal.
-    Quick adv/dec estimate is no longer shown — it conflicted with the breadth
-    tab. If breadth not yet computed, returns 'Computing…' so the user knows
-    the system is working on the authoritative signal.
+    Return (trend_label, color_key, source) from the CANONICAL market regime
+    (regime.py, surfaced via Market Breadth) — the single source of truth the
+    Edge and Breadth tabs also consume, so the header can never disagree with
+    them. If the regime isn't computed yet, returns 'Computing…'.
+
+    HISTORY (2026-07-08): this used Market Breadth's 5-day-SMOOTHED status, the
+    most bullish of three internal reads. On 08-Jul (NIFTY −2.12%, A/D 0.16) the
+    smoothed score still averaged 9/15 and painted a GREEN "▲ Uptrend" while the
+    raw breadth said "Sideways" and the canonical regime said "Uptrend Under
+    Pressure". A lagging smoothed average must not headline the market trend on a
+    sharp sell-off. The canonical regime is the honest structural read (IBD
+    distribution-day method) and is consistent everywhere.
     """
     try:
         from market_breadth import (_cache as mb_cache,
                                     PERSISTED_CACHE_TTL as MB_TTL)
         if (mb_cache.get("data")
-                and (time.time() - mb_cache.get("ts", 0)) < MB_TTL
-                and mb_cache["data"].get("timing")):
-            t = mb_cache["data"]["timing"]
-            color_map = {"pos": "green", "neutral": "yellow", "neg": "red"}
-            # Prefer smoothed status (5d MA) if available — more stable
-            label = t.get("smoothed_status") or t.get("status", "—")
-            cls   = t.get("smoothed_cls")    or t.get("cls", "")
-            return (label, color_map.get(cls, "muted"), "breadth")
+                and (time.time() - mb_cache.get("ts", 0)) < MB_TTL):
+            regime = (mb_cache["data"].get("regime") or {}).get("regime")
+            # Canonical regime → PLAIN-ENGLISH header label (users found the IBD
+            # terms like "Under Pressure"/"Correction" confusing). Three states:
+            #   Uptrend (green ▲) · Sideways (amber ●) · Downtrend (red ▼).
+            regime_map = {
+                "Confirmed Uptrend":      ("Uptrend",   "green"),
+                "Uptrend Under Pressure": ("Sideways",  "yellow"),
+                "Correction":             ("Downtrend", "red"),
+                "Downtrend":              ("Downtrend", "red"),
+            }
+            if regime in regime_map:
+                label, color = regime_map[regime]
+                return (label, color, "regime")
+            # Regime not yet available — fall back to the raw (un-smoothed)
+            # breadth status so we still never overstate on a smoothed lag.
+            t = mb_cache["data"].get("timing") or {}
+            if t.get("status"):
+                color_map = {"pos": "green", "neutral": "yellow", "neg": "red"}
+                return (t["status"], color_map.get(t.get("cls", ""), "muted"), "breadth")
     except Exception:
         pass
     return ("Computing…", "muted", "computing")

@@ -53,8 +53,29 @@ static/alpha_engine.js
 sector_mapper.py
 .sector_cache.json
 
+# LOCAL-ONLY: sector_indices.py runtime caches (constituents / levels / canonical map)
+.sector_indices_cache.json
+.sector_levels_cache.json
+.sector_canonical_cache.json
+
 # LOCAL-ONLY: ⚔️ Strategy Engine — never pushed to GitHub
 strategy_engine.py
 templates/strategy_tab.html
 .strategy_config.json
 .strategy_journal.db
+power_plays_validation.py
+power_plays_backtest.py
+.powerplays_backtest.json
+smart_money_validation.py
+regime_evidence.py
+exit_backtest.py
+sector_rotation_evidence.py
+sustained_breakout_validation.py
+sustained_freshness_validation.py
+guardian.db
+.watchlist.json
+
+# LOCAL-ONLY: auth secrets — session key + hashed user store. NEVER commit.
+.auth_secret
+.auth_users.json
+.portfolio_hwm.json

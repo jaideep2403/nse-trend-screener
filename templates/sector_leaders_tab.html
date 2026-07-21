@@ -1,0 +1,376 @@
+<!-- ═══════════════════════════════════════════════ SECTOR LEADERS TAB -->
+<div id="tab-sector-leaders" class="tab-content">
+<div class="container">
+
+  <style>
+    .sl-hero {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-left: 4px solid var(--gold);
+      border-radius: 10px;
+      padding: 16px 22px;
+      margin-bottom: 18px;
+    }
+    .sl-hero h3 { margin: 0 0 6px; font-size: 16px; color: var(--gold); font-weight: 700; }
+    .sl-hero p  { margin: 0; font-size: 13px; color: var(--text); line-height: 1.6; }
+    .sl-hero strong { color: var(--white); }
+
+    .sl-stat-card {
+      background: var(--surface); border: 1px solid var(--border); border-radius: 10px;
+      padding: 10px 14px; min-width: 120px; flex: 1;
+    }
+    .sl-stat-card .sl-stat-label { font-size: 11px; font-weight: 700; text-transform: uppercase; color: var(--text2); letter-spacing: 0.5px; }
+    .sl-stat-card .sl-stat-value { font-size: 20px; font-weight: 800; margin-top: 4px; color: var(--white); }
+
+    /* Sector row card */
+    .sl-sector-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      margin-bottom: 8px;
+      overflow: hidden;
+    }
+    .sl-sector-header {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 12px 16px;
+      cursor: pointer;
+      user-select: none;
+      transition: background 0.12s;
+    }
+    .sl-sector-header:hover { background: rgba(255,255,255,0.03); }
+    .sl-sector-rank {
+      font-size: 18px; font-weight: 800; min-width: 32px; text-align: center;
+      font-family: var(--mono); color: var(--white);
+    }
+    .sl-sector-name {
+      font-size: 14px; font-weight: 700; color: var(--white); flex: 1;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+    .sl-chg-chip {
+      padding: 3px 10px; border-radius: 20px; font-size: 12px; font-weight: 700;
+      font-family: var(--mono); white-space: nowrap;
+    }
+    .sl-chg-pos { background: rgba(16,185,129,0.18); color: var(--green2); border: 1px solid rgba(16,185,129,0.35); }
+    .sl-chg-neg { background: rgba(239,68,68,0.18); color: var(--red2); border: 1px solid rgba(239,68,68,0.35); }
+    .sl-meta-pill {
+      font-size: 11px; color: var(--text2); padding: 2px 8px;
+      border: 1px solid var(--border); border-radius: 12px; white-space: nowrap;
+    }
+    .sl-chevron {
+      font-size: 11px; color: var(--muted); transition: transform 0.2s; margin-left: 4px;
+    }
+    .sl-sector-card.expanded .sl-chevron { transform: rotate(180deg); }
+
+    /* Expanded stock table */
+    .sl-stocks-wrap {
+      display: none;
+      border-top: 1px solid var(--border);
+      padding: 0 0 10px;
+      overflow-x: auto;
+    }
+    .sl-sector-card.expanded .sl-stocks-wrap { display: block; }
+
+    #slTable { width: 100%; font-size: 12px; border-collapse: separate; border-spacing: 0; }
+    #slTable th {
+      background: var(--surface2); color: var(--text2); font-weight: 700; font-size: 11px;
+      text-transform: uppercase; letter-spacing: 0.4px; text-align: left;
+      padding: 8px 12px; border-bottom: 1px solid var(--border);
+    }
+    #slTable td { padding: 8px 12px; border-bottom: 1px solid var(--border); vertical-align: middle; color: var(--text); }
+    #slTable tbody tr:last-child td { border-bottom: none; }
+    #slTable tbody tr:hover { background: rgba(255,255,255,0.02); }
+
+    .sl-stage-pill {
+      display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 10px;
+      font-weight: 700; text-transform: uppercase; letter-spacing: 0.3px;
+    }
+    .sl-stage-2  { background: rgba(16,185,129,0.18); color: var(--green2); }
+    .sl-stage-1  { background: rgba(59,130,246,0.18); color: var(--accent2); }
+    .sl-stage-3  { background: rgba(245,158,11,0.18); color: var(--gold2); }
+    .sl-stage-4  { background: rgba(239,68,68,0.18); color: var(--red2); }
+    .sl-stage-unk { background: rgba(75,96,128,0.18); color: var(--muted); }
+
+    /* Per-sector inline table (reuse slTable styles but scoped) */
+    .sl-inner-table { width: 100%; font-size: 12px; border-collapse: separate; border-spacing: 0; }
+    .sl-inner-table th {
+      background: var(--surface2); color: var(--text2); font-weight: 700; font-size: 11px;
+      text-transform: uppercase; letter-spacing: 0.4px; text-align: left;
+      padding: 7px 12px; border-bottom: 1px solid var(--border);
+    }
+    .sl-inner-table td { padding: 7px 12px; border-bottom: 1px solid var(--border); vertical-align: middle; color: var(--text); }
+    .sl-inner-table tbody tr:last-child td { border-bottom: none; }
+    .sl-inner-table tbody tr:hover { background: rgba(255,255,255,0.025); }
+
+    #slEmpty {
+      text-align: center; padding: 48px 20px; color: var(--text2);
+    }
+    #slEmpty p { font-size: 14px; margin-bottom: 6px; }
+    #slEmpty small { font-size: 12px; color: var(--muted); }
+
+    #slProgressLabel { font-size: 12px; color: var(--text2); }
+    #slTimestamp { font-size: 11px; color: var(--muted); }
+
+    .sl-as-of { font-size: 11px; color: var(--muted); font-style: italic; }
+  </style>
+
+  <!-- Description hero -->
+  <div class="sl-hero">
+    <h3><svg class="ic ic-h"><use href="#i-trophy"/></svg>Sector Leaders — NSE Sectoral Index Strength Ranking</h3>
+    <p>
+      Ranks <strong>all NSE sectoral indices</strong> by composite strength: index % change, median constituent 1M &amp; 3M momentum,
+      sector breadth (% stocks above MA50), and valuation (P/E).
+      Expand any sector to see its <strong>top individual stocks</strong> ranked by RS score.
+    </p>
+  </div>
+
+  <!-- Controls panel -->
+  <div class="panel">
+    <div class="panel-header">
+      <h2>Sector Leaders Controls</h2>
+      <span id="slTimestamp"></span>
+    </div>
+    <div class="panel-body">
+      <div class="actions">
+        <button class="btn btn-primary" id="slBtn" onclick="slRun()"><svg class="ic ic-b"><use href="#i-trophy"/></svg>Run Scan</button>
+        <span id="slProgressLabel"></span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Stats row (populated by JS) -->
+  <div id="slStatsRow" style="display:none; gap:10px; flex-wrap:wrap; margin-bottom:14px;"></div>
+
+  <!-- Empty / initial state -->
+  <div id="slEmpty">
+    <p>Click <strong>Run Scan</strong> to rank NSE sectoral indices by strength and see the leaders in each.</p>
+    <small>Reads daily bhavcopy data — scan typically completes in 5–15 seconds.</small>
+  </div>
+
+  <!-- Sector ranked list (populated by JS) -->
+  <div id="slSectorList" style="display:none;"></div>
+
+</div>
+</div>
+
+<script>
+(function () {
+  'use strict';
+
+  /* ── state ──────────────────────────────────────────────────────────── */
+  var _slResult  = null;   // last successful result
+  var _slPollId  = null;   // setInterval handle
+
+  /* ── helpers ─────────────────────────────────────────────────────────── */
+  function fmt1(v) { return (v == null || isNaN(v)) ? '—' : (v > 0 ? '+' : '') + parseFloat(v).toFixed(1) + '%'; }
+  function fmtPE(v){ return (v == null || isNaN(v) || v <= 0) ? '—' : parseFloat(v).toFixed(1) + 'x'; }
+  function fmtN(v) { return (v == null || isNaN(v)) ? '—' : parseInt(v, 10).toString(); }
+
+  function pctColor(v) {
+    if (v == null || isNaN(v)) return 'var(--text2)';
+    if (v >=  5) return 'var(--green2)';
+    if (v >=  1) return 'var(--green)';
+    if (v >=  0) return 'var(--text)';
+    if (v >= -2) return 'var(--red2)';
+    return 'var(--red)';
+  }
+
+  /* Heatmap color for sector header based on median_r3m */
+  function sectorBorderColor(r3m) {
+    if (r3m == null || isNaN(r3m)) return 'var(--border)';
+    if (r3m >=  10) return '#10b981';
+    if (r3m >=   4) return '#34d399';
+    if (r3m >=   0) return '#60a5fa';
+    if (r3m >=  -5) return '#f59e0b';
+    return '#ef4444';
+  }
+
+  function stagePillHtml(label) {
+    if (!label) return '<span class="sl-stage-pill sl-stage-unk">—</span>';
+    var l = label.toLowerCase();
+    var cls = 'sl-stage-unk';
+    if (l.includes('stage 2') || l.includes('stage2') || l.includes('uptrend')) cls = 'sl-stage-2';
+    else if (l.includes('stage 1') || l.includes('stage1') || l.includes('base')) cls = 'sl-stage-1';
+    else if (l.includes('stage 3') || l.includes('stage3') || l.includes('top')) cls = 'sl-stage-3';
+    else if (l.includes('stage 4') || l.includes('stage4') || l.includes('decline')) cls = 'sl-stage-4';
+    return '<span class="sl-stage-pill ' + cls + '">' + label + '</span>';
+  }
+
+  function adtvHtml(v) {
+    if (v == null || isNaN(v)) return '—';
+    var n = parseFloat(v);
+    return n >= 100 ? (n / 100).toFixed(1) + 'k Cr' : n.toFixed(1) + ' Cr';
+  }
+
+  /* ── render ──────────────────────────────────────────────────────────── */
+  window.slRender = function (result) {
+    _slResult = result;
+    if (!result || !result.sectors || result.sectors.length === 0) {
+      document.getElementById('slEmpty').style.display = 'block';
+      document.getElementById('slSectorList').style.display = 'none';
+      document.getElementById('slStatsRow').style.display = 'none';
+      return;
+    }
+
+    /* Timestamp */
+    var ts = document.getElementById('slTimestamp');
+    if (ts && result.as_of) {
+      ts.textContent = 'As of: ' + result.as_of;
+    }
+
+    /* Stats row */
+    var sectors = result.sectors;
+    var statsRow = document.getElementById('slStatsRow');
+    statsRow.style.display = 'flex';
+    var leader = sectors[0] || {};
+    statsRow.innerHTML =
+      '<div class="sl-stat-card"><div class="sl-stat-label">Sectors Ranked</div><div class="sl-stat-value">' + sectors.length + '</div></div>' +
+      '<div class="sl-stat-card"><div class="sl-stat-label">#1 Sector</div><div class="sl-stat-value" style="font-size:14px;color:var(--gold2)">' + (leader.name || '—') + '</div></div>' +
+      '<div class="sl-stat-card"><div class="sl-stat-label">Leader 3M</div><div class="sl-stat-value" style="color:' + pctColor(leader.median_r3m) + '">' + fmt1(leader.median_r3m) + '</div></div>' +
+      '<div class="sl-stat-card"><div class="sl-stat-label">Leader Breadth</div><div class="sl-stat-value" style="color:var(--accent2)">' + (leader.breadth_pct != null ? Math.round(leader.breadth_pct) + '%' : '—') + '</div></div>';
+
+    /* Sector cards */
+    var list = document.getElementById('slSectorList');
+    list.style.display = 'block';
+    document.getElementById('slEmpty').style.display = 'none';
+
+    list.innerHTML = sectors.map(function (s, i) {
+      var rank = s.rank != null ? s.rank : (i + 1);
+      var borderColor = sectorBorderColor(s.median_r3m);
+      var chgVal = s.index_chg_pct;
+      var chgCls = (chgVal == null || isNaN(chgVal) || chgVal < 0) ? 'sl-chg-neg' : 'sl-chg-pos';
+      var chgTxt = fmt1(chgVal);
+
+      /* top_stocks table */
+      var stocks = s.top_stocks || [];
+      var stocksHtml = '';
+      if (stocks.length === 0) {
+        stocksHtml = '<p style="padding:12px 16px;font-size:12px;color:var(--muted)">No stock data available.</p>';
+      } else {
+        stocksHtml =
+          '<table class="sl-inner-table">' +
+          '<thead><tr>' +
+          '<th>Symbol</th><th>RS</th><th>1M %</th><th>3M %</th><th>% from High</th><th>Price</th><th>Stage</th><th>ADTV</th>' +
+          '</tr></thead>' +
+          '<tbody>' +
+          stocks.map(function (st) {
+            return '<tr>' +
+              '<td style="font-family:var(--mono);font-weight:700;color:var(--white)">' + (st.symbol || '—') + '</td>' +
+              '<td style="font-family:var(--mono);color:' + pctColor(st.rs) + '">' + (st.rs != null ? parseFloat(st.rs).toFixed(0) : '—') + '</td>' +
+              '<td style="font-family:var(--mono);color:' + pctColor(st.r1m) + '">' + fmt1(st.r1m) + '</td>' +
+              '<td style="font-family:var(--mono);color:' + pctColor(st.r3m) + '">' + fmt1(st.r3m) + '</td>' +
+              '<td style="font-family:var(--mono);color:' + pctColor(st.pct_from_high != null ? -st.pct_from_high : null) + '">' +
+                (st.pct_from_high != null ? '-' + parseFloat(st.pct_from_high).toFixed(1) + '%' : '—') + '</td>' +
+              '<td style="font-family:var(--mono)">' + (st.price != null ? '₹' + parseFloat(st.price).toFixed(2) : '—') + '</td>' +
+              '<td>' + stagePillHtml(st.stage_label) + '</td>' +
+              '<td style="font-size:11px;color:var(--text2)">' + adtvHtml(st.adtv_cr) + '</td>' +
+              '</tr>';
+          }).join('') +
+          '</tbody></table>';
+      }
+
+      return '<div class="sl-sector-card" id="sl-card-' + i + '" style="border-left:4px solid ' + borderColor + '">' +
+        '<div class="sl-sector-header" onclick="slToggleSector(' + i + ')">' +
+          '<div class="sl-sector-rank">' + rank + '</div>' +
+          '<div class="sl-sector-name">' + (s.name || '—') + '</div>' +
+          '<span class="sl-chg-chip ' + chgCls + '">' + chgTxt + '</span>' +
+          '<span class="sl-meta-pill">1M: ' + fmt1(s.median_r1m) + '</span>' +
+          '<span class="sl-meta-pill">3M: ' + fmt1(s.median_r3m) + '</span>' +
+          '<span class="sl-meta-pill">Breadth: ' + (s.breadth_pct != null ? Math.round(s.breadth_pct) + '%' : '—') + '</span>' +
+          '<span class="sl-meta-pill">PE: ' + fmtPE(s.pe) + '</span>' +
+          '<span class="sl-meta-pill">N: ' + fmtN(s.n_constituents) + '</span>' +
+          '<span class="sl-chevron">▼</span>' +
+        '</div>' +
+        '<div class="sl-stocks-wrap">' + stocksHtml + '</div>' +
+      '</div>';
+    }).join('');
+  };
+
+  /* ── expand / collapse ───────────────────────────────────────────────── */
+  window.slToggleSector = function (i) {
+    var card = document.getElementById('sl-card-' + i);
+    if (card) card.classList.toggle('expanded');
+  };
+
+  /* ── polling ─────────────────────────────────────────────────────────── */
+  function slStopPoll() {
+    if (_slPollId) { clearInterval(_slPollId); _slPollId = null; }
+  }
+
+  function slSetStatus(msg, disabled) {
+    var lbl = document.getElementById('slProgressLabel');
+    var btn = document.getElementById('slBtn');
+    if (lbl) lbl.textContent = msg || '';
+    if (btn) btn.disabled = !!disabled;
+  }
+
+  function slPoll() {
+    fetch('/api/sector-leaders/status')
+      .then(function (r) { return r.json(); })
+      .then(function (d) {
+        if (!d.running) {
+          slStopPoll();
+          slSetStatus('', false);
+          if (d.result) {
+            slRender(d.result);
+          } else if (d.error) {
+            slSetStatus('Error: ' + d.error, false);
+          } else {
+            slSetStatus('Scan complete — no results returned.', false);
+          }
+        } else {
+          slSetStatus(d.progress || 'Scanning…', true);
+        }
+      })
+      .catch(function (e) {
+        slStopPoll();
+        slSetStatus('Poll error: ' + e.message, false);
+      });
+  }
+
+  /* ── run ─────────────────────────────────────────────────────────────── */
+  window.slRun = function () {
+    slStopPoll();
+    slSetStatus('Starting scan…', true);
+    document.getElementById('slEmpty').style.display = 'none';
+
+    fetch('/api/sector-leaders/scan', { method: 'POST' })
+      .then(function (r) { return r.json(); })
+      .then(function (d) {
+        if (d.error) {
+          slSetStatus('Error: ' + d.error, false);
+          return;
+        }
+        slSetStatus('Scanning…', true);
+        _slPollId = setInterval(slPoll, 1500);
+      })
+      .catch(function (e) {
+        slSetStatus('Error: ' + e.message, false);
+      });
+  };
+
+  /* ── auto-load on tab open: hook into showTab ───────────────────────── */
+  (function hookSectorLeadersTab() {
+    var orig = window.showTab;
+    if (typeof orig !== 'function') return;
+    window.showTab = function (name, btn) {
+      orig(name, btn);
+      if (name === 'sector-leaders' && !_slResult && !_slPollId) {
+        fetch('/api/sector-leaders/status')
+          .then(function (r) { return r.json(); })
+          .then(function (d) {
+            if (d.result) {
+              slRender(d.result);
+            } else if (d.running) {
+              slSetStatus('Scan already running — polling…', true);
+              _slPollId = setInterval(slPoll, 1500);
+            }
+          })
+          .catch(function () { /* no cached result — show empty state */ });
+      }
+    };
+  })();
+
+}());
+</script>

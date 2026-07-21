@@ -104,9 +104,14 @@ def _levels(df: pd.DataFrame, entry: float, base_high: float, base_low: float,
     ), 2)
     risk = max(entry - sl, entry * 0.03)
     base_ht = max(base_high - base_low, risk)
-    t1 = round(entry + base_ht, 2)
-    t2 = round(entry + 2.0 * risk, 2)
-    t3 = round(max(ath * 1.005, entry + 3.0 * risk), 2)
+    # Targets are three METHODS (measured-move / 2R / 3R-or-ATH). Enforce a
+    # monotonic ladder t1<t2<t3 the SAME way breakout_scanner does, so "T1/T2/T3"
+    # always read nearest→furthest. Without this the measured move (t1) could sit
+    # ABOVE the 2R target (t2) — 92/342 rows did — and a user reading T1 as the
+    # first target to sell would hold past the actual nearest target.
+    t1 = round(entry + base_ht, 2)                                   # measured move
+    t2 = round(max(entry + 2.0 * risk, t1 + risk), 2)               # ≥2R AND above t1
+    t3 = round(max(ath * 1.005, entry + 3.0 * risk, t2 + risk), 2)  # ≥3R/ATH AND above t2
     return {
         "entry":    entry,
         "sl":       sl,

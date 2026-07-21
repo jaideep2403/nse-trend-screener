@@ -34,6 +34,21 @@ ACTION LOGIC
     EXIT  if any hard / trailing / structure stop fires, or close breaks MA50.
     TRIM  if a profit-taking / over-extension flag fires and no stop has.
     HOLD  otherwise (including the safe fallback on insufficient history).
+
+VALIDATION (exit_backtest.py, 2026-07-06 — point-in-time, IS/OOS, cost-net,
+1,151 real leader-entry trades over 2022-02→2026-07):
+    • No exit rule beats BUY-&-HOLD on expectancy — in a trending tape, exiting
+      early always costs return (buy-hold 9.3%/trade vs every exit lower). Exits
+      are a RISK tool, not a return booster: they cut avg loss from −14.7% to
+      −6 to −8% and the worst-decile from −20% to −9%. This holds IS→OOS even as
+      raw returns fade OOS. So the defaults below are DELIBERATELY not tightened.
+    • CONFIRMED: MA50 break as an EXIT (best-balanced single rule, PF 2.13, the
+      only trailing exit still positive OOS) and MA20 as a WARNING only (a
+      standalone MA20 exit whipsaws — expectancy just +1.9%/trade). The engine's
+      EXIT roll-up is conservative by design (median hold ~16 bars) — the right
+      posture for open-position defence (Guardian), where tail control > squeezing
+      the last rupee. Guardian's EXIT→'exit' / TRIM→'trim' severity map is
+      validated as-is. Re-run exit_backtest.py before changing any default here.
 """
 from __future__ import annotations
 
@@ -209,19 +224,26 @@ def evaluate_exit(
     if chand_trig:
         exit_triggers.append("ATR trailing stop (Chandelier) broken")
 
-    # ── 2. Structure stop — recent significant swing low ──────────────────────
-    # Prefer the swing low that sits *below* entry (the level the trade was
-    # built on); fall back to the lowest low of the last ~15 bars.
+    # ── 2. Structure stop — break of the recent swing low ─────────────────────
+    # The structural support the trade sits on = the LOWEST low of the last ~15
+    # bars. A break of THAT is a real structural failure.
+    #
+    # FIX (2026-07-09): this previously used `below_entry.max()` — the HIGHEST
+    # swing-low *just under* the entry, i.e. the tightest possible level. For a
+    # position bought near a local high (e.g. CPPLUS near its 52-wk high), a
+    # normal 1–2% pullback dips under that nearest low and false-fired
+    # "Structure stop broken → EXIT" while the stock was still near its highs and
+    # above its MAs. It also poisoned the Portfolio deep-analysis, which reads
+    # this level and flipped the thesis to "BROKEN". The recent-swing-low
+    # definition below is exactly what exit_backtest.py validated (break of the
+    # prior 15-bar low → the exit that cut the loss tail).
     struct_window = low.iloc[-STRUCT_LOOKBACK:].dropna()
     swing_low = _clean(struct_window.min()) if len(struct_window) else None
-    below_entry = struct_window[struct_window < entry]
-    swing_low_below_entry = _clean(below_entry.max()) if len(below_entry) else None
-    struct_level = swing_low_below_entry if swing_low_below_entry is not None else swing_low
+    struct_level = swing_low
     struct_trig = bool(struct_level is not None and cur < struct_level)
     signals["structure_stop"] = {
         "level": _round(struct_level),
         "swing_low": _round(swing_low),
-        "swing_low_below_entry": _round(swing_low_below_entry),
         "triggered": struct_trig,
     }
     if struct_trig:

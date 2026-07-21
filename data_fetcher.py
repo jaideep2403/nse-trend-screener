@@ -20,6 +20,29 @@ import os
 BHAV_DIR   = Path(os.getenv("BHAV_DIR",  "/tmp/nse_bhav_days"))
 OHLCV_DIR  = Path(os.getenv("OHLCV_DIR", "/tmp/nse_ohlcv_pkl"))
 OHLCV_TTL  = 6 * 3600                      # reuse stock pkl for 6 hours
+
+
+def _atomic_pickle_dump(obj, path) -> None:
+    """Write a pickle ATOMICALLY: dump to a temp file in the same directory, then
+    os.replace() it into place (atomic on POSIX). A concurrent reader therefore
+    always sees either the old complete file or the new complete file — never a
+    half-written one. Fixes the read-during-write race where a scanner/portfolio
+    reading a day-pkl while the scheduler was rewriting it got a truncated file
+    (pickle.load → EOFError → row dropped → '<30 rows' → 'No bhavcopy data')."""
+    import tempfile
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(dir=str(path.parent), prefix=path.name + ".", suffix=".tmp")
+    try:
+        with os.fdopen(fd, "wb") as f:
+            pickle.dump(obj, f)
+        os.replace(tmp, path)          # atomic rename — readers never see a partial file
+    except Exception:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        raise
 BHAV_DIR.mkdir(exist_ok=True)
 OHLCV_DIR.mkdir(exist_ok=True)
 
@@ -105,8 +128,7 @@ def _download_one_day(dt: date) -> pd.DataFrame | None:
         if "DELIV_PER" in df.columns:
             out["DelivPer"] = df["DELIV_PER"].values
 
-        with open(cache, "wb") as f:
-            pickle.dump(out, f)
+        _atomic_pickle_dump(out, cache)
         _DAY_MEM[dt] = out
         return out
 
@@ -264,13 +286,19 @@ def auto_refresh_bhavcopy(force: bool = False) -> dict:
             _refresh_state["last_new_date"] = today
             print(f"[bhavcopy] ✅ Auto-downloaded {today} bhavcopy "
                   f"({len(result)} rows)", flush=True)
-            # Bust ALL in-memory caches so next scan uses fresh data
+            # Bust ALL in-memory caches so next scan uses fresh data. NOTE: we
+            # clear the WORKING snapshot but deliberately KEEP `last_good` — if the
+            # fresh load is mid-write/incomplete, _get_stocks falls back to it
+            # instead of caching a broken partial. last_attempt=0 forces a prompt
+            # reload now that new data has landed (bypasses the retry throttle).
             try:
                 from industry_groups import _stocks_cache, _cache as _ig_cache
-                _stocks_cache["data"] = None   # raw OHLCV stocks
-                _stocks_cache["ts"]   = 0
-                _ig_cache["data"]     = None   # RS scan results
-                _ig_cache["ts"]       = 0
+                _stocks_cache["data"]         = None   # raw OHLCV stocks
+                _stocks_cache["ts"]           = 0
+                _stocks_cache["complete"]     = False
+                _stocks_cache["last_attempt"] = 0.0
+                _ig_cache["data"]             = None   # RS scan results
+                _ig_cache["ts"]               = 0
             except Exception:
                 pass
             try:
@@ -382,8 +410,7 @@ def _stock_pkl_load(ticker: str) -> pd.DataFrame | None:
 
 def _stock_pkl_save(ticker: str, df: pd.DataFrame):
     try:
-        with open(_stock_pkl_path(ticker), "wb") as f:
-            pickle.dump(df, f)
+        _atomic_pickle_dump(df, _stock_pkl_path(ticker))
     except Exception as e:
         print(f"[data_fetcher] failed to save stock pkl for {ticker}: {e}", flush=True)
 

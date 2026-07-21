@@ -101,7 +101,7 @@
 
   <!-- Hero -->
   <div class="vvv-hero">
-    <h3>🎯 Mark Minervini VVV — SEPA + VCP + Volume</h3>
+    <h3><svg class="ic ic-h"><use href="#i-target"/></svg>Mark Minervini VVV — SEPA + VCP + Volume</h3>
     <p>
       Finds stocks passing <strong>every Minervini criterion simultaneously</strong>: Stage 2 uptrend ·
       Trend Template score ≥ 6 of 8 · Cross-sectional RS rank ≥ 70 · VCP / Episodic Pivot / Pocket Pivot setup ·
@@ -124,7 +124,7 @@
 
   <!-- Controls -->
   <div style="display:flex; align-items:center; gap:14px; margin-bottom:14px; flex-wrap:wrap;">
-    <button id="vvvScanBtn" class="btn btn-primary" onclick="vvvStartScan()" style="background:#a855f7; border-color:#a855f7;">🎯 Run VVV Scan</button>
+    <button id="vvvScanBtn" class="btn btn-primary" onclick="vvvStartScan()"><svg class="ic ic-b"><use href="#i-target"/></svg>Run VVV Scan</button>
     <span id="vvvStatus" style="font-size:13px; color:var(--text2)">Click to scan the 751-stock universe for Minervini setups</span>
     <span id="vvvCount" style="margin-left:auto; font-size:12px; color:var(--text2)"></span>
     <button onclick="vvvStartScan(true)" class="btn" style="font-size:12px; padding:6px 14px; border:1px solid var(--border); background:var(--surface); color:var(--text);">🔄 Refresh</button>
@@ -317,7 +317,7 @@
     window.vvvStartScan = function(force) {
       var btn = document.getElementById('vvvScanBtn');
       var status = document.getElementById('vvvStatus');
-      btn.disabled = true; btn.textContent = '⏳ Scanning…';
+      btn.disabled = true; btn.innerHTML = '<span class="spinner"></span>Scanning…';
       status.textContent = 'Triggering VVV pipeline…';
       document.getElementById('vvvProgress').style.display = 'block';
 
@@ -327,7 +327,7 @@
           vvvPoll();
         } else {
           status.textContent = 'Scan unavailable: ' + JSON.stringify(d);
-          btn.disabled = false; btn.textContent = '🎯 Run VVV Scan';
+          btn.disabled = false; btn.innerHTML = '<svg class="ic ic-b"><use href="#i-target"/></svg>Run VVV Scan';
         }
       });
     };
@@ -342,7 +342,7 @@
         if (!d.running) {
           if (_vvvPoll) { clearInterval(_vvvPoll); _vvvPoll = null; }
           document.getElementById('vvvScanBtn').disabled = false;
-          document.getElementById('vvvScanBtn').textContent = '🎯 Run VVV Scan';
+          document.getElementById('vvvScanBtn').innerHTML = '<svg class="ic ic-b"><use href="#i-target"/></svg>Run VVV Scan';
           if (d.error) {
             document.getElementById('vvvStatus').textContent = 'Error: ' + d.error;
             return;
