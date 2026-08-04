@@ -120,14 +120,11 @@ Measured locally with `ASCENT_ENV=production`:
 
 ---
 
-## Still open — decide before you take subscribers
+## Notes
 
-These are **not** done and I have not touched them:
-
-1. **Backups.** `.auth_users.json` and the cache have no backup. An instance
-   replacement loses your logins and re-triggers the 1,583-file NSE download.
-2. **The demo password is public** (`demo/demo123`, printed on the sign-in page).
-   Fine while it's a demo; rotate it if the box gets real traffic.
-3. **No monitoring.** Nothing alerts if the bhavcopy scheduler stops fetching. The
-   `[STUCK — escalating]` log line is the only signal and nobody reads it.
-4. **One box, no redundancy.** Acceptable for EOD analytics; worth stating.
+* nginx config defines **port 80 only** — `certbot --nginx` adds the 443 block and
+  the redirect. Shipping a pre-written `listen 443 ssl` block does not work: nginx
+  refuses to start without a certificate, so certbot can never run.
+* `ASCENT_ENV=production` sets `SESSION_COOKIE_SECURE=True`. Enable it only once
+  TLS is live, or the browser will not return the session cookie and login will
+  fail silently.
