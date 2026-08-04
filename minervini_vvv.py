@@ -606,6 +606,18 @@ def run_vvv_scan(progress_callback=None) -> dict:
 
     _prog(92, 100, "Sorting + enriching results…")
 
+    # ── MarketSmith rating stack (IBD/CAN SLIM lineage) ──────────────────────
+    # Attaches Price Strength (true 12-month weighted RS), EPS, SMR, Buyer Demand
+    # (A-E), 6-month Group Rank, Composite, Master Score and the CAN SLIM
+    # checklist. Presentation/screening only — deliberately NOT wired into the
+    # validated All-Weather engine.
+    _ms_meta = {"n_groups": 0}
+    try:
+        import marketsmith_ratings as _ms
+        _ms_meta = _ms.enrich(results, stocks)
+    except Exception as _e:
+        print(f"[vvv] MarketSmith ratings unavailable: {_e}", flush=True)
+
     # Sort: score desc, then RS desc
     results.sort(key=lambda r: (-r["score"], -r["rs_rank"]))
 
@@ -624,6 +636,7 @@ def run_vvv_scan(progress_callback=None) -> dict:
         "strong_count":  strong_n,
         "watch_count":   watch_n,
         "track_count":   track_n,
+        "marketsmith":   _ms_meta,
         "thresholds": {
             "min_tt_score":   MIN_TT_SCORE,
             "min_rs_rank":    MIN_RS_RANK,

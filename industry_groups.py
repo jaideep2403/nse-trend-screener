@@ -283,7 +283,7 @@ def _load_stocks(progress_callback=None) -> dict[str, pd.DataFrame]:
                 if c in grp.columns]
         g = grp.set_index("Date")[cols]
         g = g[~g.index.duplicated(keep="last")].sort_index()
-        g = _adjust_for_splits(g)   # backward-adjust for stock splits / bonus issues
+        g = _adjust_for_splits(g, sym)   # backward-adjust for stock splits / bonus issues
         if len(g) < 60:
             continue
         # Curated 750 PLUS any HIGHLY-liquid off-index stock (≥₹50Cr ADTV) —
@@ -301,11 +301,11 @@ def _load_stocks(progress_callback=None) -> dict[str, pd.DataFrame]:
     return stocks
 
 
-def _adjust_for_splits(df):
+def _adjust_for_splits(df, symbol=None):
     """Delegates to the centralised analysis_utils.adjust_for_splits which
     handles the full set of NSE bonus ratios (3:2, 4:3, 5:4, etc.)."""
     from analysis_utils import adjust_for_splits
-    return adjust_for_splits(df)
+    return adjust_for_splits(df, symbol)
 
 
 def _build_nifty(stocks: dict) -> pd.Series | None:

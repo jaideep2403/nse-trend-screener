@@ -6,154 +6,281 @@
 <title>Sign in · Ascent Wealth Labs</title>
 <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
 <style>
+  /* ── Sign-in page, redesigned 2026-08-04 (ideas 8–11 only) ─────────────────
+     8  two-column: pitch owns the left, auth the right. The old single centred
+        card left roughly 60% of a desktop viewport empty.
+     9  contrast: the old mint card on a mint field barely separated from its own
+        background. Measured in-browser against each element's real backdrop:
+        body copy 8.83:1 · stat value 9.50:1 · method chip 8.24:1 · card sub 8.24:1
+        · demo copy 7.66:1 · disclaimer 5.73:1 · as-of 5.35:1 · stat label 4.97:1.
+        Lowest is 4.97:1 — every one clears the 4.5:1 WCAG AA floor.
+     10 live data as hero: real numbers from today's bhavcopy, server-rendered.
+     11 dark: matches the dashboard's terminal aesthetic, instead of promising a
+        mint-green app and then delivering a navy one.
+     The grid collapse below 900px is a structural requirement of #8 — without it
+     two columns simply break — not the separate mobile pass (#13), which is out
+     of scope here. */
   :root{
-    /* Light "positive green" theme — soft mint field, white card, slate-green ink. */
-    --bg1:#eef8f1; --bg2:#dbeee2; --card:#ffffff; --card2:#ffffff;
-    --border:#cee3d6; --text:#123024; --text2:#4c6558;
-    --muted:#84988b; --accent:#059669; --accent2:#0d9488;
-    --green:#059669; --green2:#047857; --red:#dc2626; --field:#f3faf6;
-    --mono:'JetBrains Mono','Courier New',monospace;
+    --bg:#0b1017; --surface:#111823; --surface2:#161f2d;
+    --border:#22304a; --border2:#2c3d5c;
+    --text:#e8eef8; --text2:#9fb2cc; --muted:#7d8ea8;
+    --green:#22c55e; --green2:#4ade80; --red:#f87171;
+    --green3:#16a34a;
+    /* This page is standalone — it does NOT inherit index.html's tokens, so the
+       scale is defined here. The previous version referenced var(--fs-*) 16 times
+       without defining any of them; all 16 resolved to nothing. */
+    --fs-micro:10px; --fs-xs:11px; --fs-sm:12px; --fs-md:13px; --fs-base:14px;
+    --fs-lg:15px; --fs-xl:18px; --fs-2xl:22px; --fs-3xl:26px; --fs-display:36px;
+    --mono:'JetBrains Mono','SF Mono','Courier New',monospace;
   }
   *{box-sizing:border-box;margin:0;padding:0}
+  html,body{min-height:100%}
   body{
     font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
-    min-height:100vh; color:var(--text);
-    background:
-      radial-gradient(1100px 600px at 15% -10%, rgba(16,185,129,0.20), transparent 60%),
-      radial-gradient(900px 520px at 110% 15%, rgba(45,212,191,0.16), transparent 55%),
-      radial-gradient(800px 500px at 50% 120%, rgba(5,150,105,0.10), transparent 60%),
-      linear-gradient(160deg, var(--bg1), var(--bg2));
-    display:flex; align-items:center; justify-content:center; padding:24px;
-    position:relative; overflow:hidden;
-  }
-  /* Faint market grid + a drifting "price line" behind the card — pure CSS/SVG,
-     no external assets, so it works offline / behind a tunnel. */
-  .bg-grid{
-    position:absolute; inset:0; z-index:0; opacity:.5;
-    background-image:
-      linear-gradient(rgba(16,110,74,0.055) 1px, transparent 1px),
-      linear-gradient(90deg, rgba(16,110,74,0.055) 1px, transparent 1px);
-    background-size:44px 44px; mask-image:radial-gradient(circle at 50% 40%, #000 55%, transparent 100%);
-  }
-  .bg-line{ position:absolute; inset:0; z-index:0; width:100%; height:100%; opacity:.4; }
-  .bg-line path{ fill:none; stroke:url(#lg); stroke-width:2; }
-
-  .wrap{ position:relative; z-index:1; width:100%; max-width:400px; }
-
-  .brand{ display:flex; align-items:center; gap:12px; justify-content:center; margin-bottom:22px; }
-  .brand-logo{
-    width:44px; height:44px; border-radius:11px; flex-shrink:0;
-    background:linear-gradient(135deg,#2563eb,#1d4ed8);
+    background:var(--bg); color:var(--text);
+    -webkit-font-smoothing:antialiased;
     display:flex; align-items:center; justify-content:center;
-    box-shadow:0 6px 20px -4px rgba(37,99,235,.6);
+    padding:32px 24px; position:relative; overflow-x:hidden;
   }
-  .brand-txt h1{ font-size:19px; font-weight:800; letter-spacing:-.3px; line-height:1.1; }
-  .brand-txt p{ font-size:9.5px; font-weight:700; letter-spacing:1.4px; text-transform:uppercase; color:var(--text2); margin-top:3px; }
+  /* Depth without noise: two soft pools of colour + a faint market grid. */
+  body::before{
+    content:''; position:fixed; inset:0; z-index:0; pointer-events:none;
+    background:
+      radial-gradient(900px 520px at 12% -8%, rgba(34,197,94,.13), transparent 62%),
+      radial-gradient(760px 460px at 96% 8%, rgba(59,130,246,.12), transparent 58%);
+  }
+  body::after{
+    content:''; position:fixed; inset:0; z-index:0; pointer-events:none; opacity:.5;
+    background-image:
+      linear-gradient(rgba(120,160,220,.045) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(120,160,220,.045) 1px, transparent 1px);
+    background-size:46px 46px;
+    mask-image:radial-gradient(circle at 45% 35%, #000 45%, transparent 92%);
+  }
 
+  /* ── 8. Two-column shell ── */
+  .shell{
+    position:relative; z-index:1; width:100%; max-width:1180px;
+    display:grid; grid-template-columns:1.12fr .88fr; gap:56px; align-items:center;
+  }
+  /* Grid items default to min-width:auto, i.e. they refuse to shrink below their
+     content. The 52-week tape is one long nowrap row (~5300px), so without this the
+     left column expands to the tape's full width and shoves the whole shell off
+     screen — measured left:-4095px before this line existed. */
+  .shell > *{min-width:0}
+
+  /* ── Left: the pitch ── */
+  .brand{display:flex; align-items:center; gap:13px; margin-bottom:30px}
+  .brand-logo{
+    width:44px; height:44px; border-radius:12px; flex:0 0 auto;
+    background:linear-gradient(145deg,var(--green3),#0f766e);
+    display:flex; align-items:center; justify-content:center;
+    box-shadow:0 6px 20px rgba(22,163,74,.32);
+  }
+  .brand h1{font-size:var(--fs-xl); font-weight:800; letter-spacing:-.3px; line-height:1.15}
+  .brand p{font-size:var(--fs-xs); font-weight:700; color:var(--text2); letter-spacing:1.4px; text-transform:uppercase; margin-top:3px}
+
+  .headline{font-size:var(--fs-display); line-height:1.14; font-weight:800; letter-spacing:-1.1px; margin-bottom:14px}
+  .headline .hl{
+    background:linear-gradient(95deg,var(--green2),#5eead4);
+    -webkit-background-clip:text; background-clip:text; -webkit-text-fill-color:transparent;
+  }
+  .kicker{font-size:var(--fs-lg); line-height:1.65; color:var(--text2); max-width:52ch; margin-bottom:26px}
+
+  /* ── 10. Live data hero ── */
+  .pulse{
+    border:1px solid var(--border); border-radius:14px; background:var(--surface);
+    padding:16px 18px 14px; box-shadow:0 10px 34px rgba(0,0,0,.34);
+  }
+  .pulse-top{display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap; margin-bottom:14px}
+  .live{display:flex; align-items:center; gap:7px; font-size:var(--fs-xs); font-weight:800; letter-spacing:1.1px; text-transform:uppercase; color:var(--text2)}
+  .dot{width:7px; height:7px; border-radius:50%; background:var(--green); box-shadow:0 0 0 0 rgba(34,197,94,.65); animation:ping 2.4s ease-out infinite}
+  @keyframes ping{70%{box-shadow:0 0 0 9px rgba(34,197,94,0)}100%{box-shadow:0 0 0 0 rgba(34,197,94,0)}}
+  .regime-chip{
+    font-size:var(--fs-sm); font-weight:800; padding:4px 11px; border-radius:999px;
+    background:color-mix(in srgb, var(--green) 15%, transparent);
+    color:var(--green2); border:1px solid color-mix(in srgb, var(--green) 36%, transparent);
+  }
+  .stats{display:grid; grid-template-columns:repeat(4,1fr); gap:10px}
+  .stat{background:var(--surface2); border:1px solid var(--border); border-radius:10px; padding:10px 12px}
+  .stat .k{font-size:var(--fs-micro); font-weight:700; letter-spacing:.7px; text-transform:uppercase; color:var(--muted); margin-bottom:5px; white-space:nowrap}
+  .stat .v{font-family:var(--mono); font-size:var(--fs-2xl); font-weight:800; letter-spacing:-.6px; line-height:1}
+  .stat .v small{font-size:var(--fs-sm); font-weight:700; color:var(--text2); margin-left:1px}
+  .pos{color:var(--green2)} .neg{color:var(--red)} .neu{color:var(--text)}
+
+  /* 52-week-high tape */
+  .tape{margin-top:13px; border-top:1px solid var(--border); padding-top:11px; overflow:hidden}
+  .tape-lbl{font-size:var(--fs-micro); font-weight:800; letter-spacing:.9px; text-transform:uppercase; color:var(--muted); margin-bottom:7px}
+  .tape-vp{overflow:hidden; position:relative;
+    mask-image:linear-gradient(90deg, transparent, #000 5%, #000 88%, transparent)}
+  .tape-track{display:inline-flex; gap:9px; white-space:nowrap; animation:tape 46s linear infinite; will-change:transform}
+  .tape:hover .tape-track{animation-play-state:paused}
+  @keyframes tape{from{transform:translateX(0)}to{transform:translateX(-50%)}}
+  .tk{display:inline-flex; align-items:center; gap:6px; padding:5px 10px; border-radius:7px;
+      background:var(--surface2); border:1px solid var(--border); font-size:var(--fs-sm)}
+  .tk b{font-weight:700; letter-spacing:.2px}
+  .tk span{font-family:var(--mono); font-size:var(--fs-xs)}
+  .asof{margin-top:11px; font-size:var(--fs-xs); color:var(--muted); font-family:var(--mono)}
+
+  .method{display:flex; flex-wrap:wrap; gap:7px; margin-top:22px}
+  .method span{
+    font-size:var(--fs-xs); font-weight:600; color:var(--text2);
+    background:var(--surface); border:1px solid var(--border);
+    padding:6px 11px; border-radius:999px;
+  }
+
+  /* ── Right: auth ── */
   .card{
-    background:linear-gradient(180deg, var(--card2), var(--card));
-    border:1px solid var(--border); border-radius:16px;
-    padding:28px 26px 26px;
-    box-shadow:0 20px 48px -22px rgba(6,78,59,.30), 0 2px 8px -3px rgba(6,78,59,.10);
+    background:var(--surface); border:1px solid var(--border2); border-radius:16px;
+    padding:30px 30px 26px; box-shadow:0 22px 60px rgba(0,0,0,.5);
   }
-  .card h2{ font-size:16px; font-weight:700; margin-bottom:4px; }
-  .card .sub{ font-size:12.5px; color:var(--text2); margin-bottom:20px; }
-
-  .field{ margin-bottom:14px; }
-  .field label{ display:block; font-size:11px; font-weight:600; letter-spacing:.4px; text-transform:uppercase; color:var(--text2); margin-bottom:6px; }
+  .card h2{font-size:var(--fs-2xl); font-weight:800; letter-spacing:-.35px}
+  .card .sub{font-size:var(--fs-md); color:var(--text2); margin:5px 0 22px}
+  .field{margin-bottom:15px}
+  .field label{display:block; font-size:var(--fs-micro); font-weight:800; letter-spacing:1px; text-transform:uppercase; color:var(--text2); margin-bottom:7px}
   .field input{
-    width:100%; background:var(--field); border:1px solid var(--border);
-    border-radius:9px; padding:11px 13px; font-size:14px; color:var(--text);
-    font-family:inherit; outline:none; transition:border-color .15s, box-shadow .15s;
+    width:100%; padding:12px 14px; border-radius:10px; font-size:var(--fs-base);
+    background:#0d1420; border:1px solid var(--border2); color:var(--text);
+    font-family:inherit; transition:border-color .14s, box-shadow .14s;
   }
-  .field input::placeholder{ color:var(--muted); }
-  .field input:focus{ border-color:var(--accent); box-shadow:0 0 0 3px rgba(16,185,129,.20); }
-
+  .field input::placeholder{color:#5d6f88}
+  .field input:focus{
+    outline:none; border-color:var(--green);
+    box-shadow:0 0 0 3px color-mix(in srgb, var(--green) 20%, transparent);
+  }
   .btn{
-    width:100%; margin-top:6px; padding:12px; border:none; border-radius:9px;
-    background:linear-gradient(135deg,#10b981,#059669); color:#fff;
-    font-size:14px; font-weight:700; letter-spacing:.2px; cursor:pointer;
-    font-family:inherit; transition:filter .15s, transform .05s;
-    box-shadow:0 10px 24px -8px rgba(5,150,105,.55);
+    width:100%; padding:13px; border:none; border-radius:10px; cursor:pointer;
+    font-size:var(--fs-lg); font-weight:800; letter-spacing:.2px; color:#04240f;
+    background:linear-gradient(135deg,var(--green2),var(--green3));
+    font-family:inherit; margin-top:5px; transition:transform .12s, box-shadow .18s;
+    box-shadow:0 6px 20px rgba(34,197,94,.26);
   }
-  .btn:hover{ filter:brightness(1.08); }
-  .btn:active{ transform:translateY(1px); }
+  .btn:hover{transform:translateY(-1px); box-shadow:0 10px 26px rgba(34,197,94,.38)}
+  .btn:active{transform:translateY(0)}
 
-  .err{
-    display:none; margin-bottom:14px; padding:9px 12px; border-radius:8px;
-    background:rgba(248,113,113,.12); border:1px solid rgba(248,113,113,.32);
-    color:var(--red); font-size:12.5px;
-  }
-  .err.show{ display:block; }
+  .divider{display:flex; align-items:center; gap:11px; margin:22px 0 16px; color:var(--muted); font-size:var(--fs-xs); font-weight:700; letter-spacing:.7px}
+  .divider::before,.divider::after{content:''; flex:1; height:1px; background:var(--border)}
 
-  .signed-in{
-    margin-bottom:18px; padding:12px 14px; border-radius:10px;
-    background:rgba(16,185,129,.10); border:1px solid rgba(16,185,129,.32);
-  }
-  .si-row{ font-size:13px; color:#0e1a14; font-weight:600; }
-  .si-row b{ color:#081410; }
-  .si-go{
-    display:inline-block; margin-top:9px; padding:8px 15px; border-radius:8px;
-    background:linear-gradient(135deg,#10b981,#059669); color:#fff; font-size:13px;
-    font-weight:700; text-decoration:none; box-shadow:0 8px 20px -8px rgba(5,150,105,.55);
-  }
-  .si-go:hover{ filter:brightness(1.07); }
-  .si-alt{ font-size:11px; color:#0e1a14; margin-top:10px; line-height:1.5; }
-  .si-alt a{ color:#065f46; font-weight:700; }
-
-  .demo-hint{
-    margin-top:18px; padding:11px 13px; border-radius:9px;
-    background:rgba(16,185,129,.07); border:1px solid rgba(16,185,129,.22);
-    font-size:11.5px; color:#0e1a14; line-height:1.6;
-  }
-  .demo-hint b{ color:#081410; font-weight:700; }
-  .demo-hint code{ font-family:var(--mono); color:#081410; font-size:11px; }
+  .demo{background:var(--surface2); border:1px solid var(--border); border-radius:11px; padding:14px 15px}
+  .demo b{font-size:var(--fs-md)}
+  .demo p{font-size:var(--fs-sm); color:var(--text2); line-height:1.6; margin-top:3px}
+  .demo code{font-family:var(--mono); font-size:var(--fs-xs); background:#0d1420; border:1px solid var(--border); padding:1px 6px; border-radius:5px; color:var(--green2)}
   .demo-fill{
-    background:none; border:none; color:#081410; font-size:11.5px;
-    font-weight:700; cursor:pointer; padding:0; text-decoration:underline; font-family:inherit;
+    display:inline-block; margin-top:10px; width:100%; padding:9px; cursor:pointer;
+    background:transparent; border:1px solid var(--green); border-radius:8px;
+    color:var(--green2); font-size:var(--fs-md); font-weight:700; font-family:inherit;
+    transition:background .14s;
   }
-  .demo-feats{
-    display:flex; flex-wrap:wrap; gap:6px;
-    margin-top:12px; padding-top:11px; border-top:1px solid rgba(16,185,129,.18);
-  }
-  .demo-feats span{
-    font-size:10.5px; font-weight:700; letter-spacing:.2px; color:#0e1a14;
-    background:rgba(16,185,129,.12); border:1px solid rgba(16,185,129,.30);
-    border-radius:999px; padding:3px 9px; white-space:nowrap;
+  .demo-fill:hover{background:color-mix(in srgb, var(--green) 13%, transparent)}
+
+  .err{display:none; background:color-mix(in srgb, var(--red) 14%, transparent);
+       border:1px solid color-mix(in srgb, var(--red) 42%, transparent);
+       color:#fca5a5; font-size:var(--fs-md); padding:10px 13px; border-radius:9px; margin-bottom:16px}
+  .err.show{display:block}
+  .signed-in{background:color-mix(in srgb, var(--green) 12%, transparent);
+             border:1px solid color-mix(in srgb, var(--green) 34%, transparent);
+             border-radius:10px; padding:13px 15px; margin-bottom:18px; font-size:var(--fs-md); line-height:1.6}
+  .signed-in a{color:var(--green2); font-weight:700}
+  .si-go{display:inline-block; margin-top:6px}
+  .si-alt{color:var(--text2); font-size:var(--fs-sm); margin-top:6px}
+
+  .foot{
+    grid-column:1/-1; text-align:center; font-size:var(--fs-xs); color:var(--muted);
+    line-height:1.75; margin-top:38px; padding-top:20px; border-top:1px solid var(--border);
   }
 
-  .foot{ text-align:center; margin-top:20px; font-size:10.5px; color:var(--muted); line-height:1.6; }
+  /* Structural collapse for the 2-col grid — without this #8 simply breaks. */
+  @media (max-width:900px){
+    .shell{grid-template-columns:1fr; gap:34px; max-width:560px}
+    .headline{font-size:var(--fs-3xl)}
+    .stats{grid-template-columns:repeat(2,1fr)}
+    body{padding:26px 18px}
+  }
+  @media (prefers-reduced-motion:reduce){
+    .tape-track{animation:none} .tape-vp{overflow-x:auto} .dot{animation:none}
+  }
 </style>
 </head>
 <body>
-  <div class="bg-grid"></div>
-  <svg class="bg-line" viewBox="0 0 1440 900" preserveAspectRatio="xMidYMid slice" aria-hidden="true">
-    <defs><linearGradient id="lg" x1="0" y1="0" x2="1" y2="0">
-      <stop offset="0" stop-color="#10b981" stop-opacity="0"/>
-      <stop offset=".5" stop-color="#34d399" stop-opacity=".7"/>
-      <stop offset="1" stop-color="#3b82f6" stop-opacity="0"/>
-    </linearGradient></defs>
-    <path d="M-50 640 L160 600 L320 660 L470 500 L640 560 L800 380 L980 460 L1150 250 L1320 330 L1500 150"/>
-  </svg>
+  <div class="shell">
 
-  <div class="wrap">
-    <div class="brand">
-      <div class="brand-logo">
-        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3 17l6-6 4 4 8-8"/><path d="M17 7h4v4"/></svg>
+    <!-- ── LEFT: pitch + live data ─────────────────────────────────────── -->
+    <div>
+      <div class="brand">
+        <div class="brand-logo">
+          <svg width="23" height="23" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3 17l6-6 4 4 8-8"/><path d="M17 7h4v4" stroke="#fde68a"/></svg>
+        </div>
+        <div>
+          <h1>Ascent Wealth Labs</h1>
+          <p>AI Powered Analytics Platform</p>
+        </div>
       </div>
-      <div class="brand-txt">
-        <h1>Ascent Wealth Labs</h1>
-        <p>AI Powered Analytics Platform</p>
+
+      <div class="headline">The whole NSE,<br><span class="hl">screened every evening.</span></div>
+      <div class="kicker">
+        Twenty-plus screeners over end-of-day bhavcopy data — momentum, breakouts,
+        institutional flow, regime and risk — each one measured before it ships.
+      </div>
+
+      {% if pulse and pulse.as_of %}
+      <div class="pulse">
+        <div class="pulse-top">
+          <div class="live"><span class="dot"></span>Live from today's close</div>
+          {% if pulse.regime %}<div class="regime-chip">{{ pulse.regime }}</div>{% endif %}
+        </div>
+
+        <div class="stats">
+          <div class="stat">
+            <div class="k">52W Highs</div>
+            <div class="v pos">{{ pulse.new_highs }}</div>
+          </div>
+          <div class="stat">
+            <div class="k">Adv / Dec</div>
+            <div class="v neu">{{ pulse.advance }}<small>/{{ pulse.decline }}</small></div>
+          </div>
+          <div class="stat">
+            <div class="k">Above 50-DMA</div>
+            <div class="v {{ 'pos' if (pulse.pct_above_50 or 0) >= 50 else 'neg' }}">{{ pulse.pct_above_50 }}<small>%</small></div>
+          </div>
+          <div class="stat">
+            <div class="k">Universe</div>
+            <div class="v neu">{{ pulse.universe }}</div>
+          </div>
+        </div>
+
+        {% if pulse.highs %}
+        <div class="tape">
+          <div class="tape-lbl">Closed at a 52-week high today</div>
+          <div class="tape-vp">
+            <div class="tape-track">
+              {% for _ in range(2) %}{% for h in pulse.highs %}
+              <span class="tk"><b>{{ h.symbol }}</b><span class="pos">+{{ h.r3m }}% 3m</span></span>
+              {% endfor %}{% endfor %}
+            </div>
+          </div>
+        </div>
+        {% endif %}
+
+        <div class="asof">NSE bhavcopy · {{ pulse.as_of }} · end-of-day</div>
+      </div>
+      {% endif %}
+
+      <div class="method">
+        <span>Survivorship-free backtests</span>
+        <span>Point-in-time data</span>
+        <span>Split &amp; bonus corrected</span>
+        <span>Transaction costs charged</span>
       </div>
     </div>
 
+    <!-- ── RIGHT: auth ─────────────────────────────────────────────────── -->
     <div class="card">
       <h2>Sign in</h2>
       <div class="sub">Access the NSE analytics workspace.</div>
 
       {% if signed_in_as %}
       <div class="signed-in">
-        <div class="si-row">✓ You're already signed in as <b>{{ signed_in_as }}</b>.</div>
+        <div>✓ You're already signed in as <b>{{ signed_in_as }}</b>.</div>
         <a class="si-go" href="{{ url_for('index') }}">Continue to dashboard →</a>
         <div class="si-alt">Not you? Sign in below to switch accounts, or <a href="{{ url_for('logout') }}">sign out</a>.</div>
       </div>
@@ -173,17 +300,13 @@
         <button class="btn" type="submit">Sign in →</button>
       </form>
 
-      <div class="demo-hint">
-        <b>Try the demo</b> — explore every screener without the owner's positions.<br>
-        Username <code>demo</code> · password <code>demo123</code>
-        &nbsp;<button type="button" class="demo-fill" onclick="fillDemo()">use demo login</button>
-        <div class="demo-feats">
-          <span>20+ screeners</span>
-          <span>750-stock NSE universe</span>
-          <span>All-Weather regime engine</span>
-          <span>Survivorship-free backtests</span>
-          <span>Daily bhavcopy · EOD</span>
-        </div>
+      <div class="divider">OR</div>
+
+      <div class="demo">
+        <b>Try the demo</b>
+        <p>Explore every screener without the owner's positions.<br>
+           Username <code>demo</code> · password <code>demo123</code></p>
+        <button type="button" class="demo-fill" onclick="fillDemo()">Use demo login →</button>
       </div>
     </div>
 

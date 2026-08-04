@@ -1,0 +1,60 @@
+[Unit]
+Description=Ascent Wealth Labs — NSE analytics dashboard
+Documentation=file:///opt/ascent/deploy/DEPLOY.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ascent
+Group=ascent
+WorkingDirectory=/opt/ascent
+
+# ── Environment ───────────────────────────────────────────────────────────────
+# production turns on: Secure cookies, CSRF origin checks, HSTS, ProxyFix.
+Environment=ASCENT_ENV=production
+
+# Bind to LOOPBACK only. gunicorn.conf.py defaults to 0.0.0.0:5050, which on a
+# public EC2 would face the internet directly and bypass nginx (and therefore TLS
+# and the security headers). nginx is the only thing that should hold a public port.
+Environment=BIND=127.0.0.1:5050
+
+# ONE process, several threads. Extra worker PROCESSES each keep their own copy of
+# the module-level caches, so they duplicate every cache rebuild and multiply NSE
+# polling. The in-process stampede locks cannot span processes.
+Environment=WEB_CONCURRENCY=1
+Environment=WORKER_CLASS=gthread
+Environment=GUNICORN_THREADS=4
+Environment=WORKER_TIMEOUT=300
+
+# Persistent data. /tmp is wrong on a server — cleared on reboot, tmpfs on some
+# AMIs — and re-downloading the cache means ~1,580 bhavcopy fetches from NSE.
+Environment=BHAV_DIR=/var/lib/ascent/nse_bhav_days
+Environment=OHLCV_DIR=/var/lib/ascent/nse_ohlcv_pkl
+Environment=DATA_DIR=/var/lib/ascent
+
+# This box owns NSE fetching (your decision). If you ever run a second instance,
+# set ASCENT_BACKGROUND_JOBS=0 there so only one process polls NSE.
+Environment=ASCENT_BACKGROUND_JOBS=1
+
+ExecStart=/opt/ascent/venv/bin/gunicorn -c gunicorn.conf.py app:app
+
+Restart=always
+RestartSec=10
+KillSignal=SIGTERM
+TimeoutStopSec=45
+
+# ── Sandboxing ────────────────────────────────────────────────────────────────
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+# The app writes .auth_secret / .auth_users.json next to the code, and its caches
+# under DATA_DIR. Everything else on the filesystem stays read-only.
+ReadWritePaths=/opt/ascent /var/lib/ascent
+
+[Install]
+WantedBy=multi-user.target

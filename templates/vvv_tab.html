@@ -1,5 +1,6 @@
 <!-- ════════════════════════════════════════════════ MINERVINI VVV TAB -->
 <div id="tab-vvv" class="tab-content">
+  <div class="tab-intro"><span class="ti-title">Minervini VVV</span>Minervini VVV with the full MarketSmith rating stack — RS, EPS, SMR, A/D, group and composite.</div>
 <div class="container">
 
   <style>
@@ -11,10 +12,10 @@
       padding: 16px 22px;
       margin-bottom: 18px;
     }
-    .vvv-hero h3 { margin: 0 0 6px; font-size: 16px; color: #a855f7; font-weight: 700; }
-    .vvv-hero p  { margin: 0; font-size: 13px; color: var(--text); line-height: 1.6; }
+    .vvv-hero h3 { margin: 0 0 6px; font-size:var(--fs-lg); color: #a855f7; font-weight: 700; }
+    .vvv-hero p  { margin: 0; font-size:var(--fs-md); color: var(--text); line-height: 1.6; }
     .vvv-hero strong { color: var(--white); }
-    .vvv-hero code { background: var(--surface2); padding: 2px 6px; border-radius: 4px; color: #c084fc; font-family: var(--mono); font-size: 12px; }
+    .vvv-hero code { background: var(--surface2); padding: 2px 6px; border-radius: 4px; color: #c084fc; font-family: var(--mono); font-size:var(--fs-sm); }
 
     .vvv-pipeline {
       background: var(--surface);
@@ -26,7 +27,7 @@
       flex-wrap: wrap;
       gap: 10px;
       align-items: center;
-      font-size: 12px;
+      font-size:var(--fs-sm);
       color: var(--text);
     }
     .vvv-pipeline .step {
@@ -37,7 +38,7 @@
       color: #c084fc;
       font-weight: 600;
     }
-    .vvv-pipeline .arrow { color: var(--muted); font-size: 14px; }
+    .vvv-pipeline .arrow { color: var(--muted); font-size:var(--fs-base); }
 
     .vvv-stat-card {
       background: var(--surface) !important;
@@ -48,11 +49,11 @@
       flex: 1;
     }
     .vvv-stat-card .vvv-stat-label {
-      font-size: 11px; font-weight: 700; text-transform: uppercase;
+      font-size:var(--fs-xs); font-weight: 700; text-transform: uppercase;
       letter-spacing: 0.5px;
     }
     .vvv-stat-card .vvv-stat-value {
-      font-size: 24px; font-weight: 800; margin-top: 4px; font-family: var(--mono);
+      font-size:var(--fs-3xl); font-weight: 800; margin-top: 4px; font-family: var(--mono);
     }
     .vvv-stat-ideal  { border-color: rgba(168,85,247,0.4); }
     .vvv-stat-ideal  .vvv-stat-label, .vvv-stat-ideal  .vvv-stat-value { color: #c084fc; }
@@ -63,9 +64,9 @@
     .vvv-stat-track  { border-color: rgba(245,158,11,0.4); }
     .vvv-stat-track  .vvv-stat-label, .vvv-stat-track  .vvv-stat-value { color: var(--gold2); }
 
-    #vvvTable { width: 100%; font-size: 12px; border-collapse: separate; border-spacing: 0; background: var(--surface); }
+    #vvvTable { width: 100%; font-size:var(--fs-sm); border-collapse: separate; border-spacing: 0; background: var(--surface); }
     #vvvTable th {
-      background: var(--surface2); color: var(--text); font-weight: 700; font-size: 11px;
+      background: var(--surface2); color: var(--text); font-weight: 700; font-size:var(--fs-xs);
       text-transform: uppercase; letter-spacing: 0.4px; text-align: left;
       padding: 10px 12px; border-bottom: 2px solid var(--border); position: sticky; top: 0;
     }
@@ -74,17 +75,17 @@
 
     .vvv-tier {
       display: inline-block; padding: 3px 10px; border-radius: 12px;
-      font-size: 11px; font-weight: 700; white-space: nowrap;
+      font-size:var(--fs-xs); font-weight: 700; white-space: nowrap;
     }
 
     .vvv-pattern-pill {
       display: inline-block; padding: 2px 8px; border-radius: 10px;
-      font-size: 10px; font-weight: 700; letter-spacing: 0.3px;
+      font-size:var(--fs-micro); font-weight: 700; letter-spacing: 0.3px;
     }
     .vvv-pat-vcp { background: rgba(168,85,247,0.18);  color: #c084fc; }
     .vvv-pat-ep  { background: rgba(245,158,11,0.18);  color: var(--gold2); }
     .vvv-pat-pp  { background: rgba(59,130,246,0.18);  color: var(--accent2); }
-    .vvv-pat-3wt { background: rgba(16,185,129,0.18);  color: #34d399; }
+    .vvv-pat-3wt { background: rgba(16,185,129,0.18);  color: var(--green2); }
     .vvv-pat-tp  { background: rgba(20,184,166,0.18);  color: #2dd4bf; }
     .vvv-pat-pt  { background: rgba(236,72,153,0.18);  color: #f472b6; }
 
@@ -125,14 +126,14 @@
   <!-- Controls -->
   <div style="display:flex; align-items:center; gap:14px; margin-bottom:14px; flex-wrap:wrap;">
     <button id="vvvScanBtn" class="btn btn-primary" onclick="vvvStartScan()"><svg class="ic ic-b"><use href="#i-target"/></svg>Run VVV Scan</button>
-    <span id="vvvStatus" style="font-size:13px; color:var(--text2)">Click to scan the 751-stock universe for Minervini setups</span>
-    <span id="vvvCount" style="margin-left:auto; font-size:12px; color:var(--text2)"></span>
-    <button onclick="vvvStartScan(true)" class="btn" style="font-size:12px; padding:6px 14px; border:1px solid var(--border); background:var(--surface); color:var(--text);">🔄 Refresh</button>
+    <span id="vvvStatus" style="font-size:var(--fs-md); color:var(--text2)">Click to scan the 751-stock universe for Minervini setups</span>
+    <span id="vvvCount" style="margin-left:auto; font-size:var(--fs-sm); color:var(--text2)"></span>
+    <button onclick="vvvStartScan(true)" class="btn" style="font-size:var(--fs-sm); padding:6px 14px; border:1px solid var(--border); background:var(--surface); color:var(--text);">🔄 Refresh</button>
   </div>
 
   <!-- Progress -->
   <div id="vvvProgress" style="display:none; padding:12px 16px; background:var(--surface); border:1px solid var(--border); border-radius:8px; margin-bottom:14px;">
-    <div style="display:flex; justify-content:space-between; font-size:12px; margin-bottom:6px;">
+    <div style="display:flex; justify-content:space-between; font-size:var(--fs-sm); margin-bottom:6px;">
       <span id="vvvMessage" style="color:var(--text)">Scanning…</span>
       <span id="vvvPct" style="font-family:var(--mono); color:#c084fc; font-weight:700">0%</span>
     </div>
@@ -146,11 +147,11 @@
 
   <!-- Filters -->
   <div style="display:flex; align-items:center; gap:10px; margin-bottom:8px; flex-wrap:wrap;">
-    <span style="font-size:11px; color:var(--text2); text-transform:uppercase; font-weight:700; letter-spacing:0.4px;">Tier:</span>
+    <span style="font-size:var(--fs-xs); color:var(--text2); text-transform:uppercase; font-weight:700; letter-spacing:0.4px;">Tier:</span>
     <button id="vvvF-all"    class="cn-pill cn-pill-on" onclick="vvvFilter('all')">All</button>
     <button id="vvvF-ideal"  class="cn-pill"            onclick="vvvFilter('ideal')">🏆 Ideal</button>
     <button id="vvvF-strong" class="cn-pill"            onclick="vvvFilter('strong')">✅ Strong</button>
-    <span style="font-size:11px; color:var(--text2); text-transform:uppercase; font-weight:700; letter-spacing:0.4px; margin-left:18px;">Pattern:</span>
+    <span style="font-size:var(--fs-xs); color:var(--text2); text-transform:uppercase; font-weight:700; letter-spacing:0.4px; margin-left:18px;">Pattern:</span>
     <button id="vvvP-all" class="cn-pill cn-pill-on" onclick="vvvFilterPattern('all')">All</button>
     <button id="vvvP-vcp" class="cn-pill"            onclick="vvvFilterPattern('VCP')">VCP</button>
     <button id="vvvP-ep"  class="cn-pill"            onclick="vvvFilterPattern('Episodic Pivot')">EP</button>
@@ -158,7 +159,7 @@
   </div>
   <!-- MFI flow filter + sort (volume-weighted institutional flow) -->
   <div style="display:flex; align-items:center; gap:10px; margin-bottom:14px; flex-wrap:wrap;">
-    <span style="font-size:11px; color:var(--text2); text-transform:uppercase; font-weight:700; letter-spacing:0.4px;"
+    <span style="font-size:var(--fs-xs); color:var(--text2); text-transform:uppercase; font-weight:700; letter-spacing:0.4px;"
           title="Money Flow Index — volume-weighted RSI. Surfaces stocks with real institutional buying behind the VVV setup, not just thin-volume technical patterns.">
       💰 MFI Flow:
     </span>
@@ -167,7 +168,7 @@
     <button id="vvvM-accum"   class="cn-pill"            onclick="vvvFilterMfi('accum')"        title="MFI 65-79 — steady accumulation">🟢 Accum (65-79)</button>
     <button id="vvvM-neutral" class="cn-pill"            onclick="vvvFilterMfi('neutral')"      title="MFI 40-64 — mixed flow">⚪ Neutral (40-64)</button>
     <button id="vvvM-dist"    class="cn-pill"            onclick="vvvFilterMfi('dist')"         title="MFI ≤ 39 — selling pressure (skip these even if pattern looks valid)">🔴 Distribution (≤39)</button>
-    <span style="font-size:11px; color:var(--text2); text-transform:uppercase; font-weight:700; letter-spacing:0.4px; margin-left:18px;">Sort:</span>
+    <span style="font-size:var(--fs-xs); color:var(--text2); text-transform:uppercase; font-weight:700; letter-spacing:0.4px; margin-left:18px;">Sort:</span>
     <button id="vvvS-score"   class="cn-pill cn-pill-on" onclick="vvvSort('score')">Setup Score</button>
     <button id="vvvS-mfi-hi"  class="cn-pill"            onclick="vvvSort('mfi_desc')">MFI ↓ (high first)</button>
     <button id="vvvS-mfi-lo"  class="cn-pill"            onclick="vvvSort('mfi_asc')">MFI ↑ (low first)</button>
@@ -190,35 +191,45 @@
     #vvvTable th.vvv-sortable::after {
       content: " ↕";
       opacity: 0.25;
-      font-size: 10px;
+      font-size:var(--fs-micro);
       margin-left: 2px;
     }
-    #vvvTable th.vvv-sort-active.vvv-sort-asc::after  { content: " ▲"; opacity: 1; font-size: 9px; }
-    #vvvTable th.vvv-sort-active.vvv-sort-desc::after { content: " ▼"; opacity: 1; font-size: 9px; }
+    #vvvTable th.vvv-sort-active.vvv-sort-asc::after  { content: " ▲"; opacity: 1; font-size:var(--fs-2xs); }
+    #vvvTable th.vvv-sort-active.vvv-sort-desc::after { content: " ▼"; opacity: 1; font-size:var(--fs-2xs); }
   </style>
-  <div style="background:var(--card); border:1px solid var(--border); border-radius:10px; overflow:auto;">
-    <table id="vvvTable">
+  <!-- max-height + overflow give the sticky <th> something to stick to; tbl-freeze
+       pins # and Symbol so you never lose the row identity across 25 columns. -->
+  <div style="background:var(--card); border:1px solid var(--border); border-radius:10px; overflow:auto; max-height:74vh;">
+    <table id="vvvTable" class="tbl-freeze">
       <thead>
         <tr>
           <th style="width:40px">#</th>
-          <th class="vvv-sortable" data-sort="symbol"      style="width:130px">Symbol</th>
-          <th class="vvv-sortable" data-sort="score"       style="width:80px; text-align:center">Score</th>
-          <th class="vvv-sortable" data-sort="tier"        style="width:110px">Tier</th>
-          <th class="vvv-sortable" data-sort="pattern"     style="width:110px">Pattern</th>
-          <th class="vvv-sortable" data-sort="tt_score"    style="width:60px; text-align:center" title="Trend Template score / 8">TT</th>
-          <th class="vvv-sortable" data-sort="rs_rank"     style="width:60px; text-align:center" title="RS rank 1-99 vs universe">RS</th>
-          <th class="vvv-sortable" data-sort="price"       style="width:90px; text-align:right">Price ₹</th>
-          <th class="vvv-sortable" data-sort="entry"       style="width:90px; text-align:right" title="Recommended buy level">Entry</th>
-          <th class="vvv-sortable" data-sort="stop"        style="width:90px; text-align:right" title="Tight stop near 10-EMA or base-low">Stop</th>
-          <th class="vvv-sortable" data-sort="target"      style="width:90px; text-align:right" title="3R target = entry + 3×risk">Target</th>
-          <th class="vvv-sortable" data-sort="risk_pct"    style="width:80px; text-align:right">Risk %</th>
-          <th class="vvv-sortable" data-sort="rr_ratio"    style="width:80px; text-align:right">R:R</th>
-          <th class="vvv-sortable" data-sort="adtv_cr"     style="width:90px; text-align:right" title="Average daily turnover ₹Cr">ADTV</th>
-          <th class="vvv-sortable" data-sort="mfi"         style="width:140px; text-align:center"
-              title="Money Flow Index (14-bar). Volume-weighted; ≥80 = strong institutional buying, ≤25 = strong distribution. A high-MFI VVV setup has real money behind it.">
+          <th class="vvv-sortable" data-sort="symbol" style="width:130px">Symbol</th>
+          <th class="vvv-sortable ta-c" data-sort="score" style="width:80px">Score</th>
+          <th class="vvv-sortable" data-sort="tier" style="width:110px">Tier</th>
+          <th class="vvv-sortable" data-sort="pattern" style="width:110px">Pattern</th>
+          <th class="vvv-sortable ta-c" data-sort="tt_score" style="width:60px" title="Trend Template score / 8">TT</th>
+          <th class="vvv-sortable ta-c" data-sort="rs_rank" style="width:60px" title="RS rank 1-99 vs universe">RS</th>
+          <!-- ── MarketSmith / IBD rating stack ── -->
+          <th class="vvv-sortable ta-c" data-sort="composite_rating" style="width:66px" title="Composite Rating 1-99 = EPS + Price Strength + Buyer Demand + SMR. MarketSmith looks for ≥90.">Comp</th>
+          <th class="vvv-sortable ta-c" data-sort="master_score" style="width:60px" title="Master Score A-E = EPS + Price Strength + Buyer Demand + Group Rank. Look for A/B.">Master</th>
+          <th class="vvv-sortable ta-c" data-sort="price_str" style="width:62px" title="Price Strength 1-99 — TRUE 12-month weighted RS (2×Q1 + Q2 + Q3 + Q4), MarketSmith style. Look for ≥80.">PriceStr</th>
+          <th class="vvv-sortable ta-c" data-sort="eps_rating" style="width:58px" title="EPS Rating 1-99 — recent 2 quarters YoY growth + 3yr CAGR. Look for ≥80.">EPS</th>
+          <th class="vvv-sortable ta-c" data-sort="smr_rating" style="width:58px" title="SMR 1-99 — Sales growth + operating Margin + ROE. Look for ≥80.">SMR</th>
+          <th class="vvv-sortable ta-c" data-sort="ad_grade" style="width:56px" title="Buyer Demand A-E — 13-week institutional accumulation (Chaikin money-flow), graded cross-sectionally. Look for A/B.">A/D</th>
+          <th class="vvv-sortable ta-c" data-sort="group_rank" style="width:62px" title="Industry Group Rank on 6-month performance (MarketSmith window). Look for top 40.">Group</th>
+          <th class="vvv-sortable ta-c" data-sort="canslim_passed" style="width:70px" title="CAN SLIM checklist — criteria passed. Hover a cell for the full breakdown.">CAN SLIM</th>
+          <th class="vvv-sortable ta-r" data-sort="price" style="width:90px">Price ₹</th>
+          <th class="vvv-sortable ta-r" data-sort="entry" style="width:90px" title="Recommended buy level">Entry</th>
+          <th class="vvv-sortable ta-r" data-sort="stop" style="width:90px" title="Tight stop near 10-EMA or base-low">Stop</th>
+          <th class="vvv-sortable ta-r" data-sort="target" style="width:90px" title="3R target = entry + 3×risk">Target</th>
+          <th class="vvv-sortable ta-r" data-sort="risk_pct" style="width:80px">Risk %</th>
+          <th class="vvv-sortable ta-r" data-sort="rr_ratio" style="width:80px">R:R</th>
+          <th class="vvv-sortable ta-r" data-sort="adtv_cr" style="width:90px" title="Average daily turnover ₹Cr">ADTV</th>
+          <th class="vvv-sortable ta-c" data-sort="mfi" style="width:140px" title="Money Flow Index (14-bar). Volume-weighted; ≥80 = strong institutional buying, ≤25 = strong distribution. A high-MFI VVV setup has real money behind it.">
             💰 MFI Flow
           </th>
-          <th class="vvv-sortable" data-sort="consensus_score" style="width:90px; text-align:center" title="Cross-scan Final Setup Score">Consensus</th>
+          <th class="vvv-sortable ta-c" data-sort="consensus_score" style="width:90px" title="Cross-scan Final Setup Score">Consensus</th>
         </tr>
       </thead>
       <tbody id="vvvBody"></tbody>
@@ -226,8 +237,8 @@
   </div>
 
   <div id="vvvEmpty" class="vvv-loading" style="display:none;">
-    <p style="font-size:14px">No stocks passed all 6 VVV gates today.</p>
-    <p style="font-size:12px; margin-top:6px">
+    <p style="font-size:var(--fs-base)">No stocks passed all 6 VVV gates today.</p>
+    <p style="font-size:var(--fs-sm); margin-top:6px">
       This is expected during Correction regimes. Minervini's funnel is intentionally selective —
       it lets institutions hold cash rather than force trades. Wait for the market to improve OR
       check the Consensus Picks tab for slightly looser high-conviction setups.
@@ -235,6 +246,8 @@
   </div>
 
 </div>
+
+  <p class="disclaimer">{{ DISCLAIMER }}</p>
 </div>
 
 <script>
@@ -291,7 +304,7 @@
       var col = cs >= 60 ? 'var(--green2)' : cs >= 40 ? 'var(--accent2)' : cs >= 25 ? 'var(--gold2)' : 'var(--muted)';
       var bg  = cs >= 60 ? 'rgba(16,185,129,.15)' : cs >= 40 ? 'rgba(59,130,246,.15)' : cs >= 25 ? 'rgba(245,158,11,.15)' : 'rgba(120,120,120,.10)';
       return '<span style="display:inline-block; padding:2px 8px; border-radius:10px; background:' + bg +
-             '; color:' + col + '; font-weight:700; font-size:11px">' + cs.toFixed(0) + ' · ' + sc + '×</span>';
+             '; color:' + col + '; font-weight:700; font-size:var(--fs-xs)">' + cs.toFixed(0) + ' · ' + sc + '×</span>';
     }
 
     // MFI Flow cell — colored chip + numeric value + label. Tells the user
@@ -309,8 +322,8 @@
       else if (m >= 25) { col = '#fb923c';       bg = 'rgba(251,146,60,.15)'; }
       else              { col = 'var(--red2)';   bg = 'rgba(239,68,68,.20)'; }
       return '<span style="display:inline-flex; flex-direction:column; align-items:center; min-width:120px; padding:3px 8px; border-radius:8px; background:' + bg + '; color:' + col + '; line-height:1.1; font-weight:600">' +
-             '<span style="font-family:var(--mono); font-size:13px">' + m.toFixed(0) + '</span>' +
-             '<span style="font-size:9px; text-transform:uppercase; letter-spacing:0.4px; opacity:0.9">' + lbl + '</span>' +
+             '<span style="font-family:var(--mono); font-size:var(--fs-md)">' + m.toFixed(0) + '</span>' +
+             '<span style="font-size:var(--fs-2xs); text-transform:uppercase; letter-spacing:0.4px; opacity:0.9">' + lbl + '</span>' +
              '</span>';
     }
 
@@ -463,6 +476,41 @@
       });
     }
 
+    // ── MarketSmith rating cell renderers ────────────────────────────────────
+    // Colour against MarketSmith's own published thresholds so the table reads
+    // the way their screen does: green = passes, gold = borderline, grey = no.
+    function _msNum(v, th) {
+      if (v === null || v === undefined) return '<td style="text-align:center;color:var(--text2)">—</td>';
+      var col = v >= th ? 'var(--green2)' : v >= th - 20 ? 'var(--gold2)' : 'var(--text2)';
+      return '<td style="text-align:center;font-weight:700;font-family:var(--mono);color:' + col + '">' + v + '</td>';
+    }
+    function _msGrade(g) {
+      if (!g) return '<td style="text-align:center;color:var(--text2)">—</td>';
+      var col = (g === 'A') ? 'var(--green2)' : (g === 'B') ? 'var(--green2)'
+              : (g === 'C') ? 'var(--gold2)' : 'var(--red2)';
+      var bg  = (g === 'A' || g === 'B') ? 'rgba(16,185,129,.12)'
+              : (g === 'C') ? 'rgba(234,179,8,.12)' : 'rgba(239,68,68,.10)';
+      return '<td style="text-align:center"><span style="display:inline-block;min-width:20px;padding:1px 6px;'
+           + 'border-radius:5px;font-weight:800;font-size:var(--fs-xs);color:' + col + ';background:' + bg + '">' + g + '</span></td>';
+    }
+    function _msGroup(rank, n) {
+      if (!rank) return '<td style="text-align:center;color:var(--text2)">—</td>';
+      var col = rank <= 40 ? 'var(--green2)' : rank <= 80 ? 'var(--gold2)' : 'var(--text2)';
+      return '<td style="text-align:center;font-family:var(--mono);color:' + col + '" title="rank '
+           + rank + ' of ' + (n || '?') + ' groups (6-month performance)">#' + rank + '</td>';
+    }
+    function _msCanslim(r) {
+      var p = r.canslim_passed, t = r.canslim_total;
+      if (p === null || p === undefined) return '<td style="text-align:center;color:var(--text2)">—</td>';
+      var ratio = t ? p / t : 0;
+      var col = ratio >= 0.75 ? 'var(--green2)' : ratio >= 0.5 ? 'var(--gold2)' : 'var(--red2)';
+      var tip = (r.canslim || []).map(function (c) {
+        return (c.pass ? '✓ ' : '✗ ') + c.label + ' — ' + c.detail;
+      }).join('\n');
+      return '<td style="text-align:center;font-weight:700;color:' + col + ';cursor:help" title="'
+           + tip.replace(/"/g, '&quot;') + '">' + p + '/' + t + '</td>';
+    }
+
     function vvvRender() {
       if (!_vvvData) return;
       _vvvAttachHeaderClicks();
@@ -543,17 +591,26 @@
         var tr = document.createElement('tr');
         tr.innerHTML =
           '<td style="color:var(--text2); font-weight:600">' + (i+1) + '</td>' +
-          '<td><strong style="color:#c084fc; font-size:14px">' + r.symbol + '</strong></td>' +
+          '<td><strong style="color:#c084fc; font-size:var(--fs-base)">' + r.symbol + '</strong></td>' +
           '<td style="text-align:center">' +
             '<span style="font-weight:800; color:' + col + '; font-family:var(--mono)">' + r.score + '</span>' +
             '<span class="vvv-score-bar"><span class="vvv-score-fill" style="width:' + Math.min(100, r.score) + '%; background:' + col + '"></span></span>' +
           '</td>' +
           '<td><span class="vvv-tier" style="' + _tierStyle(r.tier) + '">' + r.tier + '</span></td>' +
           '<td><span class="vvv-pattern-pill ' + _patternClass(r.pattern) + '">' + r.pattern + '</span>' +
-            (r.rs_line_high ? ' <span title="RS line at new 52w high" style="color:var(--gold2); font-size:11px">↑RS</span>' : '') +
+            (r.rs_line_high ? ' <span title="RS line at new 52w high" style="color:var(--gold2); font-size:var(--fs-xs)">↑RS</span>' : '') +
           '</td>' +
           '<td style="text-align:center; font-weight:700; color:' + (r.tt_score >= 7 ? 'var(--green2)' : 'var(--gold2)') + '">' + r.tt_score + '/8</td>' +
           '<td style="text-align:center; font-weight:700; color:' + (r.rs_rank >= 80 ? 'var(--green2)' : r.rs_rank >= 70 ? 'var(--accent2)' : 'var(--gold2)') + '">' + r.rs_rank + '</td>' +
+          // ── MarketSmith rating stack ──
+          _msNum(r.composite_rating, 90) +
+          _msGrade(r.master_score) +
+          _msNum(r.price_str, 80) +
+          _msNum(r.eps_rating, 80) +
+          _msNum(r.smr_rating, 80) +
+          _msGrade(r.ad_grade) +
+          _msGroup(r.group_rank, r.n_groups) +
+          _msCanslim(r) +
           '<td style="text-align:right; font-family:var(--mono)">₹' + (r.price || 0).toLocaleString('en-IN') + '</td>' +
           '<td style="text-align:right; font-family:var(--mono); color:var(--accent2)">₹' + (r.entry || 0).toLocaleString('en-IN') + '</td>' +
           '<td style="text-align:right; font-family:var(--mono); color:var(--red2)" title="' + (r.stop_reason || '') + '">₹' + (r.stop || 0).toLocaleString('en-IN') + '</td>' +

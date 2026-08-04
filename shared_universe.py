@@ -73,7 +73,7 @@ def load_base_universe(days: int = 400, progress_callback=None) -> dict[str, pd.
                 continue
             g = grp.set_index("Date")[["Open", "High", "Low", "Close", "Volume"]]
             g = g[~g.index.duplicated(keep="last")].sort_index()
-            g = adjust_for_splits(g)
+            g = adjust_for_splits(g, sym)
             out[sym] = g
 
         _CACHE[days] = {"tag": tag, "data": out}

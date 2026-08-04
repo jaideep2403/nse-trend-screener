@@ -11,13 +11,13 @@
       padding: 16px 22px;
       margin-bottom: 18px;
     }
-    .sl-hero h3 { margin: 0 0 6px; font-size: 16px; color: var(--accent); font-weight: 700; }
-    .sl-hero p  { margin: 0; font-size: 13px; color: var(--text); line-height: 1.6; }
+    .sl-hero h3 { margin: 0 0 6px; font-size:var(--fs-lg); color: var(--accent); font-weight: 700; }
+    .sl-hero p  { margin: 0; font-size:var(--fs-md); color: var(--text); line-height: 1.6; }
     .sl-hero strong { color: var(--white); }
-    .sl-hero code { background: var(--surface2); padding: 2px 6px; border-radius: 4px; color: var(--accent2); font-family: var(--mono); font-size: 12px; }
+    .sl-hero code { background: var(--surface2); padding: 2px 6px; border-radius: 4px; color: var(--accent2); font-family: var(--mono); font-size:var(--fs-sm); }
 
     .sl-pill {
-      padding: 6px 14px; border-radius: 20px; font-size: 12px; font-weight: 600;
+      padding: 6px 14px; border-radius: 20px; font-size:var(--fs-sm); font-weight: 600;
       border: 1px solid var(--border); background: var(--surface); color: var(--text);
       cursor: pointer; transition: all 0.15s;
     }
@@ -28,8 +28,8 @@
       background: var(--surface); border: 1px solid var(--border); border-radius: 10px;
       padding: 10px 14px; min-width: 140px; flex: 1;
     }
-    .sl-stat-card .sl-stat-label { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; }
-    .sl-stat-card .sl-stat-value { font-size: 24px; font-weight: 800; margin-top: 4px; font-family: var(--mono); }
+    .sl-stat-card .sl-stat-label { font-size:var(--fs-xs); font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; }
+    .sl-stat-card .sl-stat-value { font-size:var(--fs-3xl); font-weight: 800; margin-top: 4px; font-family: var(--mono); }
 
     .sl-stat-s1 { border-color: rgba(59,130,246,0.35); }
     .sl-stat-s1 .sl-stat-label, .sl-stat-s1 .sl-stat-value { color: var(--accent2); }
@@ -40,9 +40,9 @@
     .sl-stat-s4 { border-color: rgba(239,68,68,0.35); }
     .sl-stat-s4 .sl-stat-label, .sl-stat-s4 .sl-stat-value { color: var(--red2); }
 
-    #slTable { width: 100%; font-size: 12px; border-collapse: separate; border-spacing: 0; }
+    #slTable { width: 100%; font-size:var(--fs-sm); border-collapse: separate; border-spacing: 0; }
     #slTable th {
-      background: var(--surface2); color: var(--text); font-weight: 700; font-size: 11px;
+      background: var(--surface2); color: var(--text); font-weight: 700; font-size:var(--fs-xs);
       text-transform: uppercase; letter-spacing: 0.4px; text-align: left;
       padding: 10px 12px; border-bottom: 2px solid var(--border); position: sticky; top: 0;
     }
@@ -50,7 +50,7 @@
     #slTable tbody tr:hover { background: rgba(99,102,241,0.05); }
 
     .sl-stage-pill {
-      display: inline-block; padding: 3px 10px; border-radius: 12px; font-size: 11px; font-weight: 700;
+      display: inline-block; padding: 3px 10px; border-radius: 12px; font-size:var(--fs-xs); font-weight: 700;
     }
     .sl-stage-1 { background: rgba(59,130,246,0.18);  color: var(--accent2); }
     .sl-stage-2 { background: rgba(16,185,129,0.18);  color: var(--green2);  }
@@ -67,7 +67,7 @@
       background: rgba(245,158,11,0.10); border: 1px solid rgba(245,158,11,0.35);
       border-radius: 8px; padding: 10px 14px; margin-bottom: 14px;
     }
-    .sl-disclaim p { margin: 0; color: var(--gold2); font-size: 12px; line-height: 1.5; }
+    .sl-disclaim p { margin: 0; color: var(--gold2); font-size:var(--fs-sm); line-height: 1.5; }
   </style>
 
   <!-- Description -->
@@ -87,20 +87,20 @@
 
   <!-- Filters -->
   <div style="display:flex; align-items:center; gap:8px; margin-bottom:14px; flex-wrap:wrap;">
-    <span style="font-size:11px; color:var(--text2); text-transform:uppercase; font-weight:700; letter-spacing:0.4px; margin-right:4px;">Into Stage:</span>
+    <span style="font-size:var(--fs-xs); color:var(--text2); text-transform:uppercase; font-weight:700; letter-spacing:0.4px; margin-right:4px;">Into Stage:</span>
     <button id="slStage-2" class="sl-pill sl-pill-on" onclick="stageLogFilter('stage', 2)">🟢 Stage 2 (Advancing)</button>
     <button id="slStage-1" class="sl-pill"            onclick="stageLogFilter('stage', 1)">🔵 Stage 1 (Basing)</button>
     <button id="slStage-3" class="sl-pill"            onclick="stageLogFilter('stage', 3)">🟡 Stage 3 (Topping)</button>
     <button id="slStage-4" class="sl-pill"            onclick="stageLogFilter('stage', 4)">🔴 Stage 4 (Declining)</button>
 
-    <span style="font-size:11px; color:var(--text2); text-transform:uppercase; font-weight:700; letter-spacing:0.4px; margin:0 4px 0 18px;">Window:</span>
+    <span style="font-size:var(--fs-xs); color:var(--text2); text-transform:uppercase; font-weight:700; letter-spacing:0.4px; margin:0 4px 0 18px;">Window:</span>
     <button id="slDays-3"  class="sl-pill"            onclick="stageLogFilter('days', 3)">3d</button>
     <button id="slDays-10" class="sl-pill sl-pill-on" onclick="stageLogFilter('days', 10)">10d</button>
     <button id="slDays-30" class="sl-pill"            onclick="stageLogFilter('days', 30)">30d</button>
     <button id="slDays-90" class="sl-pill"            onclick="stageLogFilter('days', 90)">90d</button>
 
-    <span id="slCount" style="margin-left:auto; font-size:12px; color:var(--text2)">— transitions</span>
-    <button onclick="stageLogLoad()" class="btn btn-primary" style="font-size:12px; padding:6px 14px;">🔄 Refresh</button>
+    <span id="slCount" style="margin-left:auto; font-size:var(--fs-sm); color:var(--text2)">— transitions</span>
+    <button onclick="stageLogLoad()" class="btn btn-primary" style="font-size:var(--fs-sm); padding:6px 14px;">🔄 Refresh</button>
   </div>
 
   <!-- First-day disclaimer -->
@@ -119,11 +119,11 @@
         <tr>
           <th style="width:40px">#</th>
           <th style="width:120px">Symbol</th>
-          <th style="width:160px; text-align:center">Current Stage</th>
-          <th style="width:110px; text-align:center">Previous</th>
-          <th style="width:120px; text-align:center">Since Date</th>
-          <th style="width:90px;  text-align:center">Days Ago</th>
-          <th style="width:80px;  text-align:center">Bars In</th>
+          <th style="width:160px" class="ta-c">Current Stage</th>
+          <th style="width:110px" class="ta-c">Previous</th>
+          <th style="width:120px" class="ta-c">Since Date</th>
+          <th style="width:90px" class="ta-c">Days Ago</th>
+          <th style="width:80px" class="ta-c">Bars In</th>
           <th>Action</th>
         </tr>
       </thead>
@@ -132,11 +132,13 @@
   </div>
 
   <div id="slEmpty" style="text-align:center; padding:40px; color:var(--text2); display:none;">
-    <p style="font-size:14px">No transitions in this window.</p>
-    <p style="font-size:12px; margin-top:6px">Try a wider window or different stage. Transitions accumulate as scans run daily.</p>
+    <p style="font-size:var(--fs-base)">No transitions in this window.</p>
+    <p style="font-size:var(--fs-sm); margin-top:6px">Try a wider window or different stage. Transitions accumulate as scans run daily.</p>
   </div>
 
 </div>
+
+  <p class="disclaimer">{{ DISCLAIMER }}</p>
 </div>
 
 <script>
@@ -238,15 +240,15 @@
         var freshDot = s.days_ago <= 5 ? '<span class="sl-fresh-dot"></span>' : '';
         var prev = s.prev_stage
           ? '<span class="sl-stage-pill ' + _stageClass(s.prev_stage) + '">' + _stageLabel(s.prev_stage).slice(0,2) + '</span>'
-          : '<span style="color:var(--muted); font-size:11px">—</span>';
+          : '<span style="color:var(--muted); font-size:var(--fs-xs)">—</span>';
 
         var tr = document.createElement('tr');
         tr.innerHTML =
           '<td style="color:var(--text2); font-weight:600">' + (i + 1) + '</td>' +
-          '<td><strong style="color:#a5b4fc; font-size:14px">' + s.symbol + '</strong></td>' +
+          '<td><strong style="color:#a5b4fc; font-size:var(--fs-base)">' + s.symbol + '</strong></td>' +
           '<td style="text-align:center"><span class="sl-stage-pill ' + _stageClass(s.stage) + '">' + _stageLabel(s.stage) + '</span></td>' +
           '<td style="text-align:center">' + prev + '</td>' +
-          '<td style="text-align:center; font-family:var(--mono); font-size:11px; color:var(--text2)">' + (s.since_date || '—') + '</td>' +
+          '<td style="text-align:center; font-family:var(--mono); font-size:var(--fs-xs); color:var(--text2)">' + (s.since_date || '—') + '</td>' +
           '<td style="text-align:center; font-weight:700; color:var(--text)">' + freshDot + s.days_ago + 'd</td>' +
           '<td style="text-align:center; color:var(--text2)">' + (s.bars_in || 1) + '</td>' +
           '<td>' + _actionForTransition(s.prev_stage, s.stage) + '</td>';

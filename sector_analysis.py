@@ -52,6 +52,23 @@ def _ret(series, bars):
     return round((_safe(series.iloc[-1]) / _safe(series.iloc[-bars]) - 1) * 100, 2)
 
 
+def _ret_exact(series, bars):
+    """TRUE N-bar return: today's close vs the close N bars earlier.
+
+    `_ret()` above uses iloc[-bars], which for bars=1 divides today's close by
+    ITSELF and always returns 0.00 — harmless at 21/63/126 bars (a 1-bar offset),
+    fatal at 1 bar. The short horizons in the multi-horizon grid use this exact
+    version; the long-horizon metrics keep _ret() so previously validated numbers
+    are not silently shifted.
+    """
+    if series is None or len(series) < bars + 1:
+        return 0.0
+    prev = _safe(series.iloc[-bars - 1])
+    if prev <= 0:
+        return 0.0
+    return round((_safe(series.iloc[-1]) / prev - 1) * 100, 2)
+
+
 def _mfi(df, period=14):
     try:
         hi  = df["High"].dropna()
@@ -205,6 +222,9 @@ def _stock_metrics(ticker, df, nifty_close):
 
         r1m  = _ret(cl, 21);  r3m  = _ret(cl, 63)
         r6m  = _ret(cl, 126); r12m = _ret(cl, 252)
+        # SHORT horizons for the multi-horizon sector grid. 22-bar ≈ our r1m and
+        # 66-bar ≈ our r3m already, so only 1D/5D were genuinely missing.
+        r1d  = _ret_exact(cl, 1);   r5d  = _ret_exact(cl, 5)
 
         rel_1m = rel_3m = None
         if nifty_close is not None:
@@ -239,6 +259,8 @@ def _stock_metrics(ticker, df, nifty_close):
             "ma200":       round(ma200, 2),
             "pct_ath":     pct_ath,
             "in_uptrend":  in_uptrend,
+            "r1d":         r1d,
+            "r5d":         r5d,
             "r1m":         r1m,
             "r3m":         r3m,
             "r6m":         r6m,
@@ -306,8 +328,26 @@ def _aggregate_sector(stock_rows, sector_name):
 
     # Use liquidity-weighted aggregation for return / inflow metrics
     # (so a tiny stock's 200% spike doesn't drag the whole sector up)
+    # Participation counts for the multi-horizon grid — how BROAD the move is,
+    # not just how big. A sector up on 3 of 20 names is a different animal from
+    # one up on 16 of 20, even at the same index return.
+    adv_1d = sum(1 for r in stock_rows if (r.get("r1d") or 0) > 0)
+    adv_5d = sum(1 for r in stock_rows if (r.get("r5d") or 0) > 0)
+
     return {
         "sector":       sector_name,
+        # BUG-FIX (2026-07-25): rel_1m/rel_3m were computed PER STOCK but never
+        # aggregated to sector level, so the heatmap's "RS vs Nifty 1M/3M" columns
+        # read `undefined` on the sector object and rendered "—" for every row
+        # forever. (The JS guard is `s.rel_1m !== null`, and undefined !== null is
+        # true, so the rs_1m fallback never fired either.) Aggregate them the same
+        # liquidity-weighted way as every other return metric.
+        "rel_1m":       liq_weighted_avg("rel_1m"),
+        "rel_3m":       liq_weighted_avg("rel_3m"),
+        "r1d":          liq_weighted_avg("r1d"),
+        "r5d":          liq_weighted_avg("r5d"),
+        "adv_1d":       adv_1d,
+        "adv_5d":       adv_5d,
         "r1m":          liq_weighted_avg("r1m"),
         "r3m":          liq_weighted_avg("r3m"),
         "r6m":          liq_weighted_avg("r6m"),

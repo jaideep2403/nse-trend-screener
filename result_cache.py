@@ -76,27 +76,127 @@ def get(name: str):
         with open(path, "rb") as f:
             blob = pickle.load(f)
         if blob.get("tag") == _tag():
-            return blob.get("data")
+            data = blob.get("data")
+            if not blob.get("breakdown_done"):
+                _schedule_breakdown(name, data)
+            return data
     except Exception:
         pass
     return None
 
 
-def put(name: str, data) -> None:
-    """Persist `data` for `name`, tagged with the current bhavcopy date.
-    Atomic (tmp file + os.replace). Best-effort — never raises."""
-    if data is None:
+# ── Universal breakdown annotation ───────────────────────────────────────────
+# Every scanner's result funnels through put(), which makes this the ONE place a
+# breakdown score can be attached to all 27 tabs without touching 27 modules.
+#
+# Why it earns its place (measured, not assumed — 76,773 observations over 6y):
+#   score 0-1 -> +2.63% forward 21d return      score 4+ -> +0.83%   (-1.80pp)
+#   and the edge SURVIVES inside every r6m momentum quintile (+0.49 to +1.88pp),
+#   so it is not momentum in disguise.
+# What it does NOT do: predict drawdown DEPTH. Forward maxDD is -9.04% at score
+#   0-1 vs -9.82% at 4+ — essentially flat. It is a trend-deterioration signal,
+#   not a crash predictor, and the UI must not claim otherwise.
+#
+# COST — and why this is NO LONGER done inside put() (2026-08-03):
+#   ~2.4ms/row. put() is called once per scan, which sounded cheap. But when a new
+#   bhavcopy lands, EVERY cache is invalidated and _prewarm_all_scans() re-runs all
+#   ~20 scans back-to-back in one thread. Annotating inside put() therefore added
+#   ~2s x 20 scans of GIL-holding Python work to the exact window in which the app
+#   is already rebuilding everything — measured live on 2026-08-03, a static
+#   /static/favicon.svg took 32s while that ran, and tabs sat on skeletons because
+#   their requests never got scheduled.
+#
+#   It is now deferred: put() stores the raw result immediately, and the annotation
+#   runs on a background daemon thread the first time the result is READ, then
+#   re-persists itself with breakdown_done=True. No request and no prewarm ever
+#   blocks on it; the badge simply appears a few seconds after a tab's first load.
+_BREAKDOWN_KEYS = ("results", "stocks", "ranked", "top", "all", "picks")
+
+_bd_lock = threading.Lock()
+_bd_inflight: set[str] = set()
+
+
+def _schedule_breakdown(name, data):
+    """Annotate `data` off the request/prewarm path, once, then re-persist it."""
+    if not isinstance(data, dict):
         return
+    with _bd_lock:
+        if name in _bd_inflight:
+            return
+        _bd_inflight.add(name)
+
+    def _work():
+        try:
+            annotated = _annotate_breakdown(data)
+            _write(name, annotated, breakdown_done=True)
+        except Exception:
+            pass
+        finally:
+            with _bd_lock:
+                _bd_inflight.discard(name)
+
+    threading.Thread(target=_work, daemon=True, name=f"breakdown:{name}").start()
+
+
+def _annotate_breakdown(data):
+    if not isinstance(data, dict):
+        return data
+    lists = [(k, v) for k, v in data.items()
+             if k in _BREAKDOWN_KEYS and isinstance(v, list) and v
+             and isinstance(v[0], dict) and "symbol" in v[0]]
+    if not lists:
+        return data
+    try:
+        import breakdown_detector as _bd
+        import benchmark as _bm
+        nifty = _bm.get_benchmark(days=900)
+        # Use the WIDE universe. industry_groups._get_stocks() carries only ~810
+        # curated names, but scanners range over ~2,588 — measured, that left 154
+        # of Emerging Leaders' 292 rows unannotated (53% coverage on that tab).
+        # load_base_universe() is cached after the first call (1.5s cold, 0.00s warm).
+        try:
+            import shared_universe as _su
+            stocks = _su.load_base_universe(days=400)
+        except Exception:
+            import industry_groups as _ig
+            stocks = _ig._get_stocks()
+        if not stocks:
+            return data
+    except Exception:
+        return data
+    for _k, rows in lists:
+        try:
+            _bd.annotate(rows, stocks, nifty)
+        except Exception:
+            continue
+    return data
+
+
+def _write(name: str, data, breakdown_done: bool = False) -> None:
+    """Atomic persist (tmp file + os.replace). Best-effort — never raises."""
     try:
         with _LOCK:
             os.makedirs(_DIR, exist_ok=True)
             tmp = os.path.join(_DIR, f"{name}.pkl.tmp")
             final = os.path.join(_DIR, f"{name}.pkl")
             with open(tmp, "wb") as f:
-                pickle.dump({"tag": _tag(), "data": data}, f, protocol=pickle.HIGHEST_PROTOCOL)
+                pickle.dump({"tag": _tag(), "data": data,
+                             "breakdown_done": breakdown_done},
+                            f, protocol=pickle.HIGHEST_PROTOCOL)
             os.replace(tmp, final)
     except Exception:
         pass
+
+
+def put(name: str, data) -> None:
+    """Persist `data` for `name`, tagged with the current bhavcopy date.
+
+    Deliberately does NO computation — see the note above _BREAKDOWN_KEYS. This is
+    called once per scan, and during a post-bhavcopy rebuild that is ~20 calls in a
+    row on one thread; anything expensive here stalls the whole server."""
+    if data is None:
+        return
+    _write(name, data, breakdown_done=False)
 
 
 def invalidate(name: str | None = None) -> None:

@@ -7,6 +7,18 @@ import pandas as pd
 from flask import (Flask, render_template, request, jsonify, make_response,
                    abort, session, redirect, url_for)
 import auth
+import disclaimer
+
+# ── Live stack dump on demand ────────────────────────────────────────────────
+# `kill -USR1 <pid>` writes every thread's Python stack to /tmp/nse-dashboard.err.
+# Added 2026-08-03 while chasing a prewarm that stopped making progress with the
+# process at ~1% CPU: without this there is no way to see WHICH call is blocked,
+# and py-spy needs root on macOS. Costs nothing until the signal is sent.
+try:
+    import faulthandler as _fh, signal as _sig
+    _fh.register(_sig.SIGUSR1, all_threads=True, chain=False)
+except Exception:
+    pass
 
 # ── Concurrent scan semaphore (F10) ───────────────────────────────────────────
 # Cap simultaneous heavy scans across the whole process. Each scan loads
@@ -44,8 +56,30 @@ app = Flask(__name__)
 # no positions). Enforcement is FAIL-CLOSED in a before_request hook below, so a
 # newly added route is protected by default rather than by remembering a
 # decorator. Secret + hashed users live in gitignored files (see auth.py).
+# ── Background-job election (added 2026-08-04, for the gunicorn deploy) ───────
+# Under `python app.py` there is one process, so these threads are fine. Under
+# gunicorn there are N worker PROCESSES and every one of them would start its own
+# bhavcopy scheduler, boot prewarm, breadth prime and guardian sweep — N times the
+# NSE polling and N concurrent full cache rebuilds. The stampede locks added today
+# live in module memory and do NOT span processes, so they cannot prevent that.
+# gunicorn.conf.py already tries to set DISABLE_BHAVCOPY_SCHEDULER in post_fork,
+# but nothing ever read it (0 references before this change) — and its worker-index
+# logic compares a Worker object to 1, so it would have disabled every worker.
+# One explicit switch instead: run background jobs unless told not to.
+_BG_JOBS = os.getenv("ASCENT_BACKGROUND_JOBS", "1").strip().lower() not in ("0", "false", "no")
+if not _BG_JOBS:
+    print("[startup] background jobs DISABLED for this process "
+          "(ASCENT_BACKGROUND_JOBS=0)", flush=True)
+
 app.secret_key = auth.get_secret_key()
 app.permanent_session_lifetime = timedelta(days=14)
+
+# Public-deployment hardening: secure/samesite cookies, CSRF origin check, login
+# throttle, security headers. Registered BEFORE _require_login so a cross-origin
+# or brute-force attempt is rejected before any auth work happens. No-ops most of
+# its behaviour unless ASCENT_ENV=production — see security.py.
+import security
+security.init_app(app)
 
 # Paths reachable WITHOUT a session. Everything else requires login.
 _PUBLIC_PATHS = {"/login", "/logout", "/favicon.ico", "/healthz"}
@@ -67,6 +101,40 @@ def _require_login():
     return None
 
 
+def _login_pulse() -> dict:
+    """Small EOD snapshot for the sign-in page hero (idea #10 — 'live data as hero').
+
+    Deliberately server-rendered from market_breadth's IN-MEMORY cache rather than a
+    new public /api endpoint: this data changes once per trading day, so polling buys
+    nothing, and a new unauthenticated route would be extra attack surface on a page
+    that is by definition reachable without a session. Reads only — never computes,
+    never raises. Returns {} when the cache is cold, and the template degrades to a
+    static hero with no gaps.
+    """
+    try:
+        from market_breadth import _cache as _mb_cache
+        d = _mb_cache.get("data") or {}
+        if not d:
+            return {}
+        b  = d.get("breadth") or {}
+        rg = d.get("regime") or {}
+        highs = [h for h in (d.get("new_highs_list") or []) if h.get("symbol")][:16]
+        return {
+            "as_of":        d.get("bhavcopy_date"),
+            "new_highs":    d.get("new_highs_count"),
+            "new_lows":     b.get("new_lows"),
+            "advance":      b.get("advance"),
+            "decline":      b.get("decline"),
+            "pct_above_50": b.get("pct_above_50ma"),
+            "universe":     b.get("total_stocks"),
+            "regime":       rg.get("regime"),
+            "regime_label": rg.get("label"),
+            "highs": [{"symbol": h.get("symbol"), "r3m": h.get("r3m")} for h in highs],
+        }
+    except Exception:
+        return {}
+
+
 @app.route("/login", methods=["GET", "POST"])
 def login():
     next_url = request.args.get("next") or ""
@@ -82,6 +150,7 @@ def login():
         role = auth.verify(username, password)
         if role:
             auth.log_in(username, role)
+            security.note_successful_login()   # clear this IP's throttle counter
             return redirect(next_url or url_for("index"))
         error = "Incorrect username or password."
     # GET when a valid session already exists: DON'T silently pass through to the
@@ -93,7 +162,8 @@ def login():
         signed_in_as = auth.display_name(auth.current_user())
         last_user = auth.current_user()
     return render_template("login.html", error=error, next_url=next_url,
-                           last_user=last_user, signed_in_as=signed_in_as)
+                           last_user=last_user, signed_in_as=signed_in_as,
+                           pulse=_login_pulse())
 
 
 @app.route("/logout")
@@ -242,8 +312,18 @@ if SECTOR_LEADERS_AVAILABLE:
         with _secld_lock:
             s = dict(_secld_state)
         pct = round(s["progress"] / s["total"] * 100, 1) if s["total"] else 0
+        # POST-RESTART FIX (2026-08-02): _secld_state is in-memory and only filled by
+        # the scan POST, so this tab read EMPTY after every restart even though
+        # run_sector_leaders() keeps its own cache and returns in ~2s.
+        result = s["result"]
+        if not s["running"] and result is None:
+            try:
+                import sector_leaders as _sl
+                result = _sl.run_sector_leaders()
+            except Exception as _e:
+                print(f"[sector-leaders] status fallback failed: {_e}", flush=True)
         return jsonify({"running": s["running"], "pct": pct,
-                        "message": s["message"], "result": s["result"],
+                        "message": s["message"], "result": result,
                         "error": s["error"]})
 
 if PORTFOLIO_AVAILABLE:
@@ -347,6 +427,7 @@ if INVESTGRADE_AVAILABLE:
                     s["result"] = _ig._cache["data"]
             except Exception:
                 pass
+        s["result"] = _annotate_breakdown_payload(s["result"])
         return jsonify(s)
 
 # ── LOCAL-ONLY: Alpha Engine — Multi-Factor Composite Scorer (gitignored) ─────
@@ -360,8 +441,9 @@ except Exception as _ae_e:
 # ── Sector mapper — background refresh on startup ─────────────────────────────
 try:
     from sector_mapper import refresh_sector_cache as _refresh_sectors
-    _refresh_sectors(background=True)   # builds .sector_cache.json in ~2s, non-blocking
-    print("[sector_mapper] Auto-sector cache refresh started (background)")
+    if _BG_JOBS:                        # this one reaches out to NSE — leader only
+        _refresh_sectors(background=True)   # builds .sector_cache.json in ~2s
+        print("[sector_mapper] Auto-sector cache refresh started (background)")
 except Exception as _sm_e:
     print(f"[sector_mapper] not available: {_sm_e}")
 
@@ -411,6 +493,7 @@ if ALPHA_AVAILABLE:
             except Exception:
                 pass
         pct = round(s["progress"] / max(s["total"], 1) * 100, 1)
+        s["result"] = _annotate_breakdown_payload(s["result"])
         return jsonify({
             "running":  s["running"],
             "pct":      pct,
@@ -439,6 +522,10 @@ def inject_portfolio_flag():
         "vvv_enabled":         globals().get("VVV_AVAILABLE", False),
         "universe_label":      "Nifty Total Market",
         "universe_label_short": "NSE Total Market",
+        # ITEM 6: one disclaimer constant. See disclaimer.py — the SEBI-adviser line
+        # used to appear on 1 tab of 27; it now appears on all of them.
+        "DISCLAIMER":          disclaimer.LEGAL,
+        "disclaimer_note":     disclaimer.note,
     }
 
 # ── Screener state ─────────────────────────────────────────────────────────────
@@ -522,7 +609,7 @@ TAB_SLUGS = {
     "industry_groups", "advanced_setups", "institutional_edge", "alpha_engine",
     "monster_growth", "minervini_vvv", "consensus",
     "early_movers", "early_growth", "sector_leaders", "risk_regime", "defensive_leaders",
-    "all_weather",
+    "all_weather", "promoter_activity",
 }
 
 
@@ -971,8 +1058,18 @@ def _run_sysbt():
     def prog(done, total, msg):
         _sysbt_state.update({"pct": int(done / max(total, 1) * 100), "msg": msg})
     try:
-        r = system_backtest.run_system_backtest(days=1600, rebal=21, top_k=10,
-                                                progress=prog)
+        # VALIDATED CONFIG (2026-08-02). The Risk tab used to display days=1600,
+        # top_k=10, strategy="momentum" — a configuration that was never validated
+        # and does NOT beat the index. The numbers below are the ones that survived
+        # a random-selection control, an IS/OOS split and a full-daily drawdown
+        # measurement: 19.26% CAGR / -12.02% maxDD / Sharpe 1.00 vs NIFTY
+        # 14.40% / -16.11% / 0.66 — beating the index on BOTH return and drawdown,
+        # in both halves. Do not change these without re-running that validation.
+        r = system_backtest.run_system_backtest(
+            days=2800, rebal=21, top_k=30,
+            strategy="defensive", mom_weight=4.0, vol_filter=0.70,
+            port_vol_target=0.10,
+            progress=prog)
         tag = _rc._tag() if hasattr(_rc, "_tag") else None
         _sysbt_state.update({"result": r, "tag": tag})
         try:
@@ -1037,7 +1134,17 @@ def api_defensive():
         return jsonify(cached)
     try:
         import industry_groups as _ig, defensive_scan as _ds
-        res = _ds.run_defensive_scan(_ig._get_stocks(), top_n=50)
+        _stocks = _ig._get_stocks()
+        res = _ds.run_defensive_scan(_stocks, top_n=50)
+        # Surface the VALIDATED risk control. Volatility targeting is what turned a
+        # book that lost to NIFTY on drawdown (-16.88% vs -16.11%) into one that
+        # beats it on both metrics (-12.02%). Until now it lived only in the
+        # backtest, so the live tab gave picks with no sizing and the rule that
+        # actually produced the edge was never applied.
+        try:
+            res["exposure"] = _ds.suggested_exposure(_stocks, res.get("stocks") or [])
+        except Exception:
+            res["exposure"] = None
         try:
             _rc.put("defensive", res)
         except Exception:
@@ -1084,6 +1191,116 @@ def api_allweather():
         return jsonify(res)
     except Exception as e:
         return jsonify({"error": str(e), "picks": []}), 500
+
+
+def _annotate_breakdown_payload(payload):
+    """Attach breakdown scores to a payload that does NOT flow through
+    result_cache.put(). Consensus, Investment Grade and Alpha Engine return
+    straight from their own state/caches, so the universal hook in
+    result_cache.put never sees them — measured, those three were the only tabs
+    left at 0% coverage. Best-effort: never raises, never drops rows."""
+    try:
+        import result_cache as _rc
+        return _rc._annotate_breakdown(payload)
+    except Exception:
+        return payload
+
+
+@app.route("/api/corporate-alerts")
+def api_corporate_alerts():
+    """Upcoming + recent price-rebasing corporate actions.
+
+    Uses the authoritative NSE feed already cached on disk for the split adjuster —
+    zero new network calls. `?symbols=A,B` restricts to a watchlist; with no
+    argument it covers the whole feed.
+    """
+    try:
+        import corporate_alerts as _cal
+        syms = request.args.get("symbols")
+        symbols = [x.strip().upper() for x in syms.split(",")] if syms else None
+        horizon = int(request.args.get("days", 45))
+        return jsonify(_cal.summary(symbols, horizon_days=horizon))
+    except Exception as e:
+        return jsonify({"error": str(e), "upcoming": [], "recent": []}), 500
+
+
+@app.route("/api/breakdown/<symbol>")
+def api_breakdown(symbol):
+    """The 7-signal breakdown score for one symbol, with the reasons that fired."""
+    try:
+        import breakdown_detector as _bd, industry_groups as _ig, benchmark as _bm
+        df = _ig._get_stocks().get((symbol or "").strip().upper())
+        if df is None:
+            return jsonify({"error": f"{symbol} not in universe"}), 404
+        d = _bd.evaluate(df, _bm.get_benchmark(days=900))
+        d["symbol"] = symbol.strip().upper()
+        d["calibration"] = ("Measured over 76,773 observations (6y): score 0-1 -> "
+                            "+2.63% forward 21d return, score 4+ -> +0.83%. It does NOT "
+                            "predict drawdown depth (-9.04% vs -9.82%, essentially flat). "
+                            "Read it as trend deterioration, not a crash forecast.")
+        return jsonify(d)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/promoter")
+def api_promoter():
+    """Promoter / insider activity — SAST Reg29 + SEBI PIT disclosures.
+    Public NSE filings; each is published within ~2 working days of the trade, so
+    this surfaces promoter accumulation long before quarterly shareholding does."""
+    try:
+        import promoter_flow as _pf
+        # SELF-DIAGNOSIS (2026-08-02). This tab silently returned an empty list for
+        # days: its cache lived in /tmp/nse_promoter, macOS purged /tmp, and nothing
+        # noticed — api_promoter just read an empty directory forever. An empty tab
+        # and a broken tab looked identical. The cache now lives in ~/.ascent_cache,
+        # and if it is ever empty again the response SAYS SO instead of pretending
+        # there were no disclosures.
+        import os as _os
+        _n_chunks = 0
+        try:
+            _n_chunks = len([f for f in _os.listdir(_pf.CACHE_DIR) if f.endswith(".json")])
+        except Exception:
+            _n_chunks = 0
+        if _n_chunks == 0:
+            return jsonify({
+                "transactions": [], "counts": {}, "coverage": {},
+                "error": ("No SAST/PIT data cached. This is a MISSING-DATA problem, not "
+                          "an absence of disclosures. Run promoter_flow.backfill() to "
+                          "repopulate."),
+                "cache_dir": _pf.CACHE_DIR, "cached_chunks": 0,
+            }), 200
+        side = (request.args.get("side") or "all").upper()
+        promoter_only = (request.args.get("promoter") or "1") == "1"
+        limit = min(int(request.args.get("limit") or 300), 1000)
+        rows = _pf.recent_transactions(limit=limit * 3, promoter_only=promoter_only)
+        # de-dup: the same trade can be filed under both Reg29(1) and Reg29(2),
+        # or reported through SAST and PIT — collapse on the identifying tuple.
+        seen, ded = set(), []
+        for r in rows:
+            k = (r["symbol"], r["date"], r["side"], r["pct"], r["pct_after"])
+            if k in seen:
+                continue
+            seen.add(k)
+            ded.append(r)
+        if side in ("BUY", "SELL"):
+            ded = [r for r in ded if r["side"] == side]
+        cov = _pf.coverage()
+        buys = sum(1 for r in ded if r["side"] == "BUY")
+        # Promoter rows carry a `symbol`, so they get the same breakdown score as
+        # every other tab. This endpoint returns straight from the module and never
+        # touches result_cache, so the universal hook does not see it.
+        _annotate_breakdown_payload({"stocks": ded[:limit]})
+        return jsonify({
+            "coverage": cov,
+            "counts": {"shown": len(ded[:limit]), "buys": buys,
+                       "sells": len(ded) - buys,
+                       "significant": sum(1 for r in ded
+                                          if (r["pct"] or 0) >= 2.0)},
+            "transactions": ded[:limit],
+        })
+    except Exception as e:
+        return jsonify({"error": str(e), "transactions": []}), 500
 
 
 @app.route("/api/fundamentals/history")
@@ -1170,6 +1387,21 @@ def start_sector():
 def sector_status():
     with sector_lock:
         state = dict(sector_state)
+    # POST-RESTART FIX (2026-08-02): `sector_state` is in-memory and only filled by
+    # the refresh POST, but `_boot_prewarm` already computes sector analysis into
+    # result_cache. After every restart the tab therefore read EMPTY until the user
+    # clicked refresh, even though the data was sitting in the cache. Fall back to
+    # the cache when memory is cold.
+    if not state.get("running") and state.get("result") is None:
+        # `run_sector_analysis()` keeps its OWN 30-minute in-process cache and is
+        # already warmed by _boot_prewarm, so this returns immediately rather than
+        # recomputing. (An earlier version read result_cache["sector"], which never
+        # exists — sector_analysis does not write there.)
+        try:
+            import sector_analysis as _sa
+            state["result"] = _sa.run_sector_analysis()
+        except Exception as _e:
+            state["error"] = str(_e)
     return jsonify({
         "running": state["running"],
         "result":  state["result"],
@@ -2060,7 +2292,8 @@ def _guardian_startup_sweep():
         print(f"[guardian] startup sweep failed: {e}", flush=True)
 
 
-threading.Thread(target=_guardian_startup_sweep, daemon=True).start()
+if _BG_JOBS:
+    threading.Thread(target=_guardian_startup_sweep, daemon=True).start()
 
 
 # ── Fundamentals — background scheduler (auto-started at launch) ──────────────
@@ -2224,6 +2457,7 @@ def consensus_top():
         if request.args.get("force") in ("1", "true", "yes"):
             _inv()
         d = build_consensus()
+        d = _annotate_breakdown_payload(d)
         # Return top 50 only for the leaderboard view
         return jsonify({
             "top":         d["top"][:50],
@@ -2592,7 +2826,8 @@ def _prime_market_breadth():
     except Exception as e:
         print(f"[startup] Market Breadth prime failed: {e}")
 
-threading.Thread(target=_prime_market_breadth, daemon=True).start()
+if _BG_JOBS:
+    threading.Thread(target=_prime_market_breadth, daemon=True).start()
 
 
 # ── Bhavcopy auto-refresh scheduler ──────────────────────────────────────────
@@ -2606,6 +2841,8 @@ _PREWARM_SCANS = [
     ("trending",     "trending",               "run_trending_scan"),
     ("sector",       "sector_analysis",        "run_sector_analysis"),
     ("industry",     "industry_groups",        "run_industry_analysis"),
+    # Added 2026-08-02: these read EMPTY after every restart otherwise.
+    ("sector_leaders", "sector_leaders",       "run_sector_leaders"),
     ("edge",         "edge_engine",            "run_edge_engine"),
     ("breakout",     "breakout_scanner",       "run_breakout_scan"),
     ("momentum",     "momentum_scanner",       "run_momentum_scan"),
@@ -2759,8 +2996,9 @@ def _bhavcopy_scheduler():
         sleep_secs = 300 if not today_file.exists() else 1200
         _time.sleep(sleep_secs)
 
-threading.Thread(target=_bhavcopy_scheduler, daemon=True, name="bhavcopy-auto").start()
-print("[bhavcopy_scheduler] Started — checks NSE every 20 min automatically.")
+if _BG_JOBS:
+    threading.Thread(target=_bhavcopy_scheduler, daemon=True, name="bhavcopy-auto").start()
+    print("[bhavcopy_scheduler] Started — checks NSE every 20 min automatically.")
 
 
 # ── Boot pre-warm ────────────────────────────────────────────────────────────
@@ -2787,7 +3025,8 @@ def _boot_prewarm():
     _prewarm_all_scans("startup")
 
 
-threading.Thread(target=_boot_prewarm, daemon=True, name="boot-prewarm").start()
+if _BG_JOBS:
+    threading.Thread(target=_boot_prewarm, daemon=True, name="boot-prewarm").start()
 
 
 # NOTE: There is intentionally NO startup pre-warm. Warming all scans on every

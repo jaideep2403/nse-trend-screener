@@ -1,0 +1,86 @@
+<div id="tab-promoter" class="tab-content">
+  <div class="tab-intro"><span class="ti-title">Promoter Activity</span>Promoter and insider trades from SAST/PIT filings — disclosed within ~2 days, months before quarterly data.</div>
+<div class="container" style="padding-top:18px">
+
+  <div class="panel">
+    <div class="panel-header">
+      <h2><svg class="ic ic-h"><use href="#i-handshake"/></svg>Promoter &amp; Insider Activity</h2>
+      <span id="promMeta" style="font-size:var(--fs-xs);color:var(--text2)"></span>
+    </div>
+    <div class="panel-body">
+<div id="promStats" class="stat-row"></div>
+
+      <div class="ctrl-bar">
+        <button class="btn-quiet" id="promF-all"  onclick="promSet('all')">All</button>
+        <button class="btn-quiet" id="promF-BUY"  onclick="promSet('BUY')">Buying only</button>
+        <button class="btn-quiet" id="promF-SELL" onclick="promSet('SELL')">Selling only</button>
+        <span class="spacer"></span><span class="ctrl-meta" id="promMeta2"></span>
+      </div>
+
+      <div id="promBody"></div>
+    </div>
+  </div>
+
+</div>
+
+  <p class="disclaimer">{{ DISCLAIMER }}</p>
+</div>
+
+<script>
+let _promSide = 'all';
+function promSet(s){ _promSide = s; promLoad(); }
+
+function promStat(label, val, cls){
+  return `<div class="stat-card">
+    <div class="stat-label">${label}</div>
+    <div class="stat-val ${cls||''}">${val}</div></div>`;
+}
+
+const PROM_IMP = {
+  'Very high':'var(--red2)', 'High':'var(--gold2)', 'Medium':'var(--gold2)',
+  'Low':'var(--text2)', 'Minimal':'var(--text2)', '—':'var(--text2)'
+};
+
+async function promLoad(){
+  const body = document.getElementById('promBody');
+  body.innerHTML = stateLoading(6);
+  try {
+    const d = await (await fetch(`/api/promoter?side=${_promSide}&limit=250`)).json();
+    if (d.error) { body.innerHTML = stateError(d.error); return; }
+    const c = d.counts || {}, cov = d.coverage || {};
+    document.getElementById('promMeta').textContent =
+      `${(cov.transactions||0).toLocaleString('en-IN')} disclosures · ${cov.symbols||0} symbols · ${cov.first||''} → ${cov.last||''}`;
+    document.getElementById('promStats').innerHTML =
+      promStat('Showing', (c.shown||0).toLocaleString('en-IN')) +
+      promStat('Buying', (c.buys||0).toLocaleString('en-IN'), 'pos') +
+      promStat('Selling', (c.sells||0).toLocaleString('en-IN'), 'neg') +
+      promStat('Significant ≥2%', (c.significant||0).toLocaleString('en-IN'), 'warnc');
+
+    ['all','BUY','SELL'].forEach(s=>{
+      const el=document.getElementById('promF-'+s);
+      if(el){ el.classList.toggle('is-on', s===_promSide); }
+    });
+
+    const rows = (d.transactions||[]).map(t => `<tr>
+      <td style="text-align:left;font-size:var(--fs-xs);color:var(--text2)">${t.date||'—'}</td>
+      <td style="text-align:left"><span class="sym">${t.symbol}</span></td>
+      <td><span class="pill ${t.side==='BUY'?'pos':'neg'}">${t.side}</span></td>
+      <td title="% of shares outstanding transacted">${t.pct==null?'—':t.pct+'%'}</td>
+      <td title="promoter/insider holding after the trade">${t.pct_after==null?'—':t.pct_after+'%'}</td>
+      <td style="font-size:var(--fs-xs);color:${PROM_IMP[t.importance]||'var(--text2)'}">${t.importance}</td>
+      <td style="text-align:left;font-size:var(--fs-xs);color:var(--text2)">${(t.person||'—').toString().slice(0,34)}</td>
+      <td style="font-size:var(--fs-micro);color:var(--text2)">${t.mode||'—'}</td>
+      <td style="font-size:var(--fs-micro);color:var(--text2)">${t.source}</td>
+    </tr>`).join('');
+
+    body.innerHTML = (d.transactions||[]).length ? `<div class="tbl-scroll"><table><thead><tr>
+      <th class="ta-l">Disclosed</th><th class="ta-l">Symbol</th><th>Action</th>
+      <th title="% of shares outstanding">% Stake</th><th>Holding after</th><th>Materiality</th>
+      <th class="ta-l">Acquirer / Insider</th><th>Mode</th><th>Src</th>
+      </tr></thead><tbody>${rows}</tbody></table></div>`
+      : stateEmpty('No disclosures found', 'Try switching the Buying / Selling filter.');
+  } catch(e) {
+    body.innerHTML = stateError('Could not load disclosures.');
+  }
+}
+</script>

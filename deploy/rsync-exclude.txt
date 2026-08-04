@@ -1,0 +1,37 @@
+# Files that must NOT reach the public EC2 (your decision: owner-only tabs OUT).
+#
+# Use with:
+#   rsync -av --exclude-from=deploy/rsync-exclude.txt ./ ec2:/opt/ascent/
+#
+# NOTE: several files the PUBLIC app needs are gitignored, so a `git clone` deploy
+# would silently drop them — the templates use `{% include ... ignore missing %}`,
+# so the tabs just vanish with no error. rsync (not git) is the right transport.
+# Deliberately NOT excluded, because demo users are meant to see them:
+#     templates/alpha_engine_tab.html      (alpha_enabled is not position-gated)
+#     templates/investment_grade_tab.html  (investgrade_enabled is not gated)
+#     static/alpha_engine.js
+#     static/investment_grade.js
+
+# ── Owner-only features ───────────────────────────────────────────────────────
+templates/portfolio_tab.html
+templates/strategy_tab.html
+static/portfolio.js
+
+# ── Owner-only DATA (real money positions — never leaves the Mac) ─────────────
+.portfolio.json
+.strategy_journal.db
+
+# ── Secrets: let the box generate its own ─────────────────────────────────────
+# .auth_users.json IS needed (it holds the hashed logins) — copy it separately,
+# by hand, with 0600. .auth_secret must NOT be shared between hosts.
+.auth_secret
+
+# ── Local noise ───────────────────────────────────────────────────────────────
+.git/
+.claude/
+__pycache__/
+*.pyc
+.DS_Store
+.scan_cache/
+*.log
+venv/

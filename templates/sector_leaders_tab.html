@@ -1,5 +1,6 @@
 <!-- ═══════════════════════════════════════════════ SECTOR LEADERS TAB -->
 <div id="tab-sector-leaders" class="tab-content">
+  <div class="tab-intro"><span class="ti-title">Sector Leaders</span>The strongest stocks inside each of the 21 NSE sectoral indices.</div>
 <div class="container">
 
   <style>
@@ -11,16 +12,16 @@
       padding: 16px 22px;
       margin-bottom: 18px;
     }
-    .sl-hero h3 { margin: 0 0 6px; font-size: 16px; color: var(--gold); font-weight: 700; }
-    .sl-hero p  { margin: 0; font-size: 13px; color: var(--text); line-height: 1.6; }
+    .sl-hero h3 { margin: 0 0 6px; font-size:var(--fs-lg); color: var(--gold); font-weight: 700; }
+    .sl-hero p  { margin: 0; font-size:var(--fs-md); color: var(--text); line-height: 1.6; }
     .sl-hero strong { color: var(--white); }
 
     .sl-stat-card {
       background: var(--surface); border: 1px solid var(--border); border-radius: 10px;
       padding: 10px 14px; min-width: 120px; flex: 1;
     }
-    .sl-stat-card .sl-stat-label { font-size: 11px; font-weight: 700; text-transform: uppercase; color: var(--text2); letter-spacing: 0.5px; }
-    .sl-stat-card .sl-stat-value { font-size: 20px; font-weight: 800; margin-top: 4px; color: var(--white); }
+    .sl-stat-card .sl-stat-label { font-size:var(--fs-xs); font-weight: 700; text-transform: uppercase; color: var(--text2); letter-spacing: 0.5px; }
+    .sl-stat-card .sl-stat-value { font-size:var(--fs-2xl); font-weight: 800; margin-top: 4px; color: var(--white); }
 
     /* Sector row card */
     .sl-sector-card {
@@ -41,25 +42,25 @@
     }
     .sl-sector-header:hover { background: rgba(255,255,255,0.03); }
     .sl-sector-rank {
-      font-size: 18px; font-weight: 800; min-width: 32px; text-align: center;
+      font-size:var(--fs-xl); font-weight: 800; min-width: 32px; text-align: center;
       font-family: var(--mono); color: var(--white);
     }
     .sl-sector-name {
-      font-size: 14px; font-weight: 700; color: var(--white); flex: 1;
+      font-size:var(--fs-base); font-weight: 700; color: var(--white); flex: 1;
       white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
     }
     .sl-chg-chip {
-      padding: 3px 10px; border-radius: 20px; font-size: 12px; font-weight: 700;
+      padding: 3px 10px; border-radius: 20px; font-size:var(--fs-sm); font-weight: 700;
       font-family: var(--mono); white-space: nowrap;
     }
     .sl-chg-pos { background: rgba(16,185,129,0.18); color: var(--green2); border: 1px solid rgba(16,185,129,0.35); }
     .sl-chg-neg { background: rgba(239,68,68,0.18); color: var(--red2); border: 1px solid rgba(239,68,68,0.35); }
     .sl-meta-pill {
-      font-size: 11px; color: var(--text2); padding: 2px 8px;
+      font-size:var(--fs-xs); color: var(--text2); padding: 2px 8px;
       border: 1px solid var(--border); border-radius: 12px; white-space: nowrap;
     }
     .sl-chevron {
-      font-size: 11px; color: var(--muted); transition: transform 0.2s; margin-left: 4px;
+      font-size:var(--fs-xs); color: var(--muted); transition: transform 0.2s; margin-left: 4px;
     }
     .sl-sector-card.expanded .sl-chevron { transform: rotate(180deg); }
 
@@ -72,9 +73,9 @@
     }
     .sl-sector-card.expanded .sl-stocks-wrap { display: block; }
 
-    #slTable { width: 100%; font-size: 12px; border-collapse: separate; border-spacing: 0; }
+    #slTable { width: 100%; font-size:var(--fs-sm); border-collapse: separate; border-spacing: 0; }
     #slTable th {
-      background: var(--surface2); color: var(--text2); font-weight: 700; font-size: 11px;
+      background: var(--surface2); color: var(--text2); font-weight: 700; font-size:var(--fs-xs);
       text-transform: uppercase; letter-spacing: 0.4px; text-align: left;
       padding: 8px 12px; border-bottom: 1px solid var(--border);
     }
@@ -83,7 +84,7 @@
     #slTable tbody tr:hover { background: rgba(255,255,255,0.02); }
 
     .sl-stage-pill {
-      display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 10px;
+      display: inline-block; padding: 2px 8px; border-radius: 10px; font-size:var(--fs-micro);
       font-weight: 700; text-transform: uppercase; letter-spacing: 0.3px;
     }
     .sl-stage-2  { background: rgba(16,185,129,0.18); color: var(--green2); }
@@ -93,9 +94,9 @@
     .sl-stage-unk { background: rgba(75,96,128,0.18); color: var(--muted); }
 
     /* Per-sector inline table (reuse slTable styles but scoped) */
-    .sl-inner-table { width: 100%; font-size: 12px; border-collapse: separate; border-spacing: 0; }
+    .sl-inner-table { width: 100%; font-size:var(--fs-sm); border-collapse: separate; border-spacing: 0; }
     .sl-inner-table th {
-      background: var(--surface2); color: var(--text2); font-weight: 700; font-size: 11px;
+      background: var(--surface2); color: var(--text2); font-weight: 700; font-size:var(--fs-xs);
       text-transform: uppercase; letter-spacing: 0.4px; text-align: left;
       padding: 7px 12px; border-bottom: 1px solid var(--border);
     }
@@ -106,13 +107,13 @@
     #slEmpty {
       text-align: center; padding: 48px 20px; color: var(--text2);
     }
-    #slEmpty p { font-size: 14px; margin-bottom: 6px; }
-    #slEmpty small { font-size: 12px; color: var(--muted); }
+    #slEmpty p { font-size:var(--fs-base); margin-bottom: 6px; }
+    #slEmpty small { font-size:var(--fs-sm); color: var(--muted); }
 
-    #slProgressLabel { font-size: 12px; color: var(--text2); }
-    #slTimestamp { font-size: 11px; color: var(--muted); }
+    #slProgressLabel { font-size:var(--fs-sm); color: var(--text2); }
+    #slTimestamp { font-size:var(--fs-xs); color: var(--muted); }
 
-    .sl-as-of { font-size: 11px; color: var(--muted); font-style: italic; }
+    .sl-as-of { font-size:var(--fs-xs); color: var(--muted); font-style: italic; }
   </style>
 
   <!-- Description hero -->
@@ -152,6 +153,8 @@
   <div id="slSectorList" style="display:none;"></div>
 
 </div>
+
+  <p class="disclaimer">{{ DISCLAIMER }}</p>
 </div>
 
 <script>
@@ -179,11 +182,11 @@
   /* Heatmap color for sector header based on median_r3m */
   function sectorBorderColor(r3m) {
     if (r3m == null || isNaN(r3m)) return 'var(--border)';
-    if (r3m >=  10) return '#10b981';
-    if (r3m >=   4) return '#34d399';
+    if (r3m >=  10) return 'var(--green)';
+    if (r3m >=   4) return 'var(--green2)';
     if (r3m >=   0) return '#60a5fa';
-    if (r3m >=  -5) return '#f59e0b';
-    return '#ef4444';
+    if (r3m >=  -5) return 'var(--gold)';
+    return 'var(--red)';
   }
 
   function stagePillHtml(label) {
@@ -226,7 +229,7 @@
     var leader = sectors[0] || {};
     statsRow.innerHTML =
       '<div class="sl-stat-card"><div class="sl-stat-label">Sectors Ranked</div><div class="sl-stat-value">' + sectors.length + '</div></div>' +
-      '<div class="sl-stat-card"><div class="sl-stat-label">#1 Sector</div><div class="sl-stat-value" style="font-size:14px;color:var(--gold2)">' + (leader.name || '—') + '</div></div>' +
+      '<div class="sl-stat-card"><div class="sl-stat-label">#1 Sector</div><div class="sl-stat-value" style="font-size:var(--fs-base);color:var(--gold2)">' + (leader.name || '—') + '</div></div>' +
       '<div class="sl-stat-card"><div class="sl-stat-label">Leader 3M</div><div class="sl-stat-value" style="color:' + pctColor(leader.median_r3m) + '">' + fmt1(leader.median_r3m) + '</div></div>' +
       '<div class="sl-stat-card"><div class="sl-stat-label">Leader Breadth</div><div class="sl-stat-value" style="color:var(--accent2)">' + (leader.breadth_pct != null ? Math.round(leader.breadth_pct) + '%' : '—') + '</div></div>';
 
@@ -246,7 +249,7 @@
       var stocks = s.top_stocks || [];
       var stocksHtml = '';
       if (stocks.length === 0) {
-        stocksHtml = '<p style="padding:12px 16px;font-size:12px;color:var(--muted)">No stock data available.</p>';
+        stocksHtml = '<p style="padding:12px 16px;font-size:var(--fs-sm);color:var(--muted)">No stock data available.</p>';
       } else {
         stocksHtml =
           '<table class="sl-inner-table">' +
@@ -264,7 +267,7 @@
                 (st.pct_from_high != null ? '-' + parseFloat(st.pct_from_high).toFixed(1) + '%' : '—') + '</td>' +
               '<td style="font-family:var(--mono)">' + (st.price != null ? '₹' + parseFloat(st.price).toFixed(2) : '—') + '</td>' +
               '<td>' + stagePillHtml(st.stage_label) + '</td>' +
-              '<td style="font-size:11px;color:var(--text2)">' + adtvHtml(st.adtv_cr) + '</td>' +
+              '<td style="font-size:var(--fs-xs);color:var(--text2)">' + adtvHtml(st.adtv_cr) + '</td>' +
               '</tr>';
           }).join('') +
           '</tbody></table>';

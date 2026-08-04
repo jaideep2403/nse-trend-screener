@@ -36,10 +36,10 @@ CACHE_TTL = 3600       # 1 hour
 
 # ── Split / Bonus backward-adjustment (BUG-001) ───────────────────────────────
 
-def _adjust_for_splits(df):
+def _adjust_for_splits(df, symbol=None):
     """Delegate to canonical analysis_utils.adjust_for_splits."""
     from analysis_utils import adjust_for_splits
-    return adjust_for_splits(df)
+    return adjust_for_splits(df, symbol)
 
 
 # ── Load all NSE EQ stock OHLCV from cached bhavcopy files ────────────────────
@@ -80,7 +80,7 @@ def _load_all_stocks(progress_callback=None) -> dict[str, pd.DataFrame]:
         if is_etf(sym): continue
         g = grp.set_index("Date")[["Open", "High", "Low", "Close", "Volume"]]
         g = g[~g.index.duplicated(keep="last")].sort_index()
-        g = _adjust_for_splits(g)
+        g = _adjust_for_splits(g, sym)
         if len(g) < MIN_BARS:
             continue
         # Ratings basis: MarketSmith ranks RS / Acc-Dis vs ALL publicly traded

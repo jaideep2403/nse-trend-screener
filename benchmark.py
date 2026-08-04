@@ -16,6 +16,7 @@ backtester, edge engine, alpha engine, and the live portfolio.
 """
 from __future__ import annotations
 
+import threading
 import time
 import pandas as pd
 
@@ -46,6 +47,9 @@ def dividend_drag(bars: int) -> float:
 
 
 _cache: dict = {"series": None, "ts": 0.0, "days": 0}
+
+# Serialises the ~1600-day rebuild — see the stampede note in get_benchmark().
+_COMPUTE_LOCK = threading.Lock()
 CACHE_TTL = 6 * 3600   # 6 h — same cadence as the rest of the EOD pipeline
 
 
@@ -59,17 +63,68 @@ def _clean(s: pd.Series) -> pd.Series:
     return s[~s.index.duplicated(keep="last")].sort_index().astype(float)
 
 
+def _slice_to(s: pd.Series, days: int) -> pd.Series:
+    """Trim a cached benchmark series to the caller's requested lookback so a
+    longer cached series can safely serve a shorter request (see get_benchmark)."""
+    try:
+        wd = _weekdays_back(days)
+        if not wd:
+            return s
+        return s[s.index >= pd.Timestamp(min(wd))]
+    except Exception:
+        return s
+
+
 def get_benchmark(days: int = 1600) -> pd.Series | None:
     """
     Cached NIFTYBEES close series loaded directly from the bhavcopy day cache.
     `days` is calendar lookback; the on-disk cache currently spans ~6 years.
     """
+    hit = _cached_for(days)
+    if hit is not None:
+        return hit
+
+    # CACHE STAMPEDE FIX (2026-08-03). Rebuilding this series walks ~1600 weekday
+    # bhavcopies doing a boolean filter per day, and the cache check above was
+    # unguarded. On a cold process THREE callers hit it at once — the guardian
+    # startup sweep, the /api/portfolio request, and result_cache's breakdown
+    # annotation — so each rebuilt the whole series independently while holding the
+    # GIL. Confirmed from a live SIGUSR1 dump: guardian and api_portfolio_list were
+    # both inside this function's recompute loop. That is what left "My Portfolio"
+    # spinning on "Refreshing…". One thread builds; the others wait and reuse it.
+    with _COMPUTE_LOCK:
+        hit = _cached_for(days)
+        if hit is not None:
+            return hit
+        return _build_benchmark(days)
+
+
+def _cached_for(days: int) -> pd.Series | None:
+    """Return the cached series trimmed to `days`, or None if it can't serve it."""
     now = time.time()
     c = _cache
     if (c["series"] is not None and now - c["ts"] < CACHE_TTL
             and c["days"] >= days * 0.9):
-        return c["series"]
+        # CACHE-CORRECTNESS FIX (2026-07-26): this used to return the cached
+        # series VERBATIM, so a cached LONGER series satisfied a SHORTER request.
+        # That is not a harmless over-fetch: system_backtest takes its master
+        # calendar from this series (`cal = bench.index`) while loading stocks
+        # with its own `days`, so the two silently covered DIFFERENT periods —
+        # the extra early bars had no stock data, every pick lookup missed, and
+        # those rebalances sat in cash, depressing CAGR and inflating drawdown.
+        # Worse, it made results depend on CALL ORDER: run a 2800-day backtest
+        # first and every later 1600-day run in the same process was corrupted.
+        # Slicing to the requested window keeps the cache's speed and makes the
+        # answer order-independent.
+        return _slice_to(c["series"], days)
+    return None
 
+
+def _build_benchmark(days: int) -> pd.Series | None:
+    """Walk the bhavcopy day cache and rebuild the series. Callers MUST hold
+    _COMPUTE_LOCK — this is the expensive path the stampede fix guards."""
+    now = time.time()
+    c = _cache
     recs: dict[pd.Timestamp, float] = {}
     for dt in _weekdays_back(days):
         df = _download_one_day(dt)
@@ -83,6 +138,20 @@ def get_benchmark(days: int = 1600) -> pd.Series | None:
     if not recs:
         return None
     s = _clean(pd.Series(recs))
+    # CRITICAL-FIX (2026-07-25): backward-adjust the ETF for splits/bonuses.
+    # NIFTYBEES did a 1:10 split on 2019-12-19 (₹1292.54 → ₹130.20). Un-adjusted,
+    # that reads as a −89.9% single-day crash: benchmark annualised vol showed
+    # 37.5% instead of the true ~15.8%, and every MA200 / 6-month window spanning
+    # the date was corrupted — which delayed the regime engine's post-COVID BULL
+    # call by ~a month (it sat in cash during part of the 2020 recovery).
+    # edge_engine already adjusted its own benchmark copy; this module never did,
+    # so every consumer of get_benchmark() (system_backtest, regime_engine, drift
+    # monitor) inherited the artifact. Same canonical helper, one source of truth.
+    try:
+        from analysis_utils import adjust_for_splits
+        s = adjust_for_splits(pd.DataFrame({"Close": s}), BENCH_SYMBOL)["Close"].astype(float)
+    except Exception:
+        pass   # never let an adjustment failure take the benchmark offline
     c.update({"series": s, "ts": now, "days": days})
     return s
 

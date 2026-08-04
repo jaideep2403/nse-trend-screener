@@ -65,10 +65,10 @@ _near_scan_cache = {"data": None, "ts": 0}
 
 # ── Split / Bonus backward-adjustment (BUG-003) ───────────────────────────────
 
-def _adjust_for_splits(df):
+def _adjust_for_splits(df, symbol=None):
     """Delegate to canonical analysis_utils.adjust_for_splits."""
     from analysis_utils import adjust_for_splits
-    return adjust_for_splits(df)
+    return adjust_for_splits(df, symbol)
 
 
 # ── Monthly sample dates ──────────────────────────────────────────────────────
@@ -174,7 +174,7 @@ def _build_monthly_ohlcv(frames: list[pd.DataFrame]) -> dict[str, pd.DataFrame]:
         if len(g) < MIN_MONTHS:
             continue
         daily = g.set_index("Date")[["Open", "High", "Low", "Close", "Volume"]].copy()
-        daily = _adjust_for_splits(daily)
+        daily = _adjust_for_splits(daily, sym)
         daily["Symbol"] = sym
         all_daily.append(daily)
 

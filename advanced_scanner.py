@@ -31,10 +31,10 @@ CACHE_TTL = 3600
 
 # ── Split / Bonus backward-adjustment (BUG-001) ───────────────────────────────
 
-def _adjust_for_splits(df):
+def _adjust_for_splits(df, symbol=None):
     """Delegate to canonical analysis_utils.adjust_for_splits."""
     from analysis_utils import adjust_for_splits
-    return adjust_for_splits(df)
+    return adjust_for_splits(df, symbol)
 
 
 # Canonical Nifty proxy basket (single source of truth in analysis_utils).
@@ -72,7 +72,7 @@ def _load_all_stocks(progress_callback=None) -> dict[str, pd.DataFrame]:
             cols.append("DelivPer")
         g = grp.set_index("Date")[cols]
         g = g[~g.index.duplicated(keep="last")].sort_index()
-        g = _adjust_for_splits(g)
+        g = _adjust_for_splits(g, sym)
         if len(g) >= MIN_BARS:
             stocks[sym] = g
     return stocks

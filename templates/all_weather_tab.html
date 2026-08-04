@@ -1,4 +1,5 @@
 <div id="tab-allweather" class="tab-content">
+  <div class="tab-intro"><span class="ti-title">All-Weather Investing</span>Regime-switching book: offense in uptrends, defensive leaders when choppy, cash in a confirmed downtrend.</div>
 <div class="container" style="padding-top:18px">
 
   <!-- ── Regime gauge ─────────────────────────────────────────────────── -->
@@ -7,105 +8,23 @@
       <h2><svg class="ic ic-h"><use href="#i-umbrella"/></svg>All-Weather Investing — one engine for every market</h2>
       <button class="btn btn-primary" id="awBtn" onclick="awLoad(true)"><svg class="ic ic-b"><use href="#i-refresh"/></svg>Refresh</button>
     </div>
-    <div class="panel-body">
-      <p style="font-size:12px;color:var(--text2);margin:0 0 12px;line-height:1.6">
-        A regime-switching book, the way institutions run it: read the market state
-        from the NIFTY trend, then <b>switch engines</b> — run offense in bull markets,
-        rotate to <b>Defensive Leaders</b> when it turns choppy, and <b>raise cash</b> in a
-        confirmed downtrend. Holdings are tilted toward <b>QMJ-style fundamental quality</b>
-        (profitable, growing, well-managed) — the "flight-to-quality" factor that adds
-        alpha <i>and</i> cushions drawdowns. The goal isn't to beat a raging index on raw
-        return — it's to <b>compound through every regime with a fraction of the drawdown.</b>
-        Mechanical &amp; rule-based; not financial advice.</p>
-
-      <div id="awRegime"><span style="font-size:12.5px;color:var(--text2)">Reading the market regime…</span></div>
-    </div>
   </div>
 
   <!-- ── Active engine picks ──────────────────────────────────────────── -->
   <div class="panel">
     <div class="panel-header">
       <h2><svg class="ic ic-h"><use href="#i-target"/></svg><span id="awPicksTitle">Today's Playbook</span></h2>
-      <span id="awPicksMeta" style="font-size:11px;color:var(--text2)"></span>
+      <span id="awPicksMeta" style="font-size:var(--fs-xs);color:var(--text2)"></span>
     </div>
     <div class="panel-body">
-      <div id="awPicks"><span style="font-size:12.5px;color:var(--text2)">Loading…</span></div>
+      <div id="awPicks"></div>
     </div>
   </div>
 
-  <!-- ── Validated edge banner (filled from the survivorship-free backtest) ── -->
-  <div class="panel">
-    <div class="panel-header"><h2><svg class="ic ic-h"><use href="#i-bars"/></svg>How it holds up — survivorship-free, cost-net, walk-forward</h2></div>
-    <div class="panel-body" id="awBacktest">
-      <div style="border:1px solid rgba(16,185,129,.28);background:rgba(16,185,129,.06);border-radius:9px;padding:10px 12px">
-        <div style="font-size:11px;font-weight:700;letter-spacing:.5px;text-transform:uppercase;color:var(--green2)">
-          Beats Nifty on return &amp; risk-adjusted return · survivorship-free · out-of-sample tested</div>
-        <div class="tbl-scroll" style="max-height:none;margin-top:8px">
-          <table><thead><tr>
-            <th style="text-align:left">Strategy</th><th>CAGR</th><th>Max drawdown</th><th>Sharpe</th></tr></thead>
-          <tbody>
-            <tr><td style="text-align:left;font-weight:700;color:var(--green2)">All-Weather + Quality tilt<span style="color:var(--gold2)">*</span></td>
-              <td style="font-family:var(--mono);color:var(--green2)">+25.0%</td>
-              <td style="font-family:var(--mono);color:var(--green2)">−9.8%</td>
-              <td style="font-family:var(--mono);color:var(--green2)">1.53</td></tr>
-            <tr><td style="text-align:left;color:var(--text)">All-Weather (price factors only)</td>
-              <td style="font-family:var(--mono)">+17.2%</td>
-              <td style="font-family:var(--mono)">−17.3%</td>
-              <td style="font-family:var(--mono)">1.24</td></tr>
-            <tr><td style="text-align:left;color:var(--text2)">Nifty (buy &amp; hold)</td>
-              <td style="font-family:var(--mono)">+14.3%</td>
-              <td style="font-family:var(--mono)">−12.3%</td>
-              <td style="font-family:var(--mono)">1.18</td></tr>
-            <tr><td style="text-align:left;color:var(--text2)">Pure Defensive Leaders</td>
-              <td style="font-family:var(--mono)">+13.0%</td>
-              <td style="font-family:var(--mono)">−16.2%</td>
-              <td style="font-family:var(--mono)">1.10</td></tr>
-            <tr><td style="text-align:left;color:var(--text2)">Pure Momentum (breakout)</td>
-              <td style="font-family:var(--mono)">+4.9%</td>
-              <td style="font-family:var(--mono);color:var(--red2)">−33.6%</td>
-              <td style="font-family:var(--mono)">0.34</td></tr>
-          </tbody></table>
-          <div style="font-size:10.5px;color:var(--gold2);margin-top:7px;line-height:1.5">
-            <b>*</b> The Quality-tilt row uses <b>current</b> fundamentals applied to the past, so it is
-            <b>look-ahead &amp; survivorship biased — an optimistic upper bound, not a survivorship-free
-            result.</b> Quality is shipped on the strength of the QMJ research (below), not this number;
-            in <i>live</i> use there is no look-ahead. The price-factor row is the rigorous, survivorship-free figure.</div>
-        </div>
-        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">
-          <div style="flex:1;min-width:230px;border:1px solid var(--border);border-radius:8px;padding:9px 11px">
-            <div style="font-size:10px;text-transform:uppercase;letter-spacing:.4px;color:var(--text2)">Full window · ~5.9 yr (Sep 2020 – May 2026)</div>
-            <div style="font-size:12px;color:var(--text);margin-top:3px;line-height:1.5">
-              <b>+17.2% vs +14.3%</b> CAGR and <b>Sharpe 1.24 vs 1.18</b> — beats Nifty on return and
-              risk-adjusted return. Drawdown −17.3% vs −12.3% (see note).</div>
-          </div>
-          <div style="flex:1;min-width:230px;border:1px solid rgba(16,185,129,.28);border-radius:8px;padding:9px 11px;background:rgba(16,185,129,.05)">
-            <div style="font-size:10px;text-transform:uppercase;letter-spacing:.4px;color:var(--green2)">Out-of-sample · most recent ~2.9 yr</div>
-            <div style="font-size:12px;color:var(--text);margin-top:3px;line-height:1.5">
-              <b>+12.6% vs +8.3%</b> CAGR, drawdown <b>−9.0% vs −12.3%</b>, Sharpe <b>1.05 vs 0.76</b> —
-              beats Nifty on <b>all three, including drawdown.</b></div>
-          </div>
-        </div>
-        <div style="font-size:11px;color:var(--text2);margin-top:10px;line-height:1.6">
-          <b>Method — the institutional playbook, on NSE:</b> a 200-DMA bull/bear regime divide
-          (<i>Faber, Pacer Trendpilot</i>) with a <b>5-session confirmation</b> and a 20% extreme-valuation
-          guard (Pacer), an absolute-momentum filter (<i>Antonacci dual momentum</i>), a
-          <b>QMJ-style quality tilt</b> (<i>Asness-Frazzini-Pedersen — quality earns positive alpha with
-          "flight-to-quality" crisis convexity</i>: ROE + earnings growth + earnings acceleration +
-          promoter holding), monthly rebalance, and cash in a confirmed downtrend. The price-factor
-          backtest is survivorship-free, point-in-time, next-open fills, cost-net, walk-forward.
-          20-name inverse-vol book.
-          <br><b>Honest notes:</b> (1) over this window Nifty's own max drawdown was an unusually shallow
-          −12.3% (no deep bear in-sample) — a concentrated stock book draws down more while fully invested,
-          so All-Weather trails on <i>full-window</i> drawdown even as it wins out-of-sample; the regime's
-          cash-in-bear protection pays off most in <i>deep</i> bears, which are largely outside this sample.
-          (2) NSE bhavcopy on disk begins Aug 2019, so a true 10-year test isn't possible — this is the full
-          real-data window. Not financial advice; mechanical &amp; rule-based.
-        </div>
-      </div>
-    </div>
-  </div>
 
 </div>
+
+  <p class="disclaimer">{{ DISCLAIMER }}</p>
 </div>
 
 <script>
@@ -120,7 +39,7 @@ function awSeg(state){
   const lab  = {BULL:'BULL · Offense', SIDEWAYS:'SIDEWAYS · Defense', BEAR:'BEAR · Cash'};
   return `<div style="display:flex;gap:6px;margin:10px 0 2px">` + segs.map(s=>{
     const on = (s===state);
-    return `<div style="flex:1;text-align:center;padding:7px 4px;border-radius:7px;font-size:11px;font-weight:700;
+    return `<div style="flex:1;text-align:center;padding:7px 4px;border-radius:7px;font-size:var(--fs-xs);font-weight:700;
       letter-spacing:.3px;border:1px solid ${on?AW_BORDER[s]:'var(--border)'};
       background:${on?AW_BG[s]:'transparent'};color:${on?AW_COLORS[s]:'var(--text2)'};opacity:${on?1:.5}">
       ${lab[s]}</div>`;
@@ -129,24 +48,27 @@ function awSeg(state){
 
 function awStat(label, val, col){
   return `<div style="flex:1;min-width:104px">
-    <div style="font-size:10px;text-transform:uppercase;letter-spacing:.4px;color:var(--text2)">${label}</div>
-    <div style="font-size:15px;font-weight:700;font-family:var(--mono);color:${col||'var(--text)'}">${val}</div></div>`;
+    <div style="font-size:var(--fs-micro);text-transform:uppercase;letter-spacing:.4px;color:var(--text2)">${label}</div>
+    <div style="font-size:var(--fs-lg);font-weight:700;font-family:var(--mono);color:${col||'var(--text)'}">${val}</div></div>`;
 }
 
 function awRenderRegime(reg){
+  // Regime banner removed 2026-08-03 at user request — it consumed a large block
+  // above the picks. The regime still DRIVES the engine; it is just not rendered.
+  return;
   const st = reg.state || 'UNKNOWN';
   const c = AW_COLORS[st];
   const pv = reg.pct_vs_ma200, r6 = reg.r6m_pct, dd = reg.drawdown_pct, vol = reg.vol_pct;
   const sign = v => (v>=0?'+':'') + v + '%';
-  document.getElementById('awRegime').innerHTML = `
+  (document.getElementById('awRegime') || document.getElementById('awPicks') || {}).innerHTML = `
     <div style="border:1px solid ${AW_BORDER[st]};background:${AW_BG[st]};border-radius:10px;padding:14px 16px">
       <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
         <span style="width:10px;height:10px;border-radius:50%;background:${c};box-shadow:0 0 10px ${c}"></span>
-        <span style="font-size:17px;font-weight:800;color:${c}">${reg.label||st}</span>
-        <span style="font-size:11px;color:var(--text2)">NIFTYBEES as of ${reg.as_of||'—'} · in this regime ${reg.days_in_regime||'—'} sessions</span>
+        <span style="font-size:var(--fs-lg);font-weight:800;color:${c}">${reg.label||st}</span>
+        <span style="font-size:var(--fs-xs);color:var(--text2)">NIFTYBEES as of ${reg.as_of||'—'} · in this regime ${reg.days_in_regime||'—'} sessions</span>
       </div>
-      <div style="font-size:12.5px;color:var(--text);margin:8px 0 2px"><b>Action:</b> ${reg.action||''}</div>
-      <div style="font-size:11.5px;color:var(--text2);line-height:1.5">${reg.why||''}</div>
+      <div style="font-size:var(--fs-sm);color:var(--text);margin:8px 0 2px"><b>Action:</b> ${reg.action||''}</div>
+      <div style="font-size:var(--fs-xs);color:var(--text2);line-height:1.5">${reg.why||''}</div>
       ${awSeg(st)}
       <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:12px;padding-top:10px;border-top:1px solid var(--border)">
         ${awStat('NIFTY vs 200-DMA', pv==null?'—':sign(pv), pv==null?null:(pv>=0?'var(--green2)':'var(--red2)'))}
@@ -174,13 +96,13 @@ function awRenderPicks(d){
     title.textContent = 'Capital Preservation — Cash';
     meta.textContent = `as of ${d.as_of||'—'}`;
     let html = `<div style="border:1px solid ${AW_BORDER.BEAR};background:${AW_BG.BEAR};border-radius:9px;padding:12px 14px;margin-bottom:12px">
-      <div style="font-size:13px;font-weight:700;color:var(--red2)">Raise cash — do not initiate new longs.</div>
-      <div style="font-size:11.5px;color:var(--text2);margin-top:4px;line-height:1.5">
+      <div style="font-size:var(--fs-md);font-weight:700;color:var(--red2)">Raise cash — do not initiate new longs.</div>
+      <div style="font-size:var(--fs-xs);color:var(--text2);margin-top:4px;line-height:1.5">
         NIFTY is in a confirmed downtrend below its 200-DMA. The engine sits in cash here:
         the largest source of long-run edge in a bear market is the drawdown you don't take.
         In a real account you'd park this in a liquid / overnight fund.</div></div>`;
     if (d.secondary && d.secondary.length) {
-      html += `<div style="font-size:11px;color:var(--text2);margin:2px 0 6px;text-transform:uppercase;letter-spacing:.4px">
+      html += `<div style="font-size:var(--fs-xs);color:var(--text2);margin:2px 0 6px;text-transform:uppercase;letter-spacing:.4px">
         If you must stay invested — the lowest-risk defensive names</div>` + awDefTable(d.secondary);
     }
     body.innerHTML = html;
@@ -194,37 +116,39 @@ function awDefTable(picks){
   const rows = (picks||[]).map((s,i) => `<tr>
     <td style="text-align:left"><span class="rank-badge">${i+1}</span></td>
     <td style="text-align:left"><span class="sym">${s.symbol}</span></td>
-    <td>₹${(s.price||0).toLocaleString('en-IN')}</td>
-    <td class="pos">${s.r3m>=0?'+':''}${s.r3m}%</td>
+    <td class="num">${fmtINR(s.price)}</td>
+    <td>${pctCell(s.r3m,1)}</td>
     <td title="Annualised realised volatility — lower = calmer">${s.vol_pct}%</td>
     <td title="Trend smoothness (efficiency ratio)">${s.smoothness}</td>
     <td title="Avg delivery % — institutional participation" style="color:${col(s.deliv_level)}">${s.deliv_level}%</td>
     ${hasQ ? `<td title="Return on equity — profitability" style="color:${s.roe>=15?'var(--green2)':'var(--text2)'}">${s.roe==null?'—':s.roe+'%'}</td>
     <td title="Earnings growth (3Y CAGR / TTM)" style="color:${s.earn_growth>=0?'var(--green2)':'var(--red2)'}">${s.earn_growth==null?'—':(s.earn_growth>=0?'+':'')+s.earn_growth+'%'}</td>
-    <td title="QMJ-style quality percentile (profitability + growth + earnings acceleration + promoter holding)" style="font-weight:700;color:${qcol(s.quality)}">${s.quality==null?'—':Math.round(s.quality*100)}${s.earn_accel===1?' ▲':''}</td>` : ''}
+    <td title="QMJ-style quality percentile (profitability + growth + earnings acceleration + promoter holding)" style="font-weight:700;color:${qcol(s.quality)}">${s.quality==null?'—':Math.round(s.quality*100)}${s.earn_accel===1?' ▲':''}</td>
+    <td title="F&amp;O open-interest positioning — how leveraged money is positioned (point-in-time, no look-ahead)" style="font-size:var(--fs-micro);font-weight:600;color:${s.flow==null?'var(--text2)':s.flow>=0.9?'var(--green2)':s.flow>=0.6?'var(--green2)':s.flow<=0.1?'var(--red2)':s.flow<0.5?'var(--gold2)':'var(--text2)'}">${s.flow_label==null||s.flow_label==='NO F&O'?'—':s.flow_label}</td>` : ''}
     <td style="font-weight:700;font-family:var(--mono)">${s.score}</td>
     <td title="Inverse-vol weight">${s.weight_pct}%</td></tr>`).join('');
   return (picks||[]).length ? `<div class="tbl-scroll"><table><thead><tr>
-    <th>#</th><th style="text-align:left">Symbol</th><th>Price</th><th>3M ret</th>
-    <th>Vol</th><th>Smooth</th><th>Deliv%</th>${hasQ?'<th>ROE</th><th>Earn gr</th><th title="Quality percentile · ▲ = earnings accelerating">Qual</th>':''}<th>Score</th><th>Wt</th>
+    <th>#</th><th class="ta-l">Symbol</th><th>Price</th><th>3M ret</th>
+    <th>Vol</th><th>Smooth</th><th>Deliv%</th>${hasQ?'<th>ROE</th><th>Earn gr</th><th title="Quality percentile · ▲ = earnings accelerating">Qual</th><th title="F&O open-interest positioning of leveraged money">F&O Flow</th>':''}<th>Score</th><th>Wt</th>
     </tr></thead><tbody>${rows}</tbody></table></div>`
-    : `<span style="color:var(--text2);font-size:12.5px">No qualifying defensive leaders right now.</span>`;
+    : stateEmpty('No qualifying leaders', 'The gate is strict — this is normal in weak tape.');
 }
 
 async function awLoad(force){
   const btn = document.getElementById('awBtn');
   if (force) { btn.disabled = true; btn.innerHTML = '<span class="spinner"></span>Reading…'; }
+  const _pb=document.getElementById('awPicks'); if(_pb) _pb.innerHTML = stateLoading(6);
   try {
     const d = await (await fetch('/api/allweather')).json();
     btn.disabled = false; btn.innerHTML = '<svg class="ic ic-b"><use href="#i-refresh"/></svg>Refresh';
-    if (d.error) { document.getElementById('awRegime').innerHTML =
-      `<span style="color:var(--red2);font-size:12.5px">${d.error}</span>`; return; }
+    if (d.error) { (document.getElementById('awRegime') || document.getElementById('awPicks') || {}).innerHTML =
+      `<span style="color:var(--red2);font-size:var(--fs-sm)">${d.error}</span>`; return; }
     awRenderRegime(d.regime||{});
     awRenderPicks(d);
   } catch(e) {
     btn.disabled = false; btn.innerHTML = '<svg class="ic ic-b"><use href="#i-refresh"/></svg>Refresh';
-    document.getElementById('awRegime').innerHTML =
-      '<span style="color:var(--red2);font-size:12.5px">Failed to read regime.</span>';
+    (document.getElementById('awRegime') || document.getElementById('awPicks') || {}).innerHTML =
+      '<span style="color:var(--red2);font-size:var(--fs-sm)">Failed to read regime.</span>';
   }
 }
 </script>

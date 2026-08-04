@@ -1,35 +1,37 @@
 <div id="tab-risk" class="tab-content">
+  <div class="tab-intro"><span class="ti-title">Risk & Regime</span>Market regime, portfolio risk, and the whole-system backtest every change is measured against.</div>
 <div class="container" style="padding-top:18px">
 
   <div class="panel">
     <div class="panel-header"><h2><svg class="ic ic-h"><use href="#i-shield"/></svg>Risk &amp; Regime — protect capital first</h2>
-      <span style="font-size:11px;color:var(--text2)">A long-only screener can't out-select a crash. This is where it survives one.</span>
+      <span style="font-size:var(--fs-xs);color:var(--text2)">A long-only screener can't out-select a crash. This is where it survives one.</span>
     </div>
     <div class="panel-body">
-      <p style="font-size:12px;color:var(--text2);margin:0 0 4px;line-height:1.6">
-        Everything here is <b>mechanical and rule-based</b>, not personalised advice. It maps the market
+      <p style="font-size:var(--fs-sm);color:var(--text2);margin:0 0 4px;line-height:1.6">
+        Everything here is <b>mechanical and rule-based</b>. It maps the market
         regime to a deployment level, turns a stop distance into a share count, and shows the
-        <b>survivorship-free</b> forward returns the gates actually earned. Not financial advice —
-        consult a SEBI-registered advisor for personal decisions.</p>
+        <b>survivorship-free</b> forward returns the gates actually earned.
+        <!-- ITEM 6: the legal sentence that used to end this paragraph now comes from
+             the one disclaimer constant, rendered in the tab footer like every other tab. --></p>
     </div>
   </div>
 
   <!-- ── 3. GUARDIAN — exit/trim alerts on what you hold (owner only) ───────── -->
   <div class="panel" id="riskGuardianPanel" style="display:none">
     <div class="panel-header"><h2><svg class="ic ic-h"><use href="#i-bell"/></svg>Act now — position alerts</h2>
-      <span style="font-size:11px;color:var(--text2)">Protecting gains beats finding entries</span></div>
+      <span style="font-size:var(--fs-xs);color:var(--text2)">Protecting gains beats finding entries</span></div>
     <div class="panel-body"><div id="riskGuardian"></div></div>
   </div>
 
   <!-- ── 1. REGIME EXPOSURE SWITCH ─────────────────────────────────────────── -->
   <div class="panel">
     <div class="panel-header"><h2><svg class="ic ic-h"><use href="#i-activity"/></svg>Capital-protection switch</h2>
-      <span style="font-size:11px;color:var(--text2)">Rule: exposure follows the regime</span></div>
+      <span style="font-size:var(--fs-xs);color:var(--text2)">Rule: exposure follows the regime</span></div>
     <div class="panel-body">
       <div id="riskExposure" style="display:flex;gap:18px;flex-wrap:wrap;align-items:stretch">
-        <div class="risk-loading" style="color:var(--text2);font-size:13px">Loading regime…</div>
+        <div class="risk-loading" style="color:var(--text2);font-size:var(--fs-md)">Loading regime…</div>
       </div>
-      <div style="margin-top:12px;font-size:11px;color:var(--text2);line-height:1.6">
+      <div style="margin-top:12px;font-size:var(--fs-xs);color:var(--text2);line-height:1.6">
         Grounded in the breadth walk-forward: only the extremes discriminate — a confirmed uptrend has
         the calmest forward paths, a downtrend the toxic left tail. Lean in when structure confirms;
         raise cash when distribution dominates.</div>
@@ -40,7 +42,7 @@
   <div style="display:grid;grid-template-columns:1.15fr 0.85fr;gap:14px" class="risk-grid">
     <div class="panel">
       <div class="panel-header"><h2><svg class="ic ic-h"><use href="#i-target"/></svg>Position sizer</h2>
-        <span style="font-size:11px;color:var(--text2)">Risk a fixed % — sized by your stop</span></div>
+        <span style="font-size:var(--fs-xs);color:var(--text2)">Risk a fixed % — sized by your stop</span></div>
       <div class="panel-body">
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px 14px">
           <label class="risk-field">Capital (₹)<input id="rsCapital" type="number" value="1000000" oninput="riskSize()"></label>
@@ -54,9 +56,9 @@
 
     <div class="panel">
       <div class="panel-header"><h2><svg class="ic ic-h"><use href="#i-flame"/></svg>Portfolio heat</h2>
-        <span style="font-size:11px;color:var(--text2)">Total open risk vs cap</span></div>
+        <span style="font-size:var(--fs-xs);color:var(--text2)">Total open risk vs cap</span></div>
       <div class="panel-body">
-        <div id="riskHeat" style="font-size:13px;color:var(--text2)">Loading…</div>
+        <div id="riskHeat" style="font-size:var(--fs-md);color:var(--text2)">Loading…</div>
       </div>
     </div>
   </div>
@@ -66,28 +68,28 @@
     <div class="panel-header"><h2><svg class="ic ic-h"><use href="#i-activity"/></svg>System yardstick — the whole system vs Nifty</h2>
       <button class="btn btn-primary" id="sysBtBtn" onclick="runSystemBacktest()"><svg class="ic ic-b"><use href="#i-flask"/></svg>Run</button></div>
     <div class="panel-body">
-      <p style="font-size:11.5px;color:var(--text2);margin:0 0 12px;line-height:1.6">
+      <p style="font-size:var(--fs-xs);color:var(--text2);margin:0 0 12px;line-height:1.6">
         The number that matters: CAGR / max-drawdown / Sharpe of the <b>whole system</b> —
         ranking + regime exposure + equity brake + sizing + costs + next-open fills —
         versus a Nifty buy-and-hold over the same dates. Survivorship-free, point-in-time,
         ~3 years. Every future change is measured against this. (~1–2 min to run.)</p>
-      <div id="sysBtResult"><span style="font-size:12.5px;color:var(--text2)">Click <b>Run</b> to compute the system yardstick.</span></div>
+      <div id="sysBtResult"><span style="font-size:var(--fs-sm);color:var(--text2)">Click <b>Run</b> to compute the system yardstick.</span></div>
     </div>
   </div>
 
   <!-- ── 6. HONEST SCORECARD ───────────────────────────────────────────────── -->
   <div class="panel">
     <div class="panel-header"><h2><svg class="ic ic-h"><use href="#i-bars"/></svg>Honest scorecard — what the gates actually earned</h2>
-      <span id="scMeta" style="font-size:11px;color:var(--text2)"></span></div>
+      <span id="scMeta" style="font-size:var(--fs-xs);color:var(--text2)"></span></div>
     <div class="panel-body">
-      <p style="font-size:11px;color:var(--text2);margin:0 0 10px;line-height:1.6">
+      <p style="font-size:var(--fs-xs);color:var(--text2);margin:0 0 10px;line-height:1.6">
         Forward 21-bar <b>alpha vs NIFTYBEES</b> — survivorship-free, delisted names included, split
         into in-sample / out-of-sample. If a bucket doesn't beat <b>All trending</b> out-of-sample, it
         isn't an edge.</p>
       <div class="tbl-scroll" style="max-height:none">
         <table><thead><tr>
-          <th style="text-align:left">Bucket</th><th>n</th><th>Mean α%</th><th>Win%</th>
-          <th>Tail p10 α%</th><th>OOS α%</th><th style="text-align:left">Verdict</th>
+          <th class="ta-l">Bucket</th><th>n</th><th>Mean α%</th><th>Win%</th>
+          <th>Tail p10 α%</th><th>OOS α%</th><th class="ta-l">Verdict</th>
         </tr></thead><tbody id="scBody"></tbody></table>
       </div>
     </div>
@@ -96,30 +98,32 @@
   <!-- ── DRIFT MONITOR — live picks vs backtest expectation ────────────────── -->
   <div class="panel" id="driftPanel" style="display:none">
     <div class="panel-header"><h2><svg class="ic ic-h"><use href="#i-activity"/></svg>Edge-decay monitor — live vs backtest</h2>
-      <span style="font-size:11px;color:var(--text2)">Earliest warning an edge has died</span></div>
+      <span style="font-size:var(--fs-xs);color:var(--text2)">Earliest warning an edge has died</span></div>
     <div class="panel-body"><div id="driftBody"></div></div>
   </div>
 
   <!-- ── 5. FACTOR REGISTRY (prove-before-keep, made visible) ──────────────── -->
   <div class="panel">
     <div class="panel-header"><h2><svg class="ic ic-h"><use href="#i-flask"/></svg>Factor registry — proven vs rejected</h2>
-      <span style="font-size:11px;color:var(--text2)">Nothing influences ranking without evidence</span></div>
+      <span style="font-size:var(--fs-xs);color:var(--text2)">Nothing influences ranking without evidence</span></div>
     <div class="panel-body">
       <div class="tbl-scroll" style="max-height:none">
         <table><thead><tr>
-          <th style="text-align:left">Factor</th><th style="text-align:left">Status</th>
-          <th style="text-align:left">Evidence</th><th style="text-align:left">Used in</th>
+          <th class="ta-l">Factor</th><th class="ta-l">Status</th>
+          <th class="ta-l">Evidence</th><th class="ta-l">Used in</th>
         </tr></thead><tbody id="frBody"></tbody></table>
       </div>
     </div>
   </div>
 
 </div>
+
+  <p class="disclaimer">{{ DISCLAIMER }} <span class="dc-note">The backtest is the survivorship-free forward return the gates actually earned, over one market regime (2020-26) only.</span></p>
 </div>
 
 <style>
-  .risk-field { display:flex; flex-direction:column; font-size:11px; font-weight:600; color:var(--text2); gap:5px; }
-  .risk-field input { background:var(--field); border:1px solid var(--border); border-radius:7px; padding:9px 11px; font-size:14px; color:var(--text); font-family:var(--mono); outline:none; }
+  .risk-field { display:flex; flex-direction:column; font-size:var(--fs-xs); font-weight:600; color:var(--text2); gap:5px; }
+  .risk-field input { background:var(--field); border:1px solid var(--border); border-radius:7px; padding:9px 11px; font-size:var(--fs-base); color:var(--text); font-family:var(--mono); outline:none; }
   .risk-field input:focus { border-color:var(--accent); }
   .exp-card { flex:1; min-width:150px; border:1px solid var(--border); border-radius:12px; padding:16px 18px; background:var(--surface2); }
   .exp-gauge { height:10px; border-radius:6px; background:var(--surface2); overflow:hidden; border:1px solid var(--border); margin-top:10px; }
@@ -141,22 +145,22 @@ async function riskDrift() {
     if (d.note && d.note === 'Owner-only.') { panel.style.display = 'none'; return; }
     panel.style.display = '';
     if (!d.ready) {
-      body.innerHTML = `<span style="font-size:12.5px;color:var(--text2)">${d.note||'Collecting…'}</span>`;
+      body.innerHTML = `<span style="font-size:var(--fs-sm);color:var(--text2)">${d.note||'Collecting…'}</span>`;
       return;
     }
     const cmap = {green:'var(--green2)', amber:'var(--gold2)', red:'var(--red2)'};
     const col = cmap[d.color] || 'var(--text2)';
     body.innerHTML =
       `<div style="display:flex;gap:22px;flex-wrap:wrap;align-items:baseline">
-         <div><span style="font-size:10px;font-weight:700;text-transform:uppercase;color:var(--text2)">Live realized α</span><br>
-           <b style="font-size:24px;font-family:var(--mono);color:${d.realized_alpha>=0?'var(--green2)':'var(--red2)'}">${d.realized_alpha>=0?'+':''}${d.realized_alpha}%</b></div>
-         <div><span style="font-size:10px;font-weight:700;text-transform:uppercase;color:var(--text2)">Backtest expected</span><br>
-           <b style="font-size:24px;font-family:var(--mono);color:var(--text2)">+${d.expected_alpha}%</b></div>
-         <div><span style="font-size:10px;font-weight:700;text-transform:uppercase;color:var(--text2)">Drift</span><br>
-           <b style="font-size:24px;font-family:var(--mono);color:${d.drift>=0?'var(--green2)':'var(--red2)'}">${d.drift>=0?'+':''}${d.drift}%</b></div>
-         <div style="align-self:center"><span style="font-weight:800;color:${col};font-size:14px">${d.verdict}</span></div>
+         <div><span style="font-size:var(--fs-micro);font-weight:700;text-transform:uppercase;color:var(--text2)">Live realized α</span><br>
+           <b style="font-size:var(--fs-3xl);font-family:var(--mono);color:${d.realized_alpha>=0?'var(--green2)':'var(--red2)'}">${d.realized_alpha>=0?'+':''}${d.realized_alpha}%</b></div>
+         <div><span style="font-size:var(--fs-micro);font-weight:700;text-transform:uppercase;color:var(--text2)">Backtest expected</span><br>
+           <b style="font-size:var(--fs-3xl);font-family:var(--mono);color:var(--text2)">+${d.expected_alpha}%</b></div>
+         <div><span style="font-size:var(--fs-micro);font-weight:700;text-transform:uppercase;color:var(--text2)">Drift</span><br>
+           <b style="font-size:var(--fs-3xl);font-family:var(--mono);color:${d.drift>=0?'var(--green2)':'var(--red2)'}">${d.drift>=0?'+':''}${d.drift}%</b></div>
+         <div style="align-self:center"><span style="font-weight:800;color:${col};font-size:var(--fs-base)">${d.verdict}</span></div>
        </div>
-       <div style="font-size:11px;color:var(--text2);margin-top:10px;line-height:1.6">
+       <div style="font-size:var(--fs-xs);color:var(--text2);margin-top:10px;line-height:1.6">
          ${d.matured} live BUYs have a full ${d.horizon_bars}-day window (${d.maturing} still maturing) · win ${d.win_pct}%. ${d.note}</div>`;
   } catch(e) {}
 }
@@ -170,15 +174,15 @@ async function riskGuardian() {
     const alerts = (d.alerts || d || []).filter(a => a && (a.action || a.exit_action));
     const panel = document.getElementById('riskGuardianPanel');
     const body = document.getElementById('riskGuardian');
-    if (!alerts.length) { panel.style.display = ''; body.innerHTML = '<span style="font-size:12.5px;color:var(--green2)">✓ No exit or trim actions pending on your holdings.</span>'; return; }
+    if (!alerts.length) { panel.style.display = ''; body.innerHTML = '<span style="font-size:var(--fs-sm);color:var(--green2)">✓ No exit or trim actions pending on your holdings.</span>'; return; }
     panel.style.display = '';
     const col = a => (a==='EXIT'?'var(--red2)':a==='TRIM'?'var(--gold2)':'var(--text2)');
     body.innerHTML = alerts.map(a => {
       const act = (a.action || a.exit_action || '').toUpperCase();
       return `<div style="display:flex;align-items:center;gap:12px;padding:9px 0;border-bottom:1px solid var(--border)">
-        <span style="min-width:56px;font-weight:800;font-size:12px;color:${col(act)}">${act}</span>
+        <span style="min-width:56px;font-weight:800;font-size:var(--fs-sm);color:${col(act)}">${act}</span>
         <b style="min-width:100px;font-family:var(--mono)">${a.symbol||''}</b>
-        <span style="font-size:12px;color:var(--text2)">${a.reason||a.exit_reason||''}</span></div>`;
+        <span style="font-size:var(--fs-sm);color:var(--text2)">${a.reason||a.exit_reason||''}</span></div>`;
     }).join('');
   } catch(e) {}
 }
@@ -190,25 +194,25 @@ async function riskSummary() {
     const el = document.getElementById('riskExposure');
     el.innerHTML =
       `<div class="exp-card" style="flex:1.3;border-color:${e.color}">
-         <div style="font-size:10px;font-weight:700;letter-spacing:.6px;text-transform:uppercase;color:var(--text2)">Market regime</div>
-         <div style="font-size:20px;font-weight:800;margin-top:4px;color:${e.color}">${e.headline}</div>
-         <div style="font-size:12px;color:var(--text2);margin-top:2px">${e.regime}</div>
+         <div style="font-size:var(--fs-micro);font-weight:700;letter-spacing:.6px;text-transform:uppercase;color:var(--text2)">Market regime</div>
+         <div style="font-size:var(--fs-2xl);font-weight:800;margin-top:4px;color:${e.color}">${e.headline}</div>
+         <div style="font-size:var(--fs-sm);color:var(--text2);margin-top:2px">${e.regime}</div>
        </div>
        <div class="exp-card" style="flex:1.6">
-         <div style="font-size:10px;font-weight:700;letter-spacing:.6px;text-transform:uppercase;color:var(--text2)">Recommended exposure</div>
-         <div style="font-size:34px;font-weight:800;margin-top:2px;color:${e.color};font-family:var(--mono)">${e.exposure_pct}%</div>
+         <div style="font-size:var(--fs-micro);font-weight:700;letter-spacing:.6px;text-transform:uppercase;color:var(--text2)">Recommended exposure</div>
+         <div style="font-size:var(--fs-display);font-weight:800;margin-top:2px;color:${e.color};font-family:var(--mono)">${e.exposure_pct}%</div>
          <div class="exp-gauge"><div style="width:${e.exposure_pct}%;background:${e.color}"></div></div>
-         <div style="font-size:11.5px;color:var(--text2);margin-top:9px;line-height:1.5">${e.note}</div>
+         <div style="font-size:var(--fs-xs);color:var(--text2);margin-top:9px;line-height:1.5">${e.note}</div>
        </div>`;
     // Equity-curve brake (owner-only) — shown when the book is in drawdown.
     const eb = d.equity_brake;
     if (eb && eb.multiplier < 1) {
       el.insertAdjacentHTML('beforeend',
         `<div class="exp-card" style="flex:1.3;border-color:var(--red2)">
-           <div style="font-size:10px;font-weight:700;letter-spacing:.6px;text-transform:uppercase;color:var(--text2)">Equity brake · active</div>
-           <div style="font-size:20px;font-weight:800;margin-top:4px;color:var(--red2)">×${eb.multiplier}</div>
-           <div style="font-size:11.5px;color:var(--text2);margin-top:4px;line-height:1.5">${eb.note}</div>
-           ${d.effective_exposure_pct!=null?`<div style="font-size:11px;color:var(--text);margin-top:6px">Effective exposure: <b>${d.effective_exposure_pct}%</b> (regime × brake)</div>`:''}
+           <div style="font-size:var(--fs-micro);font-weight:700;letter-spacing:.6px;text-transform:uppercase;color:var(--text2)">Equity brake · active</div>
+           <div style="font-size:var(--fs-2xl);font-weight:800;margin-top:4px;color:var(--red2)">×${eb.multiplier}</div>
+           <div style="font-size:var(--fs-xs);color:var(--text2);margin-top:4px;line-height:1.5">${eb.note}</div>
+           ${d.effective_exposure_pct!=null?`<div style="font-size:var(--fs-xs);color:var(--text);margin-top:6px">Effective exposure: <b>${d.effective_exposure_pct}%</b> (regime × brake)</div>`:''}
          </div>`);
     }
     window._riskExpPct = e.exposure_pct;
@@ -218,10 +222,10 @@ async function riskSummary() {
     else {
       const col = h.over_cap ? 'var(--red2)' : 'var(--green2)';
       hb.innerHTML =
-        `<div style="font-size:30px;font-weight:800;font-family:var(--mono);color:${col}">${h.heat_pct}%</div>
-         <div style="font-size:11px;color:var(--text2)">of capital at risk across ${h.open_positions} open position${h.open_positions===1?'':'s'} · cap ${h.heat_cap_pct}%</div>
+        `<div style="font-size:var(--fs-display);font-weight:800;font-family:var(--mono);color:${col}">${h.heat_pct}%</div>
+         <div style="font-size:var(--fs-xs);color:var(--text2)">of capital at risk across ${h.open_positions} open position${h.open_positions===1?'':'s'} · cap ${h.heat_cap_pct}%</div>
          <div class="exp-gauge" style="margin-top:8px"><div style="width:${Math.min(100,h.heat_pct/h.heat_cap_pct*100)}%;background:${col}"></div></div>
-         <div style="font-size:11px;margin-top:8px;color:${col};font-weight:600">${h.over_cap ? '⚠ Over the heat cap — stop adding / trim risk.' : '₹'+h.headroom.toLocaleString('en-IN')+' risk headroom left.'}</div>`;
+         <div style="font-size:var(--fs-xs);margin-top:8px;color:${col};font-weight:600">${h.over_cap ? '⚠ Over the heat cap — stop adding / trim risk.' : '₹'+h.headroom.toLocaleString('en-IN')+' risk headroom left.'}</div>`;
     }
   } catch(e) { document.getElementById('riskExposure').innerHTML = '<span style="color:var(--red2)">Could not load regime.</span>'; }
 }
@@ -232,21 +236,21 @@ async function riskSize() {
   const stop = +document.getElementById('rsStop').value || 0;
   const risk = +document.getElementById('rsRisk').value || 0.75;
   const out = document.getElementById('rsResult');
-  if (!entry || !stop) { out.innerHTML = '<span style="font-size:12px;color:var(--text2)">Enter an entry and stop to size the trade.</span>'; return; }
+  if (!entry || !stop) { out.innerHTML = '<span style="font-size:var(--fs-sm);color:var(--text2)">Enter an entry and stop to size the trade.</span>'; return; }
   try {
     const r = await (await fetch('/api/risk/position-size', {method:'POST',headers:{'Content-Type':'application/json'},
       body:JSON.stringify({capital,entry,stop,risk_pct:risk})})).json();
-    if (!r.valid) { out.innerHTML = `<span style="font-size:12.5px;color:var(--gold2)">${r.message}</span>`; return; }
+    if (!r.valid) { out.innerHTML = `<span style="font-size:var(--fs-sm);color:var(--gold2)">${r.message}</span>`; return; }
     out.innerHTML =
-      `<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px 16px;font-size:13px">
-         <div><span style="color:var(--text2)">Buy</span> <b style="font-family:var(--mono);font-size:16px">${r.shares.toLocaleString('en-IN')}</b> shares</div>
+      `<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px 16px;font-size:var(--fs-md)">
+         <div><span style="color:var(--text2)">Buy</span> <b style="font-family:var(--mono);font-size:var(--fs-lg)">${r.shares.toLocaleString('en-IN')}</b> shares</div>
          <div><span style="color:var(--text2)">Value</span> <b style="font-family:var(--mono)">₹${r.rupee_value.toLocaleString('en-IN')}</b> <span style="color:var(--text2)">(${r.pct_of_capital}% of cap)</span></div>
          <div><span style="color:var(--text2)">Risk if stopped</span> <b style="font-family:var(--mono);color:var(--red2)">₹${r.risk_amount.toLocaleString('en-IN')}</b></div>
          <div><span style="color:var(--text2)">Sized by</span> <b>${r.capped_by==='position-cap'?'single-name cap':'risk budget'}</b></div>
        </div>
-       <div style="font-size:11px;color:var(--text2);margin-top:9px;line-height:1.5">
+       <div style="font-size:var(--fs-xs);color:var(--text2);margin-top:9px;line-height:1.5">
          Regime <b style="color:var(--text)">${r.regime}</b> scales your risk to <b>${r.regime_exposure_pct}%</b> — that's why the size shrinks in weak markets. Stop is ₹${r.risk_per_share}/share below entry.</div>`;
-  } catch(e) { out.innerHTML = '<span style="color:var(--red2);font-size:12px">Sizer error.</span>'; }
+  } catch(e) { out.innerHTML = '<span style="color:var(--red2);font-size:var(--fs-sm)">Sizer error.</span>'; }
 }
 
 let _sysBtPoll = null;
@@ -254,7 +258,7 @@ async function runSystemBacktest() {
   const btn = document.getElementById('sysBtBtn');
   const out = document.getElementById('sysBtResult');
   btn.disabled = true; btn.innerHTML = '<span class="spinner"></span>Running…';
-  out.innerHTML = '<span style="font-size:12.5px;color:var(--text2)">Running the whole-system walk-forward (~1–2 min)…</span>';
+  out.innerHTML = '<span style="font-size:var(--fs-sm);color:var(--text2)">Running the whole-system walk-forward (~1–2 min)…</span>';
   try {
     const r = await fetch('/api/risk/system-backtest', {method:'POST'});
     if (r.status === 409) { /* already running — just poll */ }
@@ -268,13 +272,13 @@ async function _sysBtCheck() {
     const d = await (await fetch('/api/risk/system-backtest/status')).json();
     const out = document.getElementById('sysBtResult');
     if (d.running) {
-      out.innerHTML = `<span style="font-size:12.5px;color:var(--text2)">Computing… ${d.pct||0}% · ${d.msg||''}</span>`;
+      out.innerHTML = `<span style="font-size:var(--fs-sm);color:var(--text2)">Computing… ${d.pct||0}% · ${d.msg||''}</span>`;
       return;
     }
     clearInterval(_sysBtPoll);
     const btn = document.getElementById('sysBtBtn');
     btn.disabled = false; btn.innerHTML = '<svg class="ic ic-b"><use href="#i-flask"/></svg>Re-run';
-    if (!d.result || d.result.error) { out.innerHTML = `<span style="color:var(--red2);font-size:12.5px">${(d.result&&d.result.error)||'No result.'}</span>`; return; }
+    if (!d.result || d.result.error) { out.innerHTML = `<span style="color:var(--red2);font-size:var(--fs-sm)">${(d.result&&d.result.error)||'No result.'}</span>`; return; }
     _sysBtRender(d.result);
   } catch(e) {}
 }
@@ -284,13 +288,13 @@ function _sysBtRender(r) {
   const cell = (v, good) => `<b style="font-family:var(--mono);color:${good?'var(--green2)':'var(--red2)'}">${v>=0?'+':''}${v}%</b>`;
   document.getElementById('sysBtResult').innerHTML =
     `<div class="tbl-scroll" style="max-height:none"><table><thead><tr>
-       <th style="text-align:left">Metric</th><th>System</th><th>Nifty (buy &amp; hold)</th><th>Edge</th></tr></thead><tbody>
+       <th class="ta-l">Metric</th><th>System</th><th>Nifty (buy &amp; hold)</th><th>Edge</th></tr></thead><tbody>
        <tr><td style="text-align:left">CAGR</td><td>${cell(s.cagr, s.cagr>=0)}</td><td>${cell(b.cagr, b.cagr>=0)}</td><td>${cell(e.cagr_delta, beat)}</td></tr>
        <tr><td style="text-align:left">Max drawdown</td><td>${cell(s.max_dd,false)}</td><td>${cell(b.max_dd,false)}</td><td><b style="font-family:var(--mono);color:${e.dd_delta>=0?'var(--green2)':'var(--red2)'}">${e.dd_delta>=0?'+':''}${e.dd_delta}%</b></td></tr>
        <tr><td style="text-align:left">Sharpe</td><td><b style="font-family:var(--mono)">${s.sharpe}</b></td><td><b style="font-family:var(--mono)">${b.sharpe}</b></td><td></td></tr>
        <tr><td style="text-align:left">Total return</td><td>${cell(s.total_return, s.total_return>=0)}</td><td>${cell(b.total_return, b.total_return>=0)}</td><td></td></tr>
      </tbody></table></div>
-     <div style="margin-top:10px;padding:10px 12px;border-radius:8px;background:${beat?'rgba(16,185,129,.08)':'rgba(248,113,113,.08)'};border:1px solid ${beat?'rgba(16,185,129,.25)':'rgba(248,113,113,.25)'};font-size:12px;color:var(--text2);line-height:1.6">
+     <div style="margin-top:10px;padding:10px 12px;border-radius:8px;background:${beat?'rgba(16,185,129,.08)':'rgba(248,113,113,.08)'};border:1px solid ${beat?'rgba(16,185,129,.25)':'rgba(248,113,113,.25)'};font-size:var(--fs-sm);color:var(--text2);line-height:1.6">
        <b style="color:${beat?'var(--green2)':'var(--red2)'}">${beat?'System beats the index.':'System does NOT beat buy-and-hold.'}</b>
        ${r.start}→${r.as_of} · ${r.rebalances} rebalances · ${r.trades} trades · avg deployment ${r.avg_deployment_pct}%. Survivorship-free, point-in-time, next-open fills, cost-net. This is the yardstick — measure every change against it.</div>`;
 }
@@ -319,8 +323,8 @@ async function riskScorecard() {
       `<tr>
         <td style="text-align:left;font-weight:600">${f.factor}</td>
         <td style="text-align:left;font-weight:700;color:${scol[f.status]||'var(--text2)'}">${f.status}</td>
-        <td style="text-align:left;color:var(--text2);font-size:11.5px">${f.evidence}</td>
-        <td style="text-align:left;color:var(--text2);font-size:11.5px">${f.used_in}</td>
+        <td style="text-align:left;color:var(--text2);font-size:var(--fs-xs)">${f.evidence}</td>
+        <td style="text-align:left;color:var(--text2);font-size:var(--fs-xs)">${f.used_in}</td>
       </tr>`).join('');
   } catch(e) {}
 }

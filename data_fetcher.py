@@ -12,7 +12,7 @@ import requests
 import numpy as np
 import pandas as pd
 from pathlib import Path
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # ── Directories ────────────────────────────────────────────────────────────────
@@ -187,9 +187,45 @@ _refresh_state = {
     "consecutive_failures": 0,
     "last_new_date":        None,
 }
+
+def _seed_last_success_from_disk() -> float:
+    """Recover `last_success_ts` from the newest cached bhavcopy's mtime.
+
+    WHY (2026-08-04): this state was in-memory only, so EVERY restart reset it to
+    0.0 → `since_success` became inf → the stuck-detector fired immediately on any
+    weekday where today's file wasn't in yet, and the log read
+    `since last success: infh` even though the last download had succeeded hours
+    earlier. The newest file's mtime IS the time of the last successful download,
+    so it survives restarts for free — no new state file to keep in sync.
+    """
+    try:
+        files = sorted(BHAV_DIR.glob("*.pkl"), key=lambda p: p.stat().st_mtime)
+        return files[-1].stat().st_mtime if files else 0.0
+    except Exception:
+        return 0.0
+
+
+_refresh_state["last_success_ts"] = _seed_last_success_from_disk()
+
 _CHECK_INTERVAL_HAVE    = 1800   # 30 min — once we already have today's file
 _CHECK_INTERVAL_MISSING = 300    # 5 min  — aggressive retry when today's file missing
 _CHECK_INTERVAL_STUCK   = 60     # 1 min  — emergency retry when scheduler appears stuck
+
+# NSE publishes the EQ bhavcopy AFTER market close (15:30 IST) — in practice from
+# ~18:00 IST. Every attempt before that is guaranteed to fail, and each failure is
+# not free: measured 2026-08-04, 49 attempts over 8h produced 43 session resets,
+# because a miss triggers internal retries and a fresh handshake. Almost all of
+# those ran hours before publication was even possible. Waiting until the window
+# opens turns a day of futile scraping into a handful of real attempts — and keeps
+# us a polite client, which is the whole point.
+# Local clock is assumed to be IST (this box runs IST); `force=True` always bypasses.
+_PUBLISH_WINDOW_OPENS = (17, 45)   # HH, MM local time
+
+
+def _publish_window_open(when: datetime | None = None) -> bool:
+    """True once NSE could plausibly have published today's file."""
+    n = when or datetime.now()
+    return (n.hour, n.minute) >= _PUBLISH_WINDOW_OPENS
 # If we've gone this long without ANY successful download, treat the scheduler as
 # stuck and bypass the throttle. NSE publishes between ~6 PM IST and midnight,
 # so 4 hours of "could not get today's file during a weekday" is well past normal
@@ -223,8 +259,13 @@ def auto_refresh_bhavcopy(force: bool = False) -> dict:
     # prevents the scheduler from sitting "throttled" for hours when the
     # download path is silently broken.
     since_success = now - _refresh_state["last_success_ts"] if _refresh_state["last_success_ts"] else float("inf")
+    # "Stuck" must mean "we should have been able to download and couldn't". Before
+    # the publication window that is never true — the file simply doesn't exist yet —
+    # so requiring the window keeps the [STUCK — escalating] log line honest instead
+    # of firing on every restart during market hours.
     is_stuck = (today.weekday() < 5
                 and not _bhav_cache_path(today).exists()
+                and _publish_window_open()
                 and since_success > _STUCK_THRESHOLD_SECS)
 
     # Use short interval when today's file is missing, long interval once we
@@ -267,6 +308,21 @@ def auto_refresh_bhavcopy(force: bool = False) -> dict:
             return {"downloaded": False, "date": today, "already_had": True,
                     "msg": "already have today",
                     "since_success": 0}
+
+        # Publication window — see _PUBLISH_WINDOW_OPENS. Before NSE could plausibly
+        # have published, a request is guaranteed to fail, so don't make it at all.
+        # This is NOT counted as a failure: consecutive_failures stays put, so it
+        # neither triggers a session reset nor trips the stuck-detector.
+        if not force:
+            _oh, _om = _PUBLISH_WINDOW_OPENS
+            _n = datetime.now()
+            if (_n.hour, _n.minute) < (_oh, _om):
+                msg = (f"waiting for NSE publication window "
+                       f"(opens {_oh:02d}:{_om:02d}, now {_n.strftime('%H:%M')})")
+                _refresh_state["last_attempt_msg"] = msg
+                return {"downloaded": False, "date": None, "already_had": False,
+                        "msg": msg,
+                        "since_success": since_success if since_success != float("inf") else None}
 
         # Try to fetch today's bhavcopy from NSE (typically published ~6–7 PM IST)
         # On repeated failures, reset the requests session — NSE's anti-bot wall
@@ -424,11 +480,11 @@ def _pkl_stats() -> tuple[int, int]:
 
 # ── Split / Bonus adjustment ──────────────────────────────────────────────────
 
-def _adjust_for_splits(df):
+def _adjust_for_splits(df, symbol=None):
     """Delegates to the centralised analysis_utils.adjust_for_splits which
     handles the full set of NSE bonus ratios (3:2, 4:3, 5:4, etc.)."""
     from analysis_utils import adjust_for_splits
-    return adjust_for_splits(df)
+    return adjust_for_splits(df, symbol)
 
 
 # ── Main API ───────────────────────────────────────────────────────────────────
@@ -509,7 +565,7 @@ def fetch_ohlcv(tickers: list[str], min_bars: int = 200,
         sdf = sdf.set_index("Date")[cols]
         sdf = sdf[~sdf.index.duplicated(keep="last")]   # dedupe (market holidays reshuffling)
         sdf = sdf.sort_index()
-        sdf = _adjust_for_splits(sdf)     # backward-adjust unadjusted bhavcopy prices
+        sdf = _adjust_for_splits(sdf, ticker)     # backward-adjust unadjusted bhavcopy prices
         _stock_pkl_save(ticker, sdf)
         result[ticker] = sdf
 

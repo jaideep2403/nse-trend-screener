@@ -14,6 +14,7 @@ Data: NSE bhavcopy — zero Yahoo calls
 """
 import json
 import os
+import threading
 import time
 from datetime import date
 from pathlib import Path
@@ -72,6 +73,10 @@ def _save_persisted_cache(cache: dict) -> None:
 # Load at import — header_data picks up authoritative trend immediately on boot
 _cache = _load_persisted_cache()
 
+# Serialises the expensive breadth computation — see the stampede note in
+# run_market_breadth(). Only one thread computes; the rest reuse its result.
+_COMPUTE_LOCK = threading.Lock()
+
 
 # ── Data loader ───────────────────────────────────────────────────────────────
 
@@ -108,7 +113,7 @@ def _load_all_stocks(progress_callback=None) -> dict[str, pd.DataFrame]:
         # bonus registers as a -50% "decline" (wrong A/D + down-volume), and
         # the stock then sits ~50% below its fake "52W high" for a year,
         # biasing new-highs/lows, %>MA50 and %>MA200 bearish.
-        g = adjust_for_splits(g)
+        g = adjust_for_splits(g, sym)
         if len(g) >= MIN_BARS:
             stocks[sym] = g
     return stocks
@@ -657,17 +662,37 @@ def _new_high_stocks(stocks: dict) -> list[dict]:
 
 # ── Main entry ────────────────────────────────────────────────────────────────
 
-def run_market_breadth(progress_callback=None) -> dict:
-    if (_cache["data"]
-            and time.time() - _cache["ts"] < CACHE_TTL):
+def _fresh_cached():
+    if _cache["data"] and time.time() - _cache["ts"] < CACHE_TTL:
         return _cache["data"]
-
     _disk = result_cache.get("breadth")
     if _disk is not None:
         _cache["data"] = _disk
         _cache["ts"] = time.time()
         return _disk
+    return None
 
+
+def run_market_breadth(progress_callback=None) -> dict:
+    hit = _fresh_cached()
+    if hit is not None:
+        return hit
+
+    # CACHE STAMPEDE FIX (2026-08-03). The cache check above was unguarded, so two
+    # startup threads — _prime_market_breadth() and _prewarm_all_scans(), both
+    # launched from app.py — reliably missed at the same moment and BOTH ran the
+    # full breadth computation over the whole universe. Confirmed from a live
+    # SIGUSR1 stack dump: _load_all_stocks was executing in two threads at once
+    # while the server sat at ~1% CPU and served nothing. Serialising here means
+    # the second caller waits briefly and then reuses the first one's result.
+    with _COMPUTE_LOCK:
+        hit = _fresh_cached()          # another thread may have just finished
+        if hit is not None:
+            return hit
+        return _compute_market_breadth(progress_callback)
+
+
+def _compute_market_breadth(progress_callback=None) -> dict:
     stocks = _load_all_stocks(progress_callback)
     if not stocks:
         return {"error": "No data available"}

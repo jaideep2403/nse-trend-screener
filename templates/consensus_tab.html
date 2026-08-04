@@ -1,5 +1,6 @@
 <!-- ═══════════════════════════════════════════════ CONSENSUS PICKS TAB -->
 <div id="tab-consensus" class="tab-content">
+  <div class="tab-intro"><span class="ti-title">Consensus</span>Stocks appearing across multiple independent scans — agreement rather than a single opinion.</div>
 <div class="container">
 
   <style>
@@ -11,12 +12,12 @@
       padding: 16px 22px;
       margin-bottom: 18px;
     }
-    .cn-hero h3 { margin: 0 0 6px; font-size: 16px; color: var(--gold); font-weight: 700; }
-    .cn-hero p  { margin: 0; font-size: 13px; color: var(--text); line-height: 1.6; }
+    .cn-hero h3 { margin: 0 0 6px; font-size:var(--fs-lg); color: var(--gold); font-weight: 700; }
+    .cn-hero p  { margin: 0; font-size:var(--fs-md); color: var(--text); line-height: 1.6; }
     .cn-hero strong { color: var(--white); }
 
     .cn-pill {
-      padding: 6px 14px; border-radius: 20px; font-size: 12px; font-weight: 600;
+      padding: 6px 14px; border-radius: 20px; font-size:var(--fs-sm); font-weight: 600;
       border: 1px solid var(--border); background: var(--surface); color: var(--text);
       cursor: pointer; transition: all 0.15s;
     }
@@ -27,12 +28,12 @@
       background: var(--surface); border: 1px solid var(--border); border-radius: 10px;
       padding: 10px 14px; min-width: 140px; flex: 1;
     }
-    .cn-stat-card .cn-stat-label { font-size: 11px; font-weight: 700; text-transform: uppercase; color: var(--text2); letter-spacing: 0.5px; }
-    .cn-stat-card .cn-stat-value { font-size: 22px; font-weight: 800; margin-top: 4px; color: var(--white); }
+    .cn-stat-card .cn-stat-label { font-size:var(--fs-xs); font-weight: 700; text-transform: uppercase; color: var(--text2); letter-spacing: 0.5px; }
+    .cn-stat-card .cn-stat-value { font-size:var(--fs-2xl); font-weight: 800; margin-top: 4px; color: var(--white); }
 
-    #cnTable { width: 100%; font-size: 12px; border-collapse: separate; border-spacing: 0; }
+    #cnTable { width: 100%; font-size:var(--fs-sm); border-collapse: separate; border-spacing: 0; }
     #cnTable th {
-      background: var(--surface2); color: var(--text); font-weight: 700; font-size: 11px;
+      background: var(--surface2); color: var(--text); font-weight: 700; font-size:var(--fs-xs);
       text-transform: uppercase; letter-spacing: 0.4px; text-align: left;
       padding: 10px 12px; border-bottom: 2px solid var(--border); position: sticky; top: 0;
     }
@@ -43,7 +44,7 @@
     .cn-score-fill { display: block; height: 100%; border-radius: 3px; }
 
     .cn-tier {
-      display: inline-block; padding: 3px 10px; border-radius: 12px; font-size: 11px; font-weight: 700;
+      display: inline-block; padding: 3px 10px; border-radius: 12px; font-size:var(--fs-xs); font-weight: 700;
       text-transform: uppercase; letter-spacing: 0.3px;
     }
     .cn-tier-buy    { background: rgba(16,185,129,0.18);  color: var(--green2); }
@@ -52,7 +53,7 @@
     .cn-tier-weak   { background: rgba(75,96,128,0.18);   color: var(--muted); }
 
     .cn-scanner-chip {
-      display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 10px; font-weight: 600;
+      display: inline-block; padding: 2px 8px; border-radius: 10px; font-size:var(--fs-micro); font-weight: 600;
       margin-right: 4px; margin-bottom: 3px; border: 1px solid transparent;
     }
     .cn-sc-mon    { background: rgba(239,68,68,0.15);  color: var(--red2);    border-color: rgba(239,68,68,0.3); }
@@ -78,13 +79,13 @@
 
   <!-- Filters -->
   <div style="display:flex; align-items:center; gap:10px; margin-bottom:14px; flex-wrap:wrap;">
-    <span style="font-size:11px; color:var(--text2); text-transform:uppercase; font-weight:700; letter-spacing:0.4px">Filter:</span>
+    <span style="font-size:var(--fs-xs); color:var(--text2); text-transform:uppercase; font-weight:700; letter-spacing:0.4px">Filter:</span>
     <button id="cnFilter-all"    class="cn-pill cn-pill-on" onclick="consensusFilter('all')">All</button>
     <button id="cnFilter-strong" class="cn-pill"            onclick="consensusFilter('strong')">🎯 Strong Consensus (≥40)</button>
     <button id="cnFilter-multi"  class="cn-pill"            onclick="consensusFilter('multi')">⭐ In 2+ scans</button>
     <button id="cnFilter-triple" class="cn-pill"            onclick="consensusFilter('triple')">🏆 In 3+ scans</button>
-    <span id="cnCount" style="margin-left:auto; font-size:12px; color:var(--text2)">— stocks</span>
-    <button onclick="consensusLoad()" class="btn btn-primary" style="font-size:12px; padding:6px 14px;">🔄 Refresh</button>
+    <span id="cnCount" style="margin-left:auto; font-size:var(--fs-sm); color:var(--text2)">— stocks</span>
+    <button onclick="consensusLoad()" class="btn btn-primary" style="font-size:var(--fs-sm); padding:6px 14px;">🔄 Refresh</button>
   </div>
 
   <!-- Table -->
@@ -94,8 +95,8 @@
         <tr>
           <th style="width:40px">#</th>
           <th style="width:130px">Symbol</th>
-          <th style="width:170px; text-align:center" title="Cross-scan Final Setup Score 0–100">Final Setup Score</th>
-          <th style="width:80px; text-align:center" title="# of scanners that flagged this stock">Scanners</th>
+          <th style="width:170px" title="Cross-scan Final Setup Score 0–100" class="ta-c">Final Setup Score</th>
+          <th style="width:80px" title="# of scanners that flagged this stock" class="ta-c">Scanners</th>
           <th style="width:170px">Tier</th>
           <th style="width:180px" title="Click any cell to load real-time MFI-based smart-money signal">Smart Money</th>
           <th>Scanners + Tiers</th>
@@ -107,11 +108,13 @@
   </div>
 
   <div id="cnEmpty" style="text-align:center; padding:40px; color:var(--text2); display:none;">
-    <p style="font-size:14px">No consensus data yet.</p>
-    <p style="font-size:12px; margin-top:6px">Run the Alpha Engine, Monster Growth, and Early Growth scans first — consensus is computed across all scanner outputs.</p>
+    <p style="font-size:var(--fs-base)">No consensus data yet.</p>
+    <p style="font-size:var(--fs-sm); margin-top:6px">Run the Alpha Engine, Monster Growth, and Early Growth scans first — consensus is computed across all scanner outputs.</p>
   </div>
 
 </div>
+
+  <p class="disclaimer">{{ DISCLAIMER }}</p>
 </div>
 
 <script>
@@ -206,20 +209,20 @@
         var holderCellId = 'cnHld-' + r.symbol;
         tr.innerHTML =
           '<td style="color:var(--text2); font-weight:600">' + (i + 1) + '</td>' +
-          '<td><strong style="color:var(--gold2); font-size:14px">' + r.symbol + '</strong></td>' +
+          '<td><strong style="color:var(--gold2); font-size:var(--fs-base)">' + r.symbol + '</strong></td>' +
           '<td style="text-align:center">' +
-            '<span style="font-size:16px; font-weight:800; color:' + col + '; font-family:var(--mono)">' + cs.toFixed(1) + '</span>' +
+            '<span style="font-size:var(--fs-lg); font-weight:800; color:' + col + '; font-family:var(--mono)">' + cs.toFixed(1) + '</span>' +
             '<span class="cn-score-bar"><span class="cn-score-fill" style="width:' + Math.min(100, cs) + '%; background:' + col + '"></span></span>' +
           '</td>' +
-          '<td style="text-align:center"><strong style="color:' + col + '; font-size:14px">' + sc + '×</strong></td>' +
+          '<td style="text-align:center"><strong style="color:' + col + '; font-size:var(--fs-base)">' + sc + '×</strong></td>' +
           '<td><span class="cn-tier ' + _tierClass(tier) + '">' + tier + '</span></td>' +
-          '<td id="' + holderCellId + '" style="cursor:pointer;font-size:11px;color:var(--text2)" ' +
+          '<td id="' + holderCellId + '" style="cursor:pointer;font-size:var(--fs-xs);color:var(--text2)" ' +
               'onclick="cnLoadHolders(\'' + r.symbol + '\',\'' + holderCellId + '\')" ' +
               'title="Click to load real-time MFI smart-money signal">' +
               '<span style="opacity:0.6">▶ load</span>' +
           '</td>' +
           '<td>' + scannerChips + '</td>' +
-          '<td style="color:var(--text2); font-size:11px; line-height:1.5">' + (why.slice(0, 120) || '—') + '</td>';
+          '<td style="color:var(--text2); font-size:var(--fs-xs); line-height:1.5">' + (why.slice(0, 120) || '—') + '</td>';
         body.appendChild(tr);
       });
     }
@@ -236,16 +239,16 @@
         .then(function(d) {
           var sig   = d.signal || 'unknown';
           var label = d.label  || '—';
-          var color = '#94a3b8';
+          var color = 'var(--text2)';
           if (sig === 'accumulation' || sig === 'fii_buying'  || sig === 'dii_buying')  color = 'var(--green2)';
-          else if (sig === 'distribution' || sig === 'fii_selling' || sig === 'dii_selling') color = '#ef4444';
+          else if (sig === 'distribution' || sig === 'fii_selling' || sig === 'dii_selling') color = 'var(--red)';
           else if (sig === 'neutral' || sig === 'stable')      color = 'var(--gold2)';
           cell.style.color = color;
           cell.innerHTML = '<span style="font-weight:600">' + label + '</span>' +
-                           (d.source === 'mfi' ? '' : ' <span style="opacity:0.5;font-size:9px">' + (d.source || '') + '</span>');
+                           (d.source === 'mfi' ? '' : ' <span style="opacity:0.5;font-size:var(--fs-2xs)">' + (d.source || '') + '</span>');
         })
         .catch(function() {
-          cell.innerHTML = '<span style="color:#ef4444">err</span>';
+          cell.innerHTML = '<span style="color:var(--red)">err</span>';
         });
     };
   })();

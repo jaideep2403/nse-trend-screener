@@ -34,8 +34,14 @@ backlog          = 256
 # Cap at 3 even on bigger boxes — RAM (not CPU) is the bottleneck for scans.
 _cpu_count   = multiprocessing.cpu_count()
 workers      = int(os.getenv("WEB_CONCURRENCY", min(3, max(2, _cpu_count // 2))))
-worker_class = "sync"
-threads      = 1            # one thread per worker — scans are CPU-bound
+# Env-driven (2026-08-04). For the single-box EC2 deploy the recommended shape is
+#   WEB_CONCURRENCY=1 WORKER_CLASS=gthread GUNICORN_THREADS=4
+# ONE process, several threads — which is exactly how the app runs locally, and
+# how its in-memory caches and the stampede locks added 2026-08-03 are designed
+# to work. Extra worker PROCESSES each hold their own copy of those caches, so
+# they duplicate every rebuild and multiply NSE polling instead of sharing.
+worker_class = os.getenv("WORKER_CLASS", "sync")
+threads      = int(os.getenv("GUNICORN_THREADS", 1))
 
 # ── Timeouts ──────────────────────────────────────────────────────────────────
 timeout          = int(os.getenv("WORKER_TIMEOUT", 300))   # 5 min — covers cold mbo scan

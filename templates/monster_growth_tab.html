@@ -1,5 +1,6 @@
 <!-- ══════════════════════════════════════════════════ MONSTER GROWTH TAB -->
 <div id="tab-monster" class="tab-content">
+  <div class="tab-intro"><span class="ti-title">Monster Growth</span>Explosive-growth candidates: accelerating earnings and sales confirmed by price.</div>
 <div class="container">
 
   <style>
@@ -12,18 +13,18 @@
       padding: 16px 22px;
       margin-bottom: 18px;
     }
-    .mg-hero h3 { margin: 0 0 6px; font-size: 16px; color: var(--red); font-weight: 700; }
-    .mg-hero p  { margin: 0; font-size: 13px; color: var(--text); line-height: 1.6; }
+    .mg-hero h3 { margin: 0 0 6px; font-size:var(--fs-lg); color: var(--red); font-weight: 700; }
+    .mg-hero p  { margin: 0; font-size:var(--fs-md); color: var(--text); line-height: 1.6; }
     .mg-hero strong { color: var(--white); }
 
     .mg-tier-pills { display: flex; gap: 10px; margin-bottom: 18px; flex-wrap: wrap; }
     .mg-pill {
-      padding: 5px 14px; border-radius: 20px; font-size: 12px;
+      padding: 5px 14px; border-radius: 20px; font-size:var(--fs-sm);
       font-weight: 600; border: 1px solid transparent;
     }
-    .mg-pill.monster { background: rgba(239,68,68,0.15); border-color: #ef4444; color: #f87171; }
+    .mg-pill.monster { background: rgba(239,68,68,0.15); border-color: var(--red); color: var(--red2); }
     .mg-pill.strong  { background: rgba(59,130,246,0.15); border-color: #3b82f6; color: #60a5fa; }
-    .mg-pill.emerging{ background: rgba(245,158,11,0.15); border-color: #f59e0b; color: #fbbf24; }
+    .mg-pill.emerging{ background: rgba(245,158,11,0.15); border-color: var(--gold); color: var(--gold2); }
 
     /* Score bar */
     .mg-score-bar {
@@ -43,44 +44,44 @@
     }
     .mg-factor-chip {
       background: var(--surface); border: 1px solid var(--border); border-radius: 8px;
-      padding: 8px 12px; font-size: 12px;
+      padding: 8px 12px; font-size:var(--fs-sm);
     }
-    .mg-factor-chip .fc-label { color: var(--muted); font-size: 11px; margin-bottom: 2px; }
-    .mg-factor-chip .fc-val   { font-weight: 600; font-size: 14px; }
-    .mg-factor-chip .fc-pts   { color: var(--muted); font-size: 11px; margin-left: 4px; }
+    .mg-factor-chip .fc-label { color: var(--muted); font-size:var(--fs-xs); margin-bottom: 2px; }
+    .mg-factor-chip .fc-val   { font-weight: 600; font-size:var(--fs-base); }
+    .mg-factor-chip .fc-pts   { color: var(--muted); font-size:var(--fs-xs); margin-left: 4px; }
 
     /* Tier badge */
     .mg-badge {
       display: inline-block; padding: 2px 8px; border-radius: 4px;
-      font-size: 11px; font-weight: 700; text-transform: uppercase;
+      font-size:var(--fs-xs); font-weight: 700; text-transform: uppercase;
     }
-    .mg-badge.MONSTER  { background: rgba(239,68,68,0.2);  color: #f87171; }
+    .mg-badge.MONSTER  { background: rgba(239,68,68,0.2);  color: var(--red2); }
     .mg-badge.STRONG   { background: rgba(59,130,246,0.2); color: #60a5fa; }
-    .mg-badge.EMERGING { background: rgba(245,158,11,0.2); color: #fbbf24; }
+    .mg-badge.EMERGING { background: rgba(245,158,11,0.2); color: var(--gold2); }
 
     /* Accel dots */
     .accel-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin: 0 1px; }
-    .accel-dot.yes { background: #10b981; }
-    .accel-dot.no  { background: #ef4444; }
+    .accel-dot.yes { background: var(--green); }
+    .accel-dot.no  { background: var(--red); }
     .accel-dot.unk { background: var(--border); }
 
     /* Stage badge */
-    .stage-2 { color: #10b981; font-weight: 700; }
+    .stage-2 { color: var(--green); font-weight: 700; }
     .stage-1 { color: var(--muted); }
-    .stage-3 { color: #f59e0b; }
-    .stage-4 { color: #ef4444; }
+    .stage-3 { color: var(--gold); }
+    .stage-4 { color: var(--red); }
 
     #mgTable th { cursor: pointer; user-select: none; }
     #mgTable th:hover { color: var(--accent); }
     .mg-detail-row { background: rgba(239,68,68,0.04); }
     .mg-detail-inner { padding: 12px 16px; }
 
-    .mg-no-data { text-align: center; padding: 40px; color: var(--muted); font-size: 14px; }
+    .mg-no-data { text-align: center; padding: 40px; color: var(--muted); font-size:var(--fs-base); }
 
     /* Coverage warning */
     .mg-coverage-warn {
       background: rgba(245,158,11,0.1); border: 1px solid rgba(245,158,11,0.3);
-      border-radius: 8px; padding: 10px 14px; font-size: 12px; color: #fbbf24;
+      border-radius: 8px; padding: 10px 14px; font-size:var(--fs-sm); color: var(--gold2);
       margin-bottom: 12px; display: none;
     }
   </style>
@@ -99,17 +100,17 @@
   <!-- Controls -->
   <div style="display:flex; align-items:center; gap:14px; margin-bottom:14px; flex-wrap:wrap;">
     <button id="mgScanBtn" class="btn btn-primary" onclick="mgStartScan()"><svg class="ic ic-b"><use href="#i-flame"/></svg>Run Monster Scan</button>
-    <span id="mgStatus" style="font-size:13px; color:var(--muted)">Click to scan Nifty 500 for growth monsters</span>
+    <span id="mgStatus" style="font-size:var(--fs-md); color:var(--muted)">Click to scan Nifty 500 for growth monsters</span>
     <div style="margin-left:auto; display:flex; gap:8px; align-items:center;">
-      <label style="font-size:12px; color:var(--muted)">Filter:</label>
-      <select id="mgTierFilter" onchange="mgRender()" style="font-size:12px; padding:4px 8px; border-radius:6px; background:var(--surface); border:1px solid var(--border); color:var(--fg);">
+      <label style="font-size:var(--fs-sm); color:var(--muted)">Filter:</label>
+      <select id="mgTierFilter" onchange="mgRender()" style="font-size:var(--fs-sm); padding:4px 8px; border-radius:6px; background:var(--surface); border:1px solid var(--border); color:var(--fg);">
         <option value="ALL">All Tiers</option>
         <option value="MONSTER">🔥 Monster Only</option>
         <option value="STRONG">💎 Strong Only</option>
         <option value="EMERGING">👀 Emerging Only</option>
       </select>
       <input type="text" id="mgSearch" placeholder="Symbol…" oninput="mgRender()"
-             style="font-size:12px; padding:4px 10px; border-radius:6px; background:var(--surface); border:1px solid var(--border); color:var(--fg); width:100px;">
+             style="font-size:var(--fs-sm); padding:4px 10px; border-radius:6px; background:var(--surface); border:1px solid var(--border); color:var(--fg); width:100px;">
     </div>
   </div>
 
@@ -124,15 +125,15 @@
     <div class="mg-pill monster">🔥 Monster: <span id="mgMonsterCnt">0</span></div>
     <div class="mg-pill strong">💎 Strong: <span id="mgStrongCnt">0</span></div>
     <div class="mg-pill emerging">👀 Emerging: <span id="mgEmergingCnt">0</span></div>
-    <span style="font-size:12px; color:var(--muted); margin-left:auto; align-self:center;" id="mgComputedAt"></span>
+    <span style="font-size:var(--fs-sm); color:var(--muted); margin-left:auto; align-self:center;" id="mgComputedAt"></span>
   </div>
 
   <!-- Progress bar -->
   <div id="mgProgress" style="display:none; margin-bottom:12px;">
     <div style="background:var(--border); border-radius:4px; height:4px; overflow:hidden;">
-      <div id="mgProgressFill" style="height:100%; background:#ef4444; border-radius:4px; width:0%; transition:width 0.3s;"></div>
+      <div id="mgProgressFill" style="height:100%; background:var(--red); border-radius:4px; width:0%; transition:width 0.3s;"></div>
     </div>
-    <div id="mgProgressMsg" style="font-size:11px; color:var(--muted); margin-top:4px;"></div>
+    <div id="mgProgressMsg" style="font-size:var(--fs-xs); color:var(--muted); margin-top:4px;"></div>
   </div>
 
   <!-- Results table -->
@@ -140,22 +141,22 @@
     <table id="mgTable">
       <thead>
         <tr>
-          <th onclick="mgSort('symbol')"     style="width:90px">Symbol</th>
-          <th onclick="mgSort('score')"      style="width:60px">Score</th>
-          <th style="width:80px; cursor:default">Tier</th>
+          <th onclick="mgSort('symbol')" style="width:90px">Symbol</th>
+          <th onclick="mgSort('score')" style="width:60px">Score</th>
+          <th style="width:80px;cursor:default">Tier</th>
           <th onclick="mgSort('consensus_score')" style="width:80px" title="Cross-scan Final Setup Score — how many other scanners flagged this stock">Consensus</th>
-          <th style="width:90px; cursor:default" title="Weinstein stage + how long the stock has been in this stage">Stage Age</th>
-          <th onclick="mgSort('profit_gr')"  style="width:75px">Profit Gr%</th>
-          <th onclick="mgSort('sales_gr')"   style="width:75px">Rev Gr%</th>
-          <th onclick="mgSort('pe')"         style="width:55px">PE</th>
-          <th onclick="mgSort('peg')"        style="width:55px">PEG</th>
-          <th onclick="mgSort('roe')"        style="width:55px">ROE%</th>
-          <th style="width:60px; cursor:default" title="QoQ | YoY acceleration">EPS Accel</th>
-          <th onclick="mgSort('stage')"      style="width:55px">Stage</th>
-          <th onclick="mgSort('rs_rank')"    style="width:55px">RS Rank</th>
+          <th style="width:90px;cursor:default" title="Weinstein stage + how long the stock has been in this stage">Stage Age</th>
+          <th onclick="mgSort('profit_gr')" style="width:75px">Profit Gr%</th>
+          <th onclick="mgSort('sales_gr')" style="width:75px">Rev Gr%</th>
+          <th onclick="mgSort('pe')" style="width:55px">PE</th>
+          <th onclick="mgSort('peg')" style="width:55px">PEG</th>
+          <th onclick="mgSort('roe')" style="width:55px">ROE%</th>
+          <th style="width:60px;cursor:default" title="QoQ | YoY acceleration">EPS Accel</th>
+          <th onclick="mgSort('stage')" style="width:55px">Stage</th>
+          <th onclick="mgSort('rs_rank')" style="width:55px">RS Rank</th>
           <th onclick="mgSort('pct_from_hi')" style="width:70px">% from Hi</th>
-          <th onclick="mgSort('price')"      style="width:75px">Price ₹</th>
-          <th style="width:40px; cursor:default"></th>
+          <th onclick="mgSort('price')" style="width:75px">Price ₹</th>
+          <th style="width:40px;cursor:default"></th>
         </tr>
       </thead>
       <tbody id="mgBody"></tbody>
@@ -167,6 +168,8 @@
   </div>
 
 </div>
+
+  <p class="disclaimer">{{ DISCLAIMER }}</p>
 </div>
 <!-- END MONSTER GROWTH TAB -->
 
@@ -295,9 +298,9 @@
 
     rows.forEach(function(r) {
       // Score bar colour
-      var scoreColor = r.score >= 80 ? "#ef4444" :
+      var scoreColor = r.score >= 80 ? "var(--red)" :
                        r.score >= 65 ? "#3b82f6" :
-                       r.score >= 50 ? "#f59e0b" : "#6b7280";
+                       r.score >= 50 ? "var(--gold)" : "#6b7280";
 
       // EPS accel dots (QoQ | YoY)
       var qqDot = r.eps_accel   === 1 ? "yes" : (r.eps_accel   === 0 ? "no" : "unk");
@@ -310,18 +313,18 @@
       var stageLabel = ["—","Basing","↑ Stage 2","Distribution","↓ Stage 4"][r.stage] || r.stage;
 
       // % from high colour
-      var hiColor = r.pct_from_hi >= -5  ? "#10b981" :
-                    r.pct_from_hi >= -15 ? "#f59e0b" : "#ef4444";
+      var hiColor = r.pct_from_hi >= -5  ? "var(--green)" :
+                    r.pct_from_hi >= -15 ? "var(--gold)" : "var(--red)";
 
       // PEG colour
       var pegColor = !r.peg          ? "var(--muted)" :
-                     r.peg <= 1.0    ? "#10b981" :
-                     r.peg <= 1.5    ? "#f59e0b" :
-                     r.peg <= 2.5    ? "#f97316" : "#ef4444";
+                     r.peg <= 1.0    ? "var(--green)" :
+                     r.peg <= 1.5    ? "var(--gold)" :
+                     r.peg <= 2.5    ? "#f97316" : "var(--red)";
 
       // Profit growth colour
-      var pgColor = r.profit_gr >= 35 ? "#10b981" :
-                    r.profit_gr >= 20 ? "#f59e0b" : "var(--fg)";
+      var pgColor = r.profit_gr >= 35 ? "var(--green)" :
+                    r.profit_gr >= 20 ? "var(--gold)" : "var(--fg)";
 
       var tr = document.createElement("tr");
       tr.style.cursor = "pointer";
@@ -338,17 +341,17 @@
           var cs = r.consensus_score || 0;
           var sc = r.scan_count || 1;
           var tl = r.consensus_tier || "—";
-          var col = cs >= 60 ? "#10b981" : cs >= 40 ? "#3b82f6" : cs >= 25 ? "#f59e0b" : "var(--muted)";
+          var col = cs >= 60 ? "var(--green)" : cs >= 40 ? "#3b82f6" : cs >= 25 ? "var(--gold)" : "var(--muted)";
           var pillBg = cs >= 60 ? "rgba(16,185,129,.15)" : cs >= 40 ? "rgba(59,130,246,.15)" : cs >= 25 ? "rgba(245,158,11,.15)" : "rgba(120,120,120,.10)";
-          return '<td title="' + tl + ' — appears in ' + sc + ' scans"><span style="display:inline-block;padding:2px 8px;border-radius:10px;background:' + pillBg + ';color:' + col + ';font-weight:700;font-size:11px">' + cs.toFixed(0) + ' · ' + sc + '×</span></td>';
+          return '<td title="' + tl + ' — appears in ' + sc + ' scans"><span style="display:inline-block;padding:2px 8px;border-radius:10px;background:' + pillBg + ';color:' + col + ';font-weight:700;font-size:var(--fs-xs)">' + cs.toFixed(0) + ' · ' + sc + '×</span></td>';
         })() +
         // P2-14: Stage transition badge
         (function() {
           var sb = r.stage_badge;
-          if (!sb) return '<td style="color:var(--muted);font-size:11px">—</td>';
-          var col = r.stage_fresh ? "#10b981" : "var(--muted)";
+          if (!sb) return '<td style="color:var(--muted);font-size:var(--fs-xs)">—</td>';
+          var col = r.stage_fresh ? "var(--green)" : "var(--muted)";
           var weight = r.stage_fresh ? "700" : "500";
-          return '<td title="In current stage since ' + (r.stage_since || '?') + '" style="color:' + col + ';font-weight:' + weight + ';font-size:11px">' + sb + (r.stage_fresh ? ' 🟢' : '') + '</td>';
+          return '<td title="In current stage since ' + (r.stage_since || '?') + '" style="color:' + col + ';font-weight:' + weight + ';font-size:var(--fs-xs)">' + sb + (r.stage_fresh ? ' 🟢' : '') + '</td>';
         })() +
         '<td style="color:' + pgColor + ';font-weight:600">' + (r.profit_gr > 0 ? '+' : '') + r.profit_gr + '%</td>' +
         '<td>' + (r.sales_gr > 0 ? '+' : '') + r.sales_gr + '%</td>' +
@@ -360,7 +363,7 @@
         '<td>' + r.rs_rank + '</td>' +
         '<td style="color:' + hiColor + '">' + (r.pct_from_hi >= 0 ? '+' : '') + r.pct_from_hi + '%</td>' +
         '<td>₹' + r.price.toLocaleString("en-IN") + '</td>' +
-        '<td style="color:var(--muted);font-size:11px">▾</td>';
+        '<td style="color:var(--muted);font-size:var(--fs-xs)">▾</td>';
 
       tbody.appendChild(tr);
 
@@ -390,7 +393,7 @@
     var html = '<div class="mg-factor-grid">';
     factors.forEach(function(f) {
       var pct  = Math.round(f.pts / f.max * 100);
-      var col  = pct >= 80 ? "#10b981" : pct >= 50 ? "#f59e0b" : "#ef4444";
+      var col  = pct >= 80 ? "var(--green)" : pct >= 50 ? "var(--gold)" : "var(--red)";
       html += '<div class="mg-factor-chip">' +
               '<div class="fc-label">' + f.label + '</div>' +
               '<div class="fc-val" style="color:' + col + '">' + f.val +
@@ -401,13 +404,13 @@
     if (r.bonus > 0) {
       html += '<div class="mg-factor-chip">' +
               '<div class="fc-label">Bonus (near 52W hi)</div>' +
-              '<div class="fc-val" style="color:#10b981">+' + r.bonus + ' pts</div>' +
+              '<div class="fc-val" style="color:var(--green)">+' + r.bonus + ' pts</div>' +
               '</div>';
     }
     html += '</div>';
 
     // Extra metadata row
-    html += '<div style="display:flex;gap:20px;font-size:12px;color:var(--muted);padding-top:8px;border-top:1px solid var(--border);flex-wrap:wrap;">' +
+    html += '<div style="display:flex;gap:20px;font-size:var(--fs-sm);color:var(--muted);padding-top:8px;border-top:1px solid var(--border);flex-wrap:wrap;">' +
       '<span>📊 ADTV ₹' + (r.adtv_cr || 0) + ' Cr</span>' +
       '<span>📈 Vol ratio: ' + r.vol_ratio + '×</span>' +
       '<span>📉 3M RS vs Nifty: ' + (r.rs_excess_3m > 0 ? "+" : "") + r.rs_excess_3m + '%</span>' +

@@ -305,6 +305,7 @@ def _load_stocks(progress_callback=None, days: int = 400,
     dates  = _weekdays_back(days)
     total  = len(dates)
     frames = []
+    _bench_used = benchmark.BENCH_SYMBOL
     bench_recs: dict[pd.Timestamp, float] = {}
     bench_syms = [benchmark.BENCH_SYMBOL] + benchmark.FALLBACK_SYMBOLS
 
@@ -316,6 +317,7 @@ def _load_stocks(progress_callback=None, days: int = 400,
                 sub = df[df["Symbol"] == bsym]
                 if not sub.empty:
                     bench_recs[pd.Timestamp(dt)] = float(sub.iloc[0]["Close"])
+                    _bench_used = bsym      # the ETF that actually supplied data
                     break
             # 2) Then optionally narrow to the curated universe to save memory.
             if universe:
@@ -332,7 +334,7 @@ def _load_stocks(progress_callback=None, days: int = 400,
         bser = bser.sort_index().astype(float)
         # The ETF can also have face-value splits — adjust like any stock so
         # benchmark returns never see a fake one-day collapse.
-        _BENCH = adjust_for_splits(pd.DataFrame({"Close": bser}))["Close"]
+        _BENCH = adjust_for_splits(pd.DataFrame({"Close": bser}), _bench_used)["Close"]
 
     if not frames:
         return {}
@@ -352,7 +354,7 @@ def _load_stocks(progress_callback=None, days: int = 400,
         # backward-adjusts; without this the backtester registers a 1:1 bonus as
         # a real -50% bar (fake STOP exits) and r12m/52W-high/ATR/base detection
         # are wrong for any stock with a corporate action in the window.
-        g = adjust_for_splits(g)
+        g = adjust_for_splits(g, sym)
         if len(g) >= 60:
             stocks[sym] = g
     return stocks

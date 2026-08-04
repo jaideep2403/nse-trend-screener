@@ -1,45 +1,23 @@
 <div id="tab-defensive" class="tab-content">
+  <div class="tab-intro"><span class="ti-title">Defensive Leaders</span>Absolute-momentum gate, high-volatility tail dropped, then ranked by momentum, delivery and trend smoothness.</div>
 <div class="container" style="padding-top:18px">
 
   <div class="panel">
     <div class="panel-header"><h2><svg class="ic ic-h"><use href="#i-shield"/></svg>Defensive Leaders — falls less, more alpha than momentum</h2>
-      <span id="defMeta" style="font-size:11px;color:var(--text2)"></span></div>
-    <div class="panel-body">
-      <p style="font-size:12px;color:var(--text2);margin:0 0 6px;line-height:1.6">
-        A momentum return-engine with a defensive filter: an <b>absolute-momentum gate</b>
-        (only live uptrends), the <b>crash-prone high-volatility tail dropped</b>, then ranked by
-        momentum <b>tilted toward low-volatility, smooth-trend, high-delivery</b> names — the
-        institutional-accumulation footprint from NSE delivery data. Not financial advice;
-        mechanical &amp; rule-based.</p>
-      <!-- Validated edge banner -->
-      <div style="margin-top:10px;border:1px solid rgba(16,185,129,.28);background:rgba(16,185,129,.06);border-radius:9px;padding:10px 12px">
-        <div style="font-size:11px;font-weight:700;letter-spacing:.5px;text-transform:uppercase;color:var(--green2)">Validated on the system yardstick · survivorship-free · out-of-sample</div>
-        <div class="tbl-scroll" style="max-height:none;margin-top:8px">
-          <table><thead><tr><th style="text-align:left">Strategy</th><th>CAGR</th><th>Max drawdown</th><th>Sharpe</th><th>OOS Sharpe</th></tr></thead>
-          <tbody>
-            <tr><td style="text-align:left">Momentum scan (old)</td><td style="font-family:var(--mono)">+7.2%</td><td style="font-family:var(--mono);color:var(--red2)">−28.9%</td><td style="font-family:var(--mono)">0.47</td><td style="font-family:var(--mono);color:var(--red2)">−0.87</td></tr>
-            <tr><td style="text-align:left;font-weight:700;color:var(--green2)">Defensive Leaders (this)</td><td style="font-family:var(--mono);color:var(--green2)">+8.5%</td><td style="font-family:var(--mono);color:var(--green2)">−12.8%</td><td style="font-family:var(--mono);color:var(--green2)">0.78</td><td style="font-family:var(--mono);color:var(--green2)">+0.76</td></tr>
-            <tr><td style="text-align:left;color:var(--text2)">Nifty (buy &amp; hold)</td><td style="font-family:var(--mono)">+10.8%</td><td style="font-family:var(--mono)">−14.2%</td><td style="font-family:var(--mono)">0.89</td><td style="font-family:var(--mono)">—</td></tr>
-          </tbody></table>
-        </div>
-        <div style="font-size:11px;color:var(--text2);margin-top:8px;line-height:1.6">
-          The old momentum scan <b>loses money out-of-sample</b> (Sharpe −0.87). This blend
-          <b>holds up out-of-sample</b> (Sharpe +0.76) with <b>less than half the drawdown</b>. It
-          still trails a raging Nifty on raw CAGR — the edge is <b>risk-adjusted</b>: fall far less,
-          keep positive alpha when momentum breaks.</div>
-      </div>
+      <span id="defMeta" style="font-size:var(--fs-xs);color:var(--text2)"></span></div>
     </div>
-  </div>
 
   <div class="panel">
     <div class="panel-header"><h2><svg class="ic ic-h"><use href="#i-shield"/></svg>Today's Defensive Leaders</h2>
       <button class="btn btn-primary" id="defBtn" onclick="defScan(true)"><svg class="ic ic-b"><use href="#i-refresh"/></svg>Refresh</button></div>
     <div class="panel-body">
-      <div id="defBody"><span style="font-size:12.5px;color:var(--text2)">Loading…</span></div>
+      <div id="defBody"></div>
     </div>
   </div>
 
 </div>
+
+  <p class="disclaimer">{{ DISCLAIMER }}</p>
 </div>
 
 <script>
@@ -47,17 +25,18 @@ async function defScan(force) {
   const btn = document.getElementById('defBtn');
   const body = document.getElementById('defBody');
   if (force) { btn.disabled = true; btn.innerHTML = '<span class="spinner"></span>Scanning…'; }
+  body.innerHTML = stateLoading(6);
   try {
     const d = await (await fetch('/api/defensive')).json();
     btn.disabled = false; btn.innerHTML = '<svg class="ic ic-b"><use href="#i-refresh"/></svg>Refresh';
-    if (d.error) { body.innerHTML = `<span style="color:var(--red2);font-size:12.5px">${d.error}</span>`; return; }
+    if (d.error) { body.innerHTML = stateError(d.error); return; }
     document.getElementById('defMeta').textContent = `${d.count} qualify · as of ${d.as_of}`;
     const col = v => v>=70?'var(--green2)':v>=40?'var(--gold2)':'var(--text2)';
     const rows = (d.stocks||[]).map((s,i) => `<tr>
       <td style="text-align:left"><span class="rank-badge">${i+1}</span></td>
       <td style="text-align:left"><span class="sym">${s.symbol}</span></td>
-      <td>₹${(s.price||0).toLocaleString('en-IN')}</td>
-      <td class="pos">${s.r3m>=0?'+':''}${s.r3m}%</td>
+      <td class="num">${fmtINR(s.price)}</td>
+      <td>${pctCell(s.r3m,1)}</td>
       <td title="Annualised realised volatility — lower = calmer, falls less">${s.vol_pct}%</td>
       <td title="Trend smoothness (efficiency ratio 0–1) — higher = frog-in-the-pan persistence">${s.smoothness}</td>
       <td title="Avg delivery % — institutional participation" style="color:${col(s.deliv_level)}">${s.deliv_level}%</td>
@@ -66,12 +45,12 @@ async function defScan(force) {
       <td title="Inverse-volatility weight (vol-targeted sizing)">${s.weight_pct}%</td>
     </tr>`).join('');
     body.innerHTML = `<div class="tbl-scroll"><table><thead><tr>
-      <th>#</th><th style="text-align:left">Symbol</th><th>Price</th><th>3M ret</th>
+      <th>#</th><th class="ta-l">Symbol</th><th>Price</th><th>3M ret</th>
       <th>Vol</th><th>Smooth</th><th>Deliv%</th><th>Deliv↑</th><th>Score</th><th>Wt</th>
     </tr></thead><tbody>${rows}</tbody></table></div>`;
   } catch(e) {
     btn.disabled = false; btn.innerHTML = '<svg class="ic ic-b"><use href="#i-refresh"/></svg>Refresh';
-    body.innerHTML = '<span style="color:var(--red2);font-size:12.5px">Scan failed.</span>';
+    body.innerHTML = stateError('Scan failed.');
   }
 }
 </script>

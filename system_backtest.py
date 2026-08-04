@@ -22,6 +22,28 @@ from costs import round_trip_cost_pct
 
 TRADING_DAYS = 252
 
+# ── Accuracy corrections (added 2026-07-26) ──────────────────────────────────
+# Three known biases were quantified in the 2026-07-25 audit and left unfixed; all
+# three are corrected here so the headline number describes a portfolio a real
+# investor could actually have held.
+#
+#   1. CASH EARNED 0%. All-Weather sits in cash for ~19% of the sample (the whole
+#      point of the regime switch), and un-deployed capital was earning nothing.
+#      A real INR investor parks it in a liquid fund / T-bill. Understated the
+#      strategy by ~1.2%/yr — and understated it MOST in exactly the bear periods
+#      the strategy exists to survive.
+#   2. NO DIVIDEND ADJUSTMENT. NIFTYBEES is a TOTAL-return proxy (the ETF
+#      reinvests index dividends) but stock returns come from PRICE-only bhavcopy.
+#      Comparing the two handicapped every strategy by ~the Nifty yield (~1.3%/yr).
+#   3. SHARPE HAD NO RISK-FREE LEG. It was return/vol, which flatters any strategy
+#      that holds cash — you got credit for the zero-volatility cash leg without
+#      paying for the fact that cash has an opportunity cost.
+#
+# One rate drives (1) and (3): for a domestic INR investor the rate idle cash
+# earns IS the risk-free rate. ~6% ≈ the RBI repo / liquid-fund band over the
+# sample. It is an ASSUMPTION, not measured data — tune it here and re-baseline.
+RISK_FREE_ANNUAL = 0.06
+
 
 def _regime_from_bench(bench_vals: np.ndarray, pos: int) -> str:
     """Point-in-time regime proxy from the Nifty (NIFTYBEES) structure at `pos`.
@@ -133,6 +155,8 @@ def run_system_backtest(days: int = 1600, rebal: int = 21, top_k: int = 10,
                         aw_offense: str = "defensive", aw_brake: bool = False,
                         aw_confirm_up: int = 5, aw_confirm_down: int = 5,
                         aw_side_gross: float = 1.0, aw_quality_weight: float = 0.0,
+                        aw_flow_weight: float = 0.0, aw_promoter_weight: float = 0.0,
+                        port_vol_target: float = 0.0, port_vol_lookback: int = 60,
                         progress=None) -> dict:
     """strategy: 'momentum' (sustained-breakout gate) or 'defensive' (absolute-
     momentum gate + low-vol/smoothness/delivery composite). vol_target: weight picks
@@ -201,6 +225,28 @@ def run_system_backtest(days: int = 1600, rebal: int = 21, top_k: int = 10,
             _qmap = _ql.load_quality_map()
         except Exception:
             _qmap = {}
+    # Institutional-flow factor. UNLIKE quality, this IS point-in-time: the score
+    # for a rebalance date is read from F&O files dated ≤ that date, so it carries
+    # no look-ahead. History starts ~Jan 2024 (NSE unified archive), so on earlier
+    # rebalances score_map_asof() returns {} and every name falls back to NEUTRAL.
+    _iflow = None
+    if aw_flow_weight > 0 and need_def:
+        try:
+            import institutional_flow as _if
+            _if.build_score_panel()
+            _iflow = _if
+        except Exception:
+            _iflow = None
+    # Promoter/insider accumulation — also genuinely point-in-time (keyed on the
+    # DISCLOSURE date, not the trade date), so honestly backtestable.
+    _pflow = None
+    if aw_promoter_weight > 0 and need_def:
+        try:
+            import promoter_flow as _pf
+            _pf.build_score_panel()
+            _pflow = _pf
+        except Exception:
+            _pflow = None
 
     def _select_momentum(date):
         """Offense: sustained-breakout gate ranked by 3-month momentum → picks
@@ -217,10 +263,13 @@ def run_system_backtest(days: int = 1600, rebal: int = 21, top_k: int = 10,
         top = cand[:top_k]
         return [(f, p, 1.0 / len(top)) for f, p, _ in top] if top else []
 
-    def _select_defensive(date, mw, vf, vt_flag, qw=0.0):
+    def _select_defensive(date, mw, vf, vt_flag, qw=0.0, fw=0.0, pw=0.0):
         """Defense: absolute-momentum gate + low-vol/smoothness/delivery composite,
         after dropping the high-vol tail → picks as (feats, position, weight).
         qw>0 adds a QMJ-style fundamental-quality tilt (see _qmap caveat above)."""
+        # Point-in-time institutional-flow map for THIS rebalance date only.
+        fmap = _iflow.score_map_asof(date) if (fw > 0 and _iflow is not None) else {}
+        pmap = _pflow.score_map_asof(date) if (pw > 0 and _pflow is not None) else {}
         rows = []
         for s, f in feats_def.items():
             p = sym_pos_def[s].get(date)
@@ -234,11 +283,16 @@ def run_system_backtest(days: int = 1600, rebal: int = 21, top_k: int = 10,
             row = {"sym": s, "p": p, **rf}
             if qw > 0:
                 row["qual_raw"] = _qmap.get(s, 0.5)   # neutral if no fundamentals
+            if fw > 0:
+                row["flow_raw"] = fmap.get(s, 0.5)    # neutral if no listed futures
+            if pw > 0:
+                row["prom_raw"] = pmap.get(s, 0.5)    # neutral if no disclosures
             rows.append(row)
         if vf and len(rows) > top_k * 2:
             thr = np.quantile([r["vol90"] for r in rows], vf)
             rows = [r for r in rows if r["vol90"] <= thr]
-        ranked = ds.rank_and_score(rows, mom_weight=mw, quality_weight=qw)[:top_k]
+        ranked = ds.rank_and_score(rows, mom_weight=mw, quality_weight=qw,
+                                   flow_weight=fw, promoter_weight=pw)[:top_k]
         if not ranked:
             return []
         if vt_flag:
@@ -256,6 +310,39 @@ def run_system_backtest(days: int = 1600, rebal: int = 21, top_k: int = 10,
     _trace = []              # per-rebalance diagnostics
 
     bench_units = start_equity / bench_vals[rebal_i[0]]   # buy-and-hold units
+    # Per-rebalance cash return on the un-deployed fraction (accuracy fix #1).
+    cash_period = (1.0 + RISK_FREE_ANNUAL) ** (rebal / TRADING_DAYS) - 1.0
+
+    period_rets: list[float] = []   # realised period returns, for vol targeting
+
+    daily_curve: list[tuple[str, float]] = []   # true bar-by-bar equity path
+
+    def _vol_scale() -> float:
+        """Portfolio volatility targeting — scale gross exposure so REALISED vol
+        tracks `port_vol_target` (annualised fraction, e.g. 0.12).
+
+        Estimated from the DAILY equity path, not from monthly period returns. The
+        first version used the last 6 period returns; with only 6 points spanning
+        6 months the estimate barely moved, so vol targeting had almost no effect
+        here (24.29% -> 24.21% CAGR, drawdown unchanged) even though the same idea
+        cut drawdown by 5.6-7.9pp in a daily-marked harness. Volatility targeting
+        needs daily resolution to work at all.
+
+        Capped at 1.0 — never lever up. Levering a strategy whose edge is still
+        contested turns a modest loss into a ruinous one.
+        """
+        if port_vol_target <= 0:
+            return 1.0
+        lb = max(20, int(port_vol_lookback))
+        if len(daily_curve) < lb + 2:
+            return 1.0
+        _v = np.array([v for _, v in daily_curve[-(lb + 1):]], dtype=float)
+        _r = _v[1:] / _v[:-1] - 1.0
+        _sd = float(np.std(_r))
+        if _sd <= 1e-9:
+            return 1.0
+        ann = _sd * np.sqrt(TRADING_DAYS)
+        return float(min(1.0, port_vol_target / ann))
 
     n_switch = 0            # All-Weather engine switches
     prev_state = None
@@ -274,13 +361,17 @@ def run_system_backtest(days: int = 1600, rebal: int = 21, top_k: int = 10,
             if state == "BULL":
                 # Offense engine is configurable: momentum OR the (stronger, on NSE)
                 # defensive book. BULL just means "risk-on, full deployment".
-                picks = (_select_defensive(date, _WIN_MW, _WIN_VF, True, aw_quality_weight)
+                picks = (_select_defensive(date, _WIN_MW, _WIN_VF, True,
+                                           aw_quality_weight, aw_flow_weight,
+                                           aw_promoter_weight)
                          if aw_offense == "defensive" else _select_momentum(date))
                 exp = 1.0
             elif state == "SIDEWAYS":
                 # Trend unresolved → same defensive book but a lighter gross
                 # (aw_side_gross): take less risk when the trend is choppy.
-                picks = _select_defensive(date, _WIN_MW, _WIN_VF, True, aw_quality_weight)
+                picks = _select_defensive(date, _WIN_MW, _WIN_VF, True,
+                                          aw_quality_weight, aw_flow_weight,
+                                          aw_promoter_weight)
                 exp = aw_side_gross
             else:                                   # BEAR / UNKNOWN → raise cash
                 picks = []
@@ -289,7 +380,7 @@ def run_system_backtest(days: int = 1600, rebal: int = 21, top_k: int = 10,
             # for All-Weather: stacked on the regime switch it doom-loops (one
             # drawdown clamps the book to 25% and, never making a new high, it never
             # re-risks — permanently missing the recovery). Opt in with aw_brake=True.
-            deploy = exp * (brake if aw_brake else 1.0)
+            deploy = exp * (brake if aw_brake else 1.0) * _vol_scale()
             if prev_state is not None and state != prev_state:
                 n_switch += 1
             prev_state = state
@@ -301,22 +392,60 @@ def run_system_backtest(days: int = 1600, rebal: int = 21, top_k: int = 10,
                          [(f, p, 0.5 * w) for f, p, w in
                           _select_defensive(date, _WIN_MW, _WIN_VF, True)])
             elif _defensive:
-                picks = _select_defensive(date, _mom_weight, vol_filter, vol_target)
+                # CONSISTENCY-FIX (2026-07-25): the standalone `defensive` strategy
+                # must be backtested with the SAME weights the LIVE Defensive-Leaders
+                # scan uses, or the tab's published numbers describe a different
+                # engine than the one picking today's stocks. run_defensive_scan()
+                # defaults to WIN_QUAL_WEIGHT / WIN_FLOW_WEIGHT, so mirror them here
+                # (callers can still override via aw_quality_weight/aw_flow_weight).
+                _dqw = aw_quality_weight if aw_quality_weight else getattr(ds, "WIN_QUAL_WEIGHT", 0.0)
+                _dfw = aw_flow_weight if aw_flow_weight else getattr(ds, "WIN_FLOW_WEIGHT", 0.0)
+                _dpw = aw_promoter_weight if aw_promoter_weight else getattr(ds, "WIN_PROMOTER_WEIGHT", 0.0)
+                picks = _select_defensive(date, _mom_weight, vol_filter, vol_target,
+                                          _dqw, _dfw, _dpw)
             else:
                 picks = _select_momentum(date)
             regime = _regime_from_bench(bench_vals, ri)
             exp = risk_engine.regime_exposure(regime)["exposure_pct"] / 100.0
-            deploy = exp * brake                    # fraction of book put to work
+            deploy = exp * brake * _vol_scale()     # fraction of book put to work
         exposures.append(deploy)
 
         # Period return of each pick: next-OPEN entry → close at the next rebalance,
         # minus round-trip cost. Weighted by the strategy's weights.
         wret = []   # (weight, net_return)
+        _pick_paths = []   # (weight, entry_px, feats, cost) for the daily path
+        # The exit is the NEXT REBALANCE DATE on the master calendar.
+        _next_date = cal[min(ri + rebal, len(cal) - 1)]
         for f, p, wt in picks:
             fill = p + 1
-            exit_p = p + 1 + rebal
+            # HOLDING-PERIOD FIX (2026-07-31): this used to be `exit_p = p + 1 + rebal`,
+            # which counts 21 bars along the SYMBOL'S OWN index. For any name with
+            # gaps (thin trading, halts, suspensions) 21 of its bars can span months
+            # of calendar time, so the position was held far longer than one rebalance
+            # while its return was booked as a single monthly period. Measured on the
+            # real universe: 3.17% of (symbol, rebalance) pairs drifted >3 days, with
+            # a MEDIAN drift of +76 days and a maximum of +1630. That silently
+            # stretched holding periods for exactly the illiquid names and corrupted
+            # both CAGR and the drawdown series. Anchor the exit to the calendar date
+            # instead: the last bar the symbol actually traded on or before the next
+            # rebalance.
+            exit_p = int(f["idx"].searchsorted(_next_date, side="right")) - 1
+            if fill >= f["n"]:
+                continue          # no entry bar at all — nothing was ever bought
+            if exit_p <= fill:
+                continue          # symbol did not trade between fill and next rebalance
             if exit_p >= f["n"]:
-                continue
+                # AUDIT-FIX (2026-07-25): this used to `continue`, silently DROPPING
+                # the position — which quietly re-introduced survivorship bias into a
+                # survivorship-free backtest (the name vanishes exactly when it
+                # delists/suspends) AND redistributed its weight to survivors.
+                # Book the LAST AVAILABLE close instead. Deliberately NOT −100%:
+                # measured, most series-endings here are symbol RENAMES
+                # (AMARAJABAT→ARE&M, ADANIGAS→ATGL), where holders lost nothing, so
+                # forcing a wipeout would manufacture losses that never happened.
+                exit_p = f["n"] - 1
+                if exit_p <= fill:
+                    continue      # entry and exit would be the same bar
             entry_px = f["open"][fill]
             if not np.isfinite(entry_px) or entry_px <= 0:
                 entry_px = f["close"][fill]
@@ -325,6 +454,10 @@ def run_system_backtest(days: int = 1600, rebal: int = 21, top_k: int = 10,
                 continue
             cost = round_trip_cost_pct(f["adtv"][p]) / 100.0
             wret.append((wt, exit_px / entry_px - 1.0 - cost))
+            # Keep what a DAILY path needs: this pick's weight, its entry price and
+            # its own close series, so the equity curve can be marked every bar
+            # instead of only at rebalances (see _daily_marks below).
+            _pick_paths.append((wt, entry_px, f, cost))
             n_trades += 1
         rets = [r for _, r in wret]
 
@@ -334,14 +467,45 @@ def run_system_backtest(days: int = 1600, rebal: int = 21, top_k: int = 10,
             mean_pick = (sum(w * r for w, r in wret) / wsum) if wsum > 0 else 0.0
         else:
             mean_pick = 0.0
-        period_ret = (deploy * mean_pick) if wret else 0.0  # cash earns 0
+        # ACCURACY-FIX #1 (2026-07-26): the un-deployed fraction earns the cash rate,
+        # not 0%. `invested` is 0 when nothing filled, so a BEAR period (no picks at
+        # all) correctly earns the cash return on the WHOLE book rather than nothing.
+        invested = deploy if wret else 0.0
+        cash_leg = (1.0 - invested) * cash_period
+        period_ret = invested * mean_pick + cash_leg
+        # ── TRUE DAILY EQUITY PATH ──────────────────────────────────────────
+        # The equity curve used to be recorded ONLY at rebalance dates, so
+        # max-drawdown was month-end-to-month-end and could not see intra-month
+        # pain. Measured on the same book, that reported −18.78% where a
+        # daily-marked harness showed −26.47%. Every drawdown this app printed was
+        # therefore understated. Mark each bar inside the holding period.
+        _p_start, _p_end = ri + 1, min(ri + rebal, len(cal) - 1)
+        _eq0 = equity
+        for _t in range(_p_start, _p_end + 1):
+            _d = cal[_t]
+            _acc, _wsum = 0.0, 0.0
+            for _wt, _epx, _f, _c in _pick_paths:
+                _q = int(_f["idx"].searchsorted(_d, side="right")) - 1
+                if _q < 0 or _q >= _f["n"]:
+                    continue
+                _px = _f["close"][_q]
+                if np.isfinite(_px) and _epx > 0:
+                    _acc += _wt * (_px / _epx - 1.0 - _c)
+                    _wsum += _wt
+            _mp = (_acc / _wsum) if _wsum > 0 else 0.0
+            _inv = invested if _pick_paths else 0.0
+            _cash_leg = (1.0 - _inv) * ((1.0 + RISK_FREE_ANNUAL) ** ((_t - ri) / TRADING_DAYS) - 1.0)
+            daily_curve.append((str(_d.date()), round(_eq0 * (1.0 + _inv * _mp + _cash_leg), 2)))
+
         equity *= (1.0 + period_ret)
+        period_rets.append(period_ret)
         hwm = max(hwm, equity)
         _trace.append({
             "date": str(date.date()), "regime": regime,
             "exp_pct": round(exp * 100, 0), "brake": brake,
             "deploy_pct": round(deploy * 100, 1), "n_picks": len(rets),
             "mean_pick_ret_pct": round(mean_pick * 100, 2),
+            "cash_ret_pct": round(cash_leg * 100, 3),
             "period_ret_pct": round(period_ret * 100, 2),
             "equity": round(equity, 0),
             "dd_from_hwm_pct": round((equity / hwm - 1) * 100, 1),
@@ -350,7 +514,14 @@ def run_system_backtest(days: int = 1600, rebal: int = 21, top_k: int = 10,
 
         # Benchmark buy-and-hold value at the NEXT rebalance close (same horizon).
         nxt = rebal_i[k + 1] if k + 1 < len(rebal_i) else min(ri + rebal, len(cal) - 1)
-        bench_curve.append((str(cal[nxt].date()), round(bench_units * bench_vals[nxt], 2)))
+        # ACCURACY-FIX #2 (2026-07-26): NIFTYBEES reinvests index dividends but our
+        # stock returns are price-only, so the raw comparison handicapped every
+        # strategy by ~the Nifty yield. Strip the pro-rated dividend from the
+        # benchmark to compare price-with-price. Uses benchmark.py's single
+        # documented definition of the drag so there is one source of truth.
+        _dfac = max(0.0, 1.0 - bm.dividend_drag(nxt - rebal_i[0]))
+        bench_curve.append((str(cal[nxt].date()),
+                            round(bench_units * bench_vals[nxt] * _dfac, 2)))
         if progress:
             progress(k + 1, len(rebal_i), f"Rebalance {k+1}/{len(rebal_i)}")
 
@@ -365,14 +536,29 @@ def run_system_backtest(days: int = 1600, rebal: int = 21, top_k: int = 10,
         max_dd = float(np.min(arr / peak - 1.0)) * 100
         pr = arr[1:] / arr[:-1] - 1.0
         periods_per_yr = TRADING_DAYS / rebal
-        sharpe = (float(np.mean(pr)) / float(np.std(pr)) * np.sqrt(periods_per_yr)
-                  if np.std(pr) > 0 else 0.0)
+        # ACCURACY-FIX #3 (2026-07-26): a real Sharpe subtracts the risk-free rate.
+        # Without it this was return/vol, which FLATTERS any strategy that parks in
+        # cash — free credit for a zero-volatility leg with no opportunity cost
+        # charged against it. All-Weather is exactly such a strategy, so this fix
+        # cuts its reported Sharpe the most. (std of excess == std of raw here,
+        # since rf_period is a constant.)
+        rf_period = (1.0 + RISK_FREE_ANNUAL) ** (rebal / TRADING_DAYS) - 1.0
+        sd = float(np.std(pr))
+        sharpe = ((float(np.mean(pr)) - rf_period) / sd * np.sqrt(periods_per_yr)
+                  if sd > 0 else 0.0)
         return {"cagr": round(cagr, 2), "max_dd": round(max_dd, 2),
                 "sharpe": round(sharpe, 2), "total_return": round(total * 100, 2)}
 
     sys_vals = [start_equity] + [e for _, e in eq_curve]
     bch_vals = [start_equity] + [b for _, b in bench_curve]
     sysm = _metrics(sys_vals, len(eq_curve))
+    # The honest drawdown, measured on every bar rather than at month-ends.
+    if daily_curve:
+        _dv = np.array([v for _, v in daily_curve], dtype=float)
+        _peak = np.maximum.accumulate(_dv)
+        sysm["max_dd_daily"] = round(float(np.min(_dv / _peak - 1.0)) * 100, 2)
+        sysm["max_dd_note"] = ("max_dd is month-end sampled and UNDERSTATES real pain; "
+                               "max_dd_daily is the true bar-by-bar figure.")
     bchm = _metrics(bch_vals, len(bench_curve))
 
     return {
@@ -382,6 +568,15 @@ def run_system_backtest(days: int = 1600, rebal: int = 21, top_k: int = 10,
         "avg_deployment_pct": round(float(np.mean(exposures)) * 100, 1) if exposures else 0.0,
         "params": {"rebal": rebal, "top_k": top_k, "risk_pct": risk_pct, "days": days,
                    "strategy": strategy},
+        # Surfaced so the UI can state the assumptions instead of hiding them.
+        "assumptions": {
+            "cash_yield_annual_pct": round(RISK_FREE_ANNUAL * 100, 2),
+            "risk_free_annual_pct": round(RISK_FREE_ANNUAL * 100, 2),
+            "nifty_div_yield_annual_pct": round(bm.NIFTY_ANNUAL_DIV_YIELD * 100, 2),
+            "sharpe_is_excess_over_rf": True,
+            "port_vol_target": port_vol_target,
+            "benchmark_is_price_comparable": True,
+        },
         "regime_stats": ({"switches": n_switch, "periods": regime_periods}
                          if _all_weather else None),
         "system": sysm,
@@ -391,6 +586,7 @@ def run_system_backtest(days: int = 1600, rebal: int = 21, top_k: int = 10,
             "dd_delta": round(sysm["max_dd"] - bchm["max_dd"], 2),   # less negative = better
         },
         "equity_curve": eq_curve,
+        "daily_curve": daily_curve,   # FULL path — sampling it understated drawdown
         "benchmark_curve": bench_curve,
         "trace": _trace,
     }

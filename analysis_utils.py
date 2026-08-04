@@ -30,9 +30,64 @@ BARS_12M = 252
 
 
 # ── Split / Bonus backward-adjustment (centralized) ──────────────────────────
-def adjust_for_splits(df: pd.DataFrame) -> pd.DataFrame:
+def _authoritative_events(symbol: str | None, index) -> list[tuple[pd.Timestamp, float]]:
+    """Exact (ex_date, multiplier) pairs from NSE's corporate-actions feed.
+
+    Returns only events that fall INSIDE this frame's date range — an ex-date
+    before the first bar needs no backward adjustment, and one after the last bar
+    has not happened yet for this data.
+    """
+    if not symbol:
+        return []
+    try:
+        import corporate_actions as _ca
+        evs = _ca.events_for(symbol)
+    except Exception:
+        return []
+    if not evs or len(index) < 2:
+        return []
+    lo, hi = index[0], index[-1]
+    # COMBINE EVENTS SHARING AN EX-DATE (fix 2026-08-01). A company can run a split
+    # AND a bonus on the same day — FCL had ×0.2 and ×0.5 both on 2025-10-31, i.e. a
+    # true combined ×0.1. Tested separately, NEITHER matches the observed −88% bar
+    # (0.12 is 40% away from 0.2 and 76% from 0.5), so the snap-validator rejected
+    # both and the artifact survived. Their PRODUCT matches to within 20%. So fold
+    # same-date events into one multiplier before validating.
+    by_date: dict = {}
+    for e in evs:
+        try:
+            ex = pd.Timestamp(e["ex_date"])
+            m = float(e["mult"])
+        except Exception:
+            continue
+        if not (0.0 < m < 1.0) or not (lo < ex <= hi):
+            continue
+        by_date[ex] = by_date.get(ex, 1.0) * m
+    return sorted((ex, m) for ex, m in by_date.items() if 0.0 < m < 1.0)
+
+
+def adjust_for_splits(df: pd.DataFrame, symbol: str | None = None) -> pd.DataFrame:
     """
     Backward-adjust OHLC for stock splits/bonuses.
+
+    AUTHORITY FIRST (2026-07-26): when `symbol` is supplied and NSE's
+    corporate-actions feed knows it, the EXACT ex-date and EXACT ratio are used and
+    the heuristic below is skipped for those dates. The heuristic remains only for
+    symbols the feed does not cover.
+
+    Why this changed: an audit found the heuristic missing real splits on major
+    liquid names — 398/2,871 backtest symbols still carried a fabricated −45%…−90%
+    single-day crash, 92 of them tradable (DIXON, EICHERMOT, ADANIPOWER, CDSL,
+    NYKAA, HDFCAMC, BEML…). Root causes: a "turnover panic" guard that rejects real
+    splits (ex-date share volume explodes, so turnover rises — EICHERMOT was 0.3%
+    off a perfect 1:10 with 43× volume and was rejected), and a `vol_up ≥ 1.3×`
+    test that blocks near-exact splits with flat volume (HDFCAMC 0.4% off an exact
+    1:2). Loosening the heuristic was measured and REJECTED: an 8% tolerance would
+    have wrongly captured 41 genuine crashes, and a fabricated split is worse than
+    a missed one because it rescales history into a fake breakout that gets bought.
+    The price/volume data simply does not separate the two cases — "opened at the
+    new level" holds for 89.9% of near-exact events but also 78.8% of far-from-clean
+    ones. Hence the feed.
 
     BUG-FIX: the prior threshold `< 0.55` (>45% overnight drop) caught only
     1:1+ bonuses and major splits. It MISSED:
@@ -51,6 +106,8 @@ def adjust_for_splits(df: pd.DataFrame) -> pd.DataFrame:
     """
     if df.empty or len(df) < 2:
         return df
+
+    auth_events = _authoritative_events(symbol, df.index)
 
     # Common bonus/split ratios (post/pre share count)
     KNOWN_RATIOS = [
@@ -135,11 +192,59 @@ def adjust_for_splits(df: pd.DataFrame) -> pd.DataFrame:
             if avg_v > 0 and vol[i] >= avg_v * 2 and not panic:
                 events.append((i, ratio))
 
-    if not events:
+    # Heuristic events that land within ±3 bars of an authoritative ex-date are
+    # DROPPED — the feed already handled that date exactly, and applying both would
+    # double-adjust the history (a 1:2 split becoming a 1:4).
+    if auth_events:
+        auth_pos = set()
+        for ex, _ in auth_events:
+            p = int(df.index.searchsorted(ex))
+            # ±6 because the authoritative event can SNAP up to 5 bars away
+            auth_pos.update(range(max(0, p - 6), min(len(df), p + 7)))
+        events = [(i, r) for (i, r) in events if i not in auth_pos]
+
+    if not events and not auth_events:
         return df
 
     df = df.copy()
     col_idx = [df.columns.get_loc(c) for c in ohlc_cols]
+
+    # 1. Authoritative events: the feed says WHAT and HOW MUCH; the price series is
+    #    trusted for WHEN, and the two must agree or the event is skipped.
+    #
+    #    Why: NSE's stated ex-date does not always land on the bar where the
+    #    bhavcopy price actually steps (holidays, record-vs-ex differences, late
+    #    updates). Applying the multiplier at the stated date while the real step
+    #    sits days away splits the series in two places and manufactures a huge
+    #    UPWARD jump — measured, this introduced artifacts on AARTIIND, HDFCBANK,
+    #    GLOBE and 6 others. So: look ±5 bars around the stated date for the bar
+    #    whose actual drop best matches the expected multiplier, and apply it
+    #    THERE. If no nearby bar corroborates it (within 25%), SKIP — the data
+    #    either already reflects the action or it never touched the equity price.
+    #    This makes every authoritative adjustment self-validating.
+    has_vol = "Volume" in df.columns
+    v_idx = df.columns.get_loc("Volume") if has_vol else None
+    closes_now = df["Close"].to_numpy(dtype=float)
+    applied: list[tuple[int, float]] = []
+    for ex, mult in auth_events:
+        p0 = int(df.index.searchsorted(ex))
+        best, best_err = None, 1e9
+        for p in range(max(1, p0 - 5), min(len(df), p0 + 6)):
+            prev, cur = closes_now[p - 1], closes_now[p]
+            if prev <= 0 or cur <= 0:
+                continue
+            err = abs((cur / prev) - mult) / mult
+            if err < best_err:
+                best, best_err = p, err
+        if best is None or best_err > 0.25:
+            continue                    # price series does not corroborate — skip
+        applied.append((best, mult))
+    for pos, mult in reversed(sorted(applied)):
+        df.iloc[:pos, col_idx] *= mult
+        if has_vol:
+            df.iloc[:pos, v_idx] = df.iloc[:pos, v_idx] / mult
+
+    # 2. Heuristic fallback for anything the feed did not cover.
     for split_idx, ratio in reversed(events):
         df.iloc[:split_idx, col_idx] *= ratio
     return df

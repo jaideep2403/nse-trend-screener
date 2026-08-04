@@ -1,5 +1,6 @@
 <!-- ══════════════════════════════════════════════════ EARLY GROWTH TAB -->
 <div id="tab-early-growth" class="tab-content">
+  <div class="tab-intro"><span class="ti-title">Early Growth</span>Small, fast-growing companies at an early stage of institutional discovery.</div>
 <div class="container">
 
   <style>
@@ -11,24 +12,24 @@
       padding: 16px 22px;
       margin-bottom: 18px;
     }
-    .eg-hero h3 { margin: 0 0 6px; font-size: 16px; color: var(--green); font-weight: 700; }
-    .eg-hero p  { margin: 0; font-size: 13px; color: var(--text); line-height: 1.6; }
+    .eg-hero h3 { margin: 0 0 6px; font-size:var(--fs-lg); color: var(--green); font-weight: 700; }
+    .eg-hero p  { margin: 0; font-size:var(--fs-md); color: var(--text); line-height: 1.6; }
     .eg-hero strong { color: var(--white); }
 
     .eg-tier-pills { display: flex; gap: 10px; margin-bottom: 16px; flex-wrap: wrap; align-items: center; }
     .eg-pill {
-      padding: 4px 12px; border-radius: 16px; font-size: 12px;
+      padding: 4px 12px; border-radius: 16px; font-size:var(--fs-sm);
       font-weight: 600; border: 1px solid transparent;
     }
-    .eg-pill.em      { background: rgba(34,197,94,0.15);  border-color: #22c55e; color: #22c55e; }
-    .eg-pill.watch   { background: rgba(234,179,8,0.15);  border-color: #eab308; color: #eab308; }
+    .eg-pill.em      { background: rgba(34,197,94,0.15);  border-color: var(--green); color: var(--green); }
+    .eg-pill.watch   { background: rgba(234,179,8,0.15);  border-color: var(--gold); color: var(--gold); }
     .eg-pill.track   { background: rgba(99,102,241,0.15); border-color: #818cf8; color: #818cf8; }
-    .eg-pill.monitor { background: rgba(100,116,139,0.12);border-color: #64748b; color: #94a3b8; }
+    .eg-pill.monitor { background: rgba(100,116,139,0.12);border-color: #64748b; color: var(--text2); }
     .eg-pill.stage   { background: transparent; border-color: var(--border); color: var(--muted); }
 
     .eg-legend { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 14px; }
     .eg-legend-item {
-      font-size: 11px; padding: 2px 8px; border-radius: 4px;
+      font-size:var(--fs-xs); padding: 2px 8px; border-radius: 4px;
       border: 1px solid; white-space: nowrap;
     }
 
@@ -40,16 +41,16 @@
       padding: 4px 12px;
       border-radius: 6px;
       cursor: pointer;
-      font-size: 12px;
+      font-size:var(--fs-sm);
       transition: all .15s;
     }
     .eg-sort-btn:hover, .eg-sort-btn.active {
       background: rgba(34,197,94,0.12);
       border-color: rgba(34,197,94,0.5);
-      color: #22c55e;
+      color: var(--green);
     }
 
-    #eg-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+    #eg-table { width: 100%; border-collapse: collapse; font-size:var(--fs-sm); }
     #eg-table thead th {
       padding: 8px 8px;
       text-align: left;
@@ -76,22 +77,22 @@
       gap: 16px;
     }
     .eg-factor {
-      display: flex; flex-direction: column; min-width: 130px; font-size: 11px;
+      display: flex; flex-direction: column; min-width: 130px; font-size:var(--fs-xs);
     }
     .eg-factor-label { color: var(--muted); margin-bottom: 3px; }
     .eg-factor-bar-bg { background: var(--border); border-radius: 3px; height: 5px; width: 100%; margin-bottom: 3px; }
-    .eg-factor-bar    { height: 100%; border-radius: 3px; background: #22c55e; }
-    .eg-factor-desc   { color: var(--muted); font-size: 10px; line-height: 1.4; }
+    .eg-factor-bar    { height: 100%; border-radius: 3px; background: var(--green); }
+    .eg-factor-desc   { color: var(--muted); font-size:var(--fs-micro); line-height: 1.4; }
 
     .eg-ctx-box {
-      min-width: 200px; font-size: 11px; color: var(--muted); line-height: 1.6;
+      min-width: 200px; font-size:var(--fs-xs); color: var(--muted); line-height: 1.6;
     }
     .eg-ctx-box strong { color: var(--text); }
 
     .eg-tier-badge {
       display: inline-block;
       padding: 2px 7px; border-radius: 4px;
-      font-size: 11px; font-weight: 700; border: 1px solid;
+      font-size:var(--fs-xs); font-weight: 700; border: 1px solid;
       white-space: nowrap;
     }
 
@@ -99,7 +100,7 @@
       background: var(--border); border-radius: 4px; height: 6px; overflow: hidden;
     }
     .eg-progress-bar-fill {
-      height: 100%; background: #22c55e; transition: width .3s;
+      height: 100%; background: var(--green); transition: width .3s;
     }
   </style>
 
@@ -123,18 +124,18 @@
 
       <!-- Legend -->
       <div class="eg-legend">
-        <span class="eg-legend-item" style="background:rgba(34,197,94,.12);border-color:rgba(34,197,94,.4);color:#22c55e">🌱 EARLY MONSTER ≥75</span>
-        <span class="eg-legend-item" style="background:rgba(234,179,8,.12);border-color:rgba(234,179,8,.4);color:#eab308">💡 WATCH 60–74</span>
+        <span class="eg-legend-item" style="background:rgba(34,197,94,.12);border-color:rgba(34,197,94,.4);color:var(--green)">🌱 EARLY MONSTER ≥75</span>
+        <span class="eg-legend-item" style="background:rgba(234,179,8,.12);border-color:rgba(234,179,8,.4);color:var(--gold)">💡 WATCH 60–74</span>
         <span class="eg-legend-item" style="background:rgba(99,102,241,.12);border-color:rgba(99,102,241,.4);color:#818cf8">📋 TRACK 45–59</span>
         <span class="eg-legend-item" style="background:rgba(100,116,139,.08);border-color:var(--border);color:var(--muted)">🔭 MONITOR 38–44</span>
-        <span style="font-size:11px;color:var(--muted);align-self:center;margin-left:4px">
+        <span style="font-size:var(--fs-xs);color:var(--muted);align-self:center;margin-left:4px">
           · Stage 1 = still in base (best) · Early S2 = just crossed MA150
         </span>
       </div>
 
       <!-- Progress -->
       <div id="eg-progress-wrap" style="display:none;margin-bottom:10px">
-        <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--muted);margin-bottom:4px">
+        <div style="display:flex;justify-content:space-between;font-size:var(--fs-xs);color:var(--muted);margin-bottom:4px">
           <span id="eg-progress-msg">Starting…</span>
           <span id="eg-progress-pct">0%</span>
         </div>
@@ -144,9 +145,9 @@
       </div>
 
       <!-- Error -->
-      <div id="eg-error" style="display:none;background:rgba(239,68,68,.10);color:#f87171;
+      <div id="eg-error" style="display:none;background:rgba(239,68,68,.10);color:var(--red2);
            border:1px solid rgba(239,68,68,.3);border-radius:8px;padding:10px 14px;
-           font-size:12px;margin-bottom:10px"></div>
+           font-size:var(--fs-sm);margin-bottom:10px"></div>
 
     </div>
   </div>
@@ -155,7 +156,7 @@
   <div id="eg-results-panel" class="panel" style="display:none">
     <div class="panel-header">
       <h2>Results</h2>
-      <span id="eg-scanned" style="font-size:11px;color:var(--muted);font-weight:400"></span>
+      <span id="eg-scanned" style="font-size:var(--fs-xs);color:var(--muted);font-weight:400"></span>
     </div>
     <div class="panel-body">
 
@@ -171,7 +172,7 @@
 
       <!-- Sort row -->
       <div class="eg-sort-row">
-        <span style="font-size:11px;color:var(--muted)">Sort:</span>
+        <span style="font-size:var(--fs-xs);color:var(--muted)">Sort:</span>
         <button class="eg-sort-btn active" data-col="score"      onclick="egSort(this,'score')">Score ↓</button>
         <button class="eg-sort-btn"        data-col="base_weeks" onclick="egSort(this,'base_weeks')">Base Wks</button>
         <button class="eg-sort-btn"        data-col="profit_gr"  onclick="egSort(this,'profit_gr')">Profit%</button>
@@ -213,7 +214,7 @@
 
       <!-- Empty -->
       <div id="eg-empty" style="display:none;text-align:center;padding:40px;
-                                  color:var(--muted);font-size:13px">
+                                  color:var(--muted);font-size:var(--fs-md)">
         No stocks passed all early-growth filters. Fundamentals DB updates nightly — results improve as coverage grows.
       </div>
 
@@ -221,7 +222,7 @@
   </div>
 
   <!-- Coverage note -->
-  <p id="eg-coverage-note" style="display:none;font-size:11px;color:var(--muted);
+  <p id="eg-coverage-note" style="display:none;font-size:var(--fs-xs);color:var(--muted);
      margin-top:4px;padding:8px 12px;
      background:rgba(14,21,32,0.5);border-radius:6px;border:1px solid var(--border)">
     ⚠️ Scores depend on fundamentals DB (auto-refreshed nightly). Stocks without fundamentals are skipped.
@@ -229,6 +230,8 @@
   </p>
 
 </div><!-- /container -->
+
+  <p class="disclaimer">{{ DISCLAIMER }}</p>
 </div><!-- /tab-early-growth -->
 
 <script>
@@ -325,22 +328,22 @@ function egRender(rows) {
   rows.forEach(function(r, i) {
     var tierStyle =
       r.tier === "EARLY MONSTER"
-        ? "background:rgba(34,197,94,.15);color:#22c55e;border-color:rgba(34,197,94,.4)"
+        ? "background:rgba(34,197,94,.15);color:var(--green);border-color:rgba(34,197,94,.4)"
         : r.tier === "WATCH"
-          ? "background:rgba(234,179,8,.15);color:#eab308;border-color:rgba(234,179,8,.4)"
+          ? "background:rgba(234,179,8,.15);color:var(--gold);border-color:rgba(234,179,8,.4)"
           : r.tier === "TRACK"
             ? "background:rgba(99,102,241,.12);color:#818cf8;border-color:rgba(99,102,241,.4)"
-            : "background:rgba(100,116,139,.10);color:#94a3b8;border-color:#64748b";
+            : "background:rgba(100,116,139,.10);color:var(--text2);border-color:#64748b";
 
     var stageHtml = r.is_stage1
-      ? '<span style="color:#94a3b8;font-size:11px">S1 Base</span>'
-      : '<span style="color:#22c55e;font-size:11px">S2 +' + r.cross_bars + 'd</span>';
+      ? '<span style="color:var(--text2);font-size:var(--fs-xs)">S1 Base</span>'
+      : '<span style="color:var(--green);font-size:var(--fs-xs)">S2 +' + r.cross_bars + 'd</span>';
 
-    var epsQoQ = r.eps_accel    === 1 ? '<span style="color:#22c55e">✓</span>'
-               : r.eps_accel    === 0 ? '<span style="color:#ef4444">✗</span>'
+    var epsQoQ = r.eps_accel    === 1 ? '<span style="color:var(--green)">✓</span>'
+               : r.eps_accel    === 0 ? '<span style="color:var(--red)">✗</span>'
                : '<span style="color:var(--muted)">—</span>';
-    var epsYoY = r.eps_accel_yoy === 1 ? '<span style="color:#22c55e">✓</span>'
-               : r.eps_accel_yoy === 0 ? '<span style="color:#ef4444">✗</span>'
+    var epsYoY = r.eps_accel_yoy === 1 ? '<span style="color:var(--green)">✓</span>'
+               : r.eps_accel_yoy === 0 ? '<span style="color:var(--red)">✗</span>'
                : '<span style="color:var(--muted)">—</span>';
 
     // Consistent display: always 2-decimal % with explicit sign.
@@ -349,27 +352,27 @@ function egRender(rows) {
     if (r.promoter_delta == null) {
       pdHtml = '<span style="color:var(--muted)" title="data not scraped yet">—</span>';
     } else if (r.promoter_delta > 0.005) {
-      pdHtml = '<span style="color:#22c55e">+' + r.promoter_delta.toFixed(2) + '%</span>';
+      pdHtml = '<span style="color:var(--green)">+' + r.promoter_delta.toFixed(2) + '%</span>';
     } else if (r.promoter_delta < -0.005) {
-      pdHtml = '<span style="color:#ef4444">'  + r.promoter_delta.toFixed(2) + '%</span>';
+      pdHtml = '<span style="color:var(--red)">'  + r.promoter_delta.toFixed(2) + '%</span>';
     } else {
-      pdHtml = '<span style="color:#94a3b8" title="no change vs prior quarter">0.00%</span>';
+      pdHtml = '<span style="color:var(--text2)" title="no change vs prior quarter">0.00%</span>';
     }
 
     var dvHtml = r.deliv_chg == null
       ? '<span style="color:var(--muted)">—</span>'
       : r.deliv_chg > 0
-        ? '<span style="color:#22c55e">+' + r.deliv_chg + '%</span>'
-        : '<span style="color:#ef4444">' + r.deliv_chg + '%</span>';
+        ? '<span style="color:var(--green)">+' + r.deliv_chg + '%</span>'
+        : '<span style="color:var(--red)">' + r.deliv_chg + '%</span>';
 
-    var pgColor = r.profit_gr >= 50 ? "#22c55e" : r.profit_gr >= 25 ? "#eab308" : "var(--text)";
+    var pgColor = r.profit_gr >= 50 ? "var(--green)" : r.profit_gr >= 25 ? "var(--gold)" : "var(--text)";
     // ✓ = signal active, ✗ = evaluated but not active (NOT missing data)
     var volHtml = r.vol_declining
-      ? '<span style="color:#22c55e">✓</span>'
-      : '<span style="color:#94a3b8">✗</span>';
+      ? '<span style="color:var(--green)">✓</span>'
+      : '<span style="color:var(--text2)">✗</span>';
     var nhHtml = r.near_high
-      ? '<span style="color:#22c55e">✓</span>'
-      : '<span style="color:#94a3b8">✗</span>';
+      ? '<span style="color:var(--green)">✓</span>'
+      : '<span style="color:var(--text2)">✗</span>';
 
     // BUG-FIX: was dividing by 100 for mcap >= 10000 — corrupted KPIL (21476→214),
     // GRAVITA (12460→125), SARDAEN (19194→192). Screener.in returns Cr already.
@@ -396,17 +399,17 @@ function egRender(rows) {
         var cs = r.consensus_score || 0;
         var sc = r.scan_count || 1;
         var tl = r.consensus_tier || "—";
-        var col = cs >= 60 ? "#10b981" : cs >= 40 ? "#3b82f6" : cs >= 25 ? "#f59e0b" : "var(--muted)";
+        var col = cs >= 60 ? "var(--green)" : cs >= 40 ? "#3b82f6" : cs >= 25 ? "var(--gold)" : "var(--muted)";
         var bg  = cs >= 60 ? "rgba(16,185,129,.15)" : cs >= 40 ? "rgba(59,130,246,.15)" : cs >= 25 ? "rgba(245,158,11,.15)" : "rgba(120,120,120,.10)";
-        return '<td title="' + tl + ' — appears in ' + sc + ' scans"><span style="display:inline-block;padding:2px 8px;border-radius:10px;background:' + bg + ';color:' + col + ';font-weight:700;font-size:11px">' + cs.toFixed(0) + ' · ' + sc + '×</span></td>';
+        return '<td title="' + tl + ' — appears in ' + sc + ' scans"><span style="display:inline-block;padding:2px 8px;border-radius:10px;background:' + bg + ';color:' + col + ';font-weight:700;font-size:var(--fs-xs)">' + cs.toFixed(0) + ' · ' + sc + '×</span></td>';
       })() +
       // P2-14: Stage transition badge
       (function() {
         var sb = r.stage_badge;
-        if (!sb) return '<td style="color:var(--muted);font-size:11px">—</td>';
-        var col = r.stage_fresh ? "#10b981" : "var(--muted)";
+        if (!sb) return '<td style="color:var(--muted);font-size:var(--fs-xs)">—</td>';
+        var col = r.stage_fresh ? "var(--green)" : "var(--muted)";
         var w = r.stage_fresh ? "700" : "500";
-        return '<td title="In current stage since ' + (r.stage_since || '?') + '" style="color:' + col + ';font-weight:' + w + ';font-size:11px">' + sb + (r.stage_fresh ? ' 🟢' : '') + '</td>';
+        return '<td title="In current stage since ' + (r.stage_since || '?') + '" style="color:' + col + ';font-weight:' + w + ';font-size:var(--fs-xs)">' + sb + (r.stage_fresh ? ' 🟢' : '') + '</td>';
       })() +
       '<td>' + stageHtml + '</td>' +
       '<td>' + r.base_weeks + 'w</td>' +
@@ -543,7 +546,7 @@ function egUpdateScraperNote() {
           "ETA: " + eta + " · ~400/hour" +
           "<br>Only stocks with <em>confirmed non-seasonal</em> EPS acceleration shown. " +
           "Re-run scan as progress increases.";
-        noteEl.style.color = "#eab308";
+        noteEl.style.color = "var(--gold)";
         noteEl.style.borderColor = "rgba(234,179,8,.4)";
         noteEl.style.background  = "rgba(234,179,8,.06)";
       } else {

@@ -97,7 +97,7 @@ def _init_db():
             "growth_ttm REAL", "growth_3y_cagr REAL",
             "sales_growth_ttm REAL", "sales_growth_3y_cagr REAL",
             "eps_accel INTEGER", "result_date TEXT",
-            "promoter_prev REAL", "promoter_delta REAL",
+            "promoter_prev REAL", "promoter_delta REAL", "opm REAL",
             # BUG-SEASONAL FIX: YoY quarterly profit acceleration (q1 vs q5)
             "eps_accel_yoy INTEGER",
         ]:
@@ -120,8 +120,8 @@ def _upsert(data: dict):
              growth_ttm, growth_3y_cagr, sales_growth_ttm, sales_growth_3y_cagr,
              eps_q1, eps_q2, eps_q3, eps_q4, eps_q5, eps_q6, eps_q7, eps_q8,
              eps_accel, result_date,
-             promoter_prev, promoter_delta, eps_accel_yoy)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             promoter_prev, promoter_delta, eps_accel_yoy, opm)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (data["symbol"], data["eps_growth_yoy"], data["sales_growth_yoy"],
               data["roe"], data["debt_to_equity"], data["pe_ratio"],
               data["market_cap"], data["promoter_holding"], data["updated_at"],
@@ -131,7 +131,7 @@ def _upsert(data: dict):
               data.get("eps_q5"), data.get("eps_q6"), data.get("eps_q7"), data.get("eps_q8"),
               data.get("eps_accel"), data.get("result_date"),
               data.get("promoter_prev"), data.get("promoter_delta"),
-              data.get("eps_accel_yoy")))
+              data.get("eps_accel_yoy"), data.get("opm")))
         conn.commit()
         conn.close()
 
@@ -380,6 +380,33 @@ def _fetch_one(symbol: str) -> Optional[dict]:
         if roe == 0.0 and roe_from_table is not None:
             roe = roe_from_table
 
+        # ── OPM % (operating profit margin) — the "M" in the SMR rating ───────
+        # screener.in doesn't expose OPM in top-ratios; it lives as an "OPM %" row
+        # in the quarterly/annual P&L tables. Take the most recent column.
+        # CRITICAL: parse this WITHOUT a nested-quantifier regex. The obvious
+        # `<tr>…<td>OPM %</td>((?:\s*<td[^>]*>[\s\S]*?</td>)+)</tr>` pattern
+        # catastrophically backtracks on screener.in's whitespace-heavy tables —
+        # it doesn't fail, it HANGS, which would freeze the whole scraper thread
+        # on the first stock. Locate the label, take a BOUNDED slice, then a flat
+        # findall: same result, 0.4 ms, no backtracking possible.
+        opm = None
+        try:
+            m_lbl = re.search(r'<td[^>]*>\s*OPM\s*%\s*</td>', html, re.IGNORECASE)
+            if m_lbl:
+                seg = html[m_lbl.end(): m_lbl.end() + 4000]
+                cut = seg.find('</tr>')
+                if cut != -1:
+                    seg = seg[:cut]
+                for v in reversed(re.findall(
+                        r'<td[^>]*>\s*(-?[\d,\.]+)\s*%?\s*</td>', seg)):
+                    try:
+                        opm = float(v.replace(',', ''))   # most recent column
+                        break
+                    except ValueError:
+                        continue
+        except Exception:
+            opm = None
+
         # ── F2: Quarterly NET PROFIT (NOT EPS!) — parse from #quarters section ─
         # BUG-014 FIX / NOTE: the fields below are mislabelled "eps_q1..4"
         # for historical reasons but are actually QUARTERLY NET PROFIT in
@@ -541,6 +568,8 @@ def _fetch_one(symbol: str) -> Optional[dict]:
             # F3 — promoter delta
             "promoter_prev":    promoter_prev,
             "promoter_delta":   promoter_delta,
+            # SMR "M" leg
+            "opm":              round(opm, 2) if opm is not None else None,
         }
 
     except requests.exceptions.Timeout:

@@ -11,10 +11,11 @@ import time
 import pickle
 import requests
 import pandas as pd
+import os
 from pathlib import Path
 from datetime import date
 
-CACHE_DIR = Path("/tmp/nse_deals")
+CACHE_DIR = Path(os.getenv("DEALS_DIR", os.path.join(os.path.expanduser("~"), ".ascent_cache", "nse_deals")))
 CACHE_DIR.mkdir(exist_ok=True)
 CACHE_TTL = 86_400   # 24 h
 

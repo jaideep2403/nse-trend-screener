@@ -122,7 +122,7 @@ def _load_all_stocks(progress_callback=None) -> dict[str, pd.DataFrame]:
         g = g[~g.index.duplicated(keep="last")].sort_index()
         if len(g) < MIN_BARS:
             continue
-        g = adjust_for_splits(g)
+        g = adjust_for_splits(g, sym)
         # Cheap turnover pre-prune (avoids storing thousands of illiquid microcaps)
         try:
             cv = g[["Close", "Volume"]].dropna()

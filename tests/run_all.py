@@ -27,14 +27,19 @@ def _run(script: str) -> bool:
 def main():
     ok1 = _run("test_invariants.py")
     ok2 = _run("test_no_duplicates.py")
+    # Renders the real page per role and parses every inline <script> together,
+    # the way the browser scopes them. Catches the cross-tab identifier collision
+    # class that took the whole app down on 2026-07-26.
+    ok3 = _run("test_page_js.py")
 
     print("\n══════════════════════════════════════════════════════════")
-    if ok1 and ok2:
+    if ok1 and ok2 and ok3:
         print("ALL TESTS PASSED")
         sys.exit(0)
     print("SOME TESTS FAILED")
     print(f"  invariants:     {'PASS' if ok1 else 'FAIL'}")
     print(f"  no_duplicates:  {'PASS' if ok2 else 'FAIL'}")
+    print(f"  page_js:        {'PASS' if ok3 else 'FAIL'}")
     sys.exit(1)
 
 
