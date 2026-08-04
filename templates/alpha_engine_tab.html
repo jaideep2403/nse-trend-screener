@@ -1,0 +1,217 @@
+<!-- LOCAL-ONLY: Alpha Engine tab. Gitignored — never pushed to GitHub. -->
+<style>
+  .ae-sort {
+    cursor: pointer; user-select: none; padding: 6px 8px;
+    transition: color 0.15s, background 0.15s; white-space: nowrap;
+    font-weight: 800; color: var(--text); font-size:var(--fs-xs);
+    text-transform: uppercase; letter-spacing: 0.4px;
+  }
+  .ae-sort:hover { color: var(--accent); background: var(--surface); }
+  .ae-sort.sort-asc::after  { content: " ▲"; color: var(--accent); font-size:var(--fs-2xs); }
+  .ae-sort.sort-desc::after { content: " ▼"; color: var(--accent); font-size:var(--fs-2xs); }
+  .ae-pill {
+    padding: 4px 11px; border-radius: 20px; font-size:var(--fs-xs); font-weight: 600;
+    cursor: pointer; border: 1px solid var(--border); background: var(--surface2);
+    color: var(--text2); transition: all 0.12s; font-family: 'Inter', sans-serif;
+  }
+  .ae-pill:hover { border-color: var(--accent); color: var(--accent2); }
+  .ae-factor-hdr {
+    font-size:var(--fs-2xs); text-transform:uppercase; letter-spacing:0.5px;
+    color:var(--muted); text-align:right; padding: 4px 6px;
+  }
+</style>
+
+<div id="tab-alpha" class="tab-content">
+  <div class="tab-intro"><span class="ti-title">Alpha Engine</span>Multi-factor ranking across the full universe, scored on momentum, quality and institutional flow.</div>
+<div class="container" style="padding-top:18px">
+
+  <!-- Header card -->
+  <div class="card" style="margin-bottom:14px;padding:16px">
+    <div style="font-size:var(--fs-base);font-weight:700;margin-bottom:6px">🏛️ Alpha Engine — Institutional Multi-Factor Composite</div>
+    <div style="font-size:var(--fs-sm);color:var(--muted)">
+      Scores <b>{{ universe_label }}</b> stocks <b>0–100</b> across <b>6 institutional-grade factors</b>:
+      Quality (20) · Momentum (20) · Smart Money (25) · Earnings Quality (15) · Technical (10) · Risk (10).
+      <br>Smart Money uses <b>Delivery%</b> + <b>OBV</b> + <b>NSE Bulk/Block deals</b> + <b>F&O OI</b> + <b>FII flow</b> — the edge most retail platforms never show.
+      <br>Tiers: 🏆 <b>BUY</b> (≥55) · 💎 <b>STRONG</b> (42-54) · 👀 <b>MONITOR</b> (30-41) · ⛔ <b>AVOID</b> (&lt;30)
+      <br><b style="color:var(--yellow)">Local only</b> — never pushed to GitHub.
+    </div>
+  </div>
+
+  <!-- Scan controls -->
+  <div class="card" style="margin-bottom:14px;display:flex;align-items:center;gap:14px;flex-wrap:wrap;padding:12px 16px">
+    <button class="btn btn-primary" id="aeScanBtn" onclick="aeStartScan()"><svg class="ic ic-b"><use href="#i-zap"/></svg>Run Scan</button>
+    <span id="aeMeta" style="font-size:var(--fs-sm);color:var(--muted)"></span>
+    <div style="margin-left:auto;display:flex;align-items:center;gap:16px;font-size:var(--fs-xs);color:var(--muted)">
+      <div>F&O stocks: <b id="aeFOCount" style="color:var(--text)">—</b></div>
+      <div>FII: <b id="aeFIISignal">—</b></div>
+    </div>
+  </div>
+
+  <!-- Progress bar -->
+  <div id="aeProgress" style="display:none;padding:10px 0">
+    <div style="background:var(--border);border-radius:6px;height:8px;overflow:hidden">
+      <div id="aeProgressBar" style="background:var(--green);height:100%;width:0%;transition:width .4s"></div>
+    </div>
+    <span id="aeProgressMsg" style="font-size:var(--fs-sm);color:var(--text2);margin-top:4px;display:block">Initialising…</span>
+  </div>
+
+  <!-- Empty state -->
+  <div id="aeEmpty" style="padding:40px;text-align:center;color:var(--muted)">
+    Click <b>Run Scan</b> to identify institutional-grade stocks across all 6 factors.
+  </div>
+
+  <!-- Results -->
+  <div id="aeResults" style="display:none">
+
+    <!-- Tier summary cards -->
+    <div style="display:grid;grid-template-columns:repeat(7,1fr);gap:10px;margin-bottom:14px">
+      <div class="stat-card">
+        <div class="stat-label">UNIVERSE</div>
+        <div class="stat-val" id="aeUniverseCount">—</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">🏆 BUY (≥55)</div>
+        <div class="stat-val" id="aeBuyCount" style="color:var(--green)">—</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">💎 STRONG (42-54)</div>
+        <div class="stat-val" id="aeStrongCount" style="color:var(--gold)">—</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">👀 MONITOR (30-41)</div>
+        <div class="stat-val" id="aeMonitorCount" style="color:var(--accent2)">—</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">⚠ EXIT ALERTS</div>
+        <div class="stat-val" id="aeExitCount" style="color:var(--red)">—</div>
+      </div>
+      <div class="stat-card" title="Stocks with F&O OI data available">
+        <div class="stat-label">F&O STOCKS</div>
+        <div class="stat-val" id="aeFOCount2" style="color:var(--text2)">—</div>
+      </div>
+      <div class="stat-card" title="FII market-wide 5-day net flow signal">
+        <div class="stat-label">FII SIGNAL</div>
+        <div class="stat-val" id="aeFIISignal2" style="font-size:var(--fs-sm)">—</div>
+      </div>
+    </div>
+
+    <!-- Filters -->
+    <div class="panel" style="margin-bottom:12px">
+      <div class="panel-body" style="display:flex;flex-wrap:wrap;gap:8px;align-items:center">
+
+        <span style="font-size:var(--fs-xs);color:var(--text2);text-transform:uppercase">Tier:</span>
+        <button class="ae-pill" id="aeF-all"    onclick="aeFilter('tier','all')"   >All</button>
+        <button class="ae-pill" id="aeF-buy"    onclick="aeFilter('tier','buy')"   >🏆 BUY only</button>
+        <button class="ae-pill" id="aeF-strong" onclick="aeFilter('tier','strong')">BUY + STRONG</button>
+        <button class="ae-pill" id="aeF-avoid"  onclick="aeFilter('tier','avoid')" >Hide AVOID</button>
+
+        <span style="margin:0 8px;color:var(--border)">|</span>
+        <button class="ae-pill" id="aeF-exit" onclick="aeFilter('exit','exit')" style="color:var(--red2);border-color:rgba(239,68,68,0.4)">⚠ Exit Alerts only</button>
+
+        <span style="margin:0 8px;color:var(--border)">|</span>
+        <span style="font-size:var(--fs-xs);color:var(--text2);text-transform:uppercase">F&O OI:</span>
+        <button class="ae-pill" id="aeFo-all"     onclick="aeFilter('fo','all')"     >All</button>
+        <button class="ae-pill" id="aeFo-bullish" onclick="aeFilter('fo','bullish')" >📈 Bullish OI</button>
+        <button class="ae-pill" id="aeFo-bearish" onclick="aeFilter('fo','bearish')" >📉 Bearish OI</button>
+
+        <span style="margin:0 8px;color:var(--border)">|</span>
+        <input id="aeSearch" type="text" placeholder="🔍 Symbol / Sector…"
+          oninput="aeSearch()"
+          style="padding:5px 9px;background:var(--surface2);border:1px solid var(--border);
+                 border-radius:6px;font-size:var(--fs-xs);color:var(--text);width:160px"/>
+        <span id="aeCnt" style="margin-left:auto;font-size:var(--fs-xs);color:var(--text2)"></span>
+      </div>
+    </div>
+
+    <!-- Results table -->
+    <div class="panel">
+      <div class="panel-body" style="overflow-x:auto">
+        <table style="width:100%;border-collapse:collapse;font-size:var(--fs-sm);min-width:1600px">
+          <thead>
+            <tr style="border-bottom:2px solid var(--border);background:var(--surface2)">
+              <th class="ta-l">#</th>
+              <th class="ae-sort" onclick="aeSort('symbol')" id="aeTh-symbol">Symbol</th>
+              <th class="ae-sort" onclick="aeSort('sector')" id="aeTh-sector">Sector</th>
+              <th class="ae-sort ta-r" onclick="aeSort('price')" id="aeTh-price">Price</th>
+              <th class="ae-sort ta-c" onclick="aeSort('score')" id="aeTh-score" title="Composite 0-100 score across 6 factors">Score</th>
+              <th class="ae-sort ta-c" onclick="aeSort('consensus_score')" id="aeTh-consensus_score" title="Cross-scan Final Setup Score — appears in N scans">Consensus</th>
+              <th id="aeTh-stage_badge" title="Weinstein stage + how long the stock has been in this stage" class="ta-l">Stage Age</th>
+              <!-- Factor breakdown — all sortable -->
+              <th class="ae-sort ta-r" onclick="aeSort('q_score')" id="aeTh-q_score" title="Quality score: ROE · D/E · EPS · Sales growth (max 20)">Qlty</th>
+              <th class="ae-sort ta-r" onclick="aeSort('m_score')" id="aeTh-m_score" title="Momentum score: 6M/12M rank · RS Line new high (max 20)">Mom</th>
+              <th class="ae-sort ta-r" onclick="aeSort('sm_score')" id="aeTh-sm_score" title="Smart Money score: Delivery% · Bulk deals · F&O OI · FII flow (max 25)">Smart$</th>
+              <th class="ae-sort ta-r" onclick="aeSort('eq_score')" id="aeTh-eq_score" title="Earnings Quality score: EPS acceleration · Promoter holding · Data freshness (max 15)">EarnQ</th>
+              <th class="ae-sort ta-r" onclick="aeSort('t_score')" id="aeTh-t_score" title="Technical score: Stage 2 · MA stack · ADX ≥ 25 (max 10)">Tech</th>
+              <th class="ae-sort ta-r" onclick="aeSort('r_score')" id="aeTh-r_score" title="Risk score: Max drawdown · ADTV · Not overextended (max 10)">Risk</th>
+              <!-- Smart money cols -->
+              <th class="ae-sort ta-r" onclick="aeSort('deliv_pct')" id="aeTh-deliv_pct" title="Latest delivery % (higher = institutional)">Del%</th>
+              <th class="ae-sort ta-c" onclick="aeSort('fo_signal')" id="aeTh-fo_signal" title="F&O Open Interest signal">OI Signal</th>
+              <!-- Returns -->
+              <th class="ae-sort ta-r" onclick="aeSort('r1m')" id="aeTh-r1m">1M Ret</th>
+              <th class="ae-sort ta-r" onclick="aeSort('r6m')" id="aeTh-r6m">6M Ret</th>
+              <th class="ae-sort ta-r" onclick="aeSort('rs_6m')" id="aeTh-rs_6m" title="6M outperformance vs Nifty">vs Nifty</th>
+              <!-- Fundamentals -->
+              <th class="ae-sort ta-r" onclick="aeSort('roe')" id="aeTh-roe">ROE</th>
+              <th class="ae-sort ta-r" onclick="aeSort('eps_growth')" id="aeTh-eps_growth">EPS gr</th>
+              <th class="ae-sort ta-r" onclick="aeSort('debt_eq')" id="aeTh-debt_eq">D/E</th>
+              <!-- Exit flags -->
+              <th title="Smart-money exit signals" class="ta-l">Exit Signals</th>
+              <th class="ta-l">Why this score</th>
+            </tr>
+          </thead>
+          <tbody id="aeTbody"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Legend -->
+    <div style="margin-top:14px;padding:12px 16px;background:var(--surface2);border-radius:8px;border:1px solid var(--border);font-size:var(--fs-xs);color:var(--text2)">
+      <div style="font-weight:700;color:var(--text);margin-bottom:6px">📖 Factor Weights &amp; Exit Signal Guide</div>
+      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px">
+        <div>
+          <b style="color:var(--accent2)">Factor Scoring (0-100 total)</b><br>
+          🏛 Quality (20): ROE≥20% · D/E&lt;0.3 · EPS≥25% · Sales≥20%<br>
+          🚀 Momentum (20): 6M/12M rank · RS Line new high<br>
+          💰 Smart Money (25): Delivery% · Bulk deals · F&amp;O OI · FII flow
+        </div>
+        <div>
+          📊 Earnings Quality (15): EPS quarterly acceleration · Promoter<br>
+          📈 Technical (10): Stage 2 · MA 50>100>200 · ADX≥25<br>
+          🛡 Risk (10): Max DD&lt;10% · ADTV≥₹5Cr · Not extended
+        </div>
+        <div>
+          <b style="color:var(--red2)">Exit Signals (smart-money warning)</b><br>
+          <span style="color:var(--red2)">Del↓</span>: Delivery% collapsed below 28%<br>
+          <span style="color:var(--red2)">InstSell</span>: FII/MF sold in bulk deals (14d)<br>
+          <span style="color:var(--red2)">OI:Short</span>: F&amp;O short buildup<br>
+          <span style="color:var(--red2)">4DistDays</span>: Distribution day cluster
+        </div>
+      </div>
+    </div>
+
+  </div><!-- /aeResults -->
+
+</div>
+
+  <p class="disclaimer">{{ DISCLAIMER }}</p>
+</div>
+
+<script src="/static/alpha_engine.js"></script>
+<script>
+  // Sync the duplicate stat card IDs
+  document.addEventListener("DOMContentLoaded", function() {
+    function _sync(src, dst) {
+      const s = document.getElementById(src);
+      const d = document.getElementById(dst);
+      if (s && d) {
+        const obs = new MutationObserver(() => {
+          d.textContent  = s.textContent;
+          d.style.color  = s.style.color;
+        });
+        obs.observe(s, { childList: true, characterData: true, subtree: true });
+      }
+    }
+    _sync("aeFOCount",   "aeFOCount2");
+    _sync("aeFIISignal", "aeFIISignal2");
+  });
+</script>

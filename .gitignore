@@ -36,21 +36,21 @@ static/portfolio.js
 .portfolio.json
 
 # LOCAL-ONLY: Investment Grade scanner — never pushed to GitHub
-investment_grade.py
-templates/investment_grade_tab.html
-static/investment_grade.js
+# investment_grade.py   # un-ignored 2026-08-04: needed by the PUBLIC site
+# templates/investment_grade_tab.html   # un-ignored 2026-08-04: needed by the PUBLIC site
+# static/investment_grade.js   # un-ignored 2026-08-04: needed by the PUBLIC site
 
 # LOCAL-ONLY: hand-curated extra symbols outside NSE indices (e.g. PRECWIRE)
 .extra_symbols.json
 
 # LOCAL-ONLY: Alpha Engine — institutional multi-factor composite scorer
-alpha_engine.py
-fo_data.py
-templates/alpha_engine_tab.html
-static/alpha_engine.js
+# alpha_engine.py   # un-ignored 2026-08-04: needed by the PUBLIC site
+# fo_data.py   # un-ignored 2026-08-04: needed by the PUBLIC site
+# templates/alpha_engine_tab.html   # un-ignored 2026-08-04: needed by the PUBLIC site
+# static/alpha_engine.js   # un-ignored 2026-08-04: needed by the PUBLIC site
 
 # LOCAL-ONLY: Sector auto-mapper cache (NSE TotalMarket → sector names)
-sector_mapper.py
+# sector_mapper.py   # un-ignored 2026-08-04: needed by the PUBLIC site
 .sector_cache.json
 
 # LOCAL-ONLY: sector_indices.py runtime caches (constituents / levels / canonical map)

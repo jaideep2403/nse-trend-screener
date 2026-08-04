@@ -1,0 +1,118 @@
+<!-- LOCAL-ONLY: Investment-Grade scanner. Gitignored — never pushed to GitHub. -->
+<style>
+  th.ig-sort {
+    cursor: pointer; user-select: none; padding: 8px 10px;
+    transition: color 0.15s, background 0.15s;
+    font-weight: 800; color: var(--text); font-size:var(--fs-xs);
+    text-transform: uppercase; letter-spacing: 0.4px;
+  }
+  th.ig-sort:hover { color: var(--accent); background: var(--surface); }
+  th.ig-sort.sort-asc::after  { content: " ▲"; color: var(--accent); font-size:var(--fs-micro); }
+  th.ig-sort.sort-desc::after { content: " ▼"; color: var(--accent); font-size:var(--fs-micro); }
+</style>
+<div id="tab-investgrade" class="tab-content">
+  <div class="tab-intro"><span class="ti-title">Investment Grade</span>Quality-first long-term names: profitability, growth and balance-sheet strength ahead of price action.</div>
+<div class="container" style="padding-top:18px">
+
+  <div class="card" style="margin-bottom:14px;padding:16px">
+    <div style="font-size:var(--fs-base);font-weight:700;margin-bottom:6px">💎 Investment Grade Scanner — Core Portfolio Holdings</div>
+    <div style="font-size:var(--fs-sm);color:var(--muted)">
+      Scores <b id="igUniverseLabel">{{ universe_label }}</b> stocks 0–12 across <b>8 technical</b> + <b>4 fundamental</b> criteria to find sustained
+      multi-month uptrenders. Tiers: 🏆 <b>A</b> (≥10) · 🥈 <b>A (Tech)</b> ≥7/8 (no funda) · 💎 <b>B</b> (8–9) · 👀 <b>Watchlist</b> (6–7).
+      <br><b style="color:var(--yellow)">Local only</b> — never pushed to GitHub.
+    </div>
+  </div>
+
+  <!-- Scan controls -->
+  <div class="card" style="margin-bottom:14px;display:flex;align-items:center;gap:14px;flex-wrap:wrap">
+    <button class="btn btn-primary" id="igScanBtn" onclick="igStartScan()"><svg class="ic ic-b"><use href="#i-gem"/></svg>Run Scan</button>
+    <span id="igMeta" style="font-size:var(--fs-sm);color:var(--muted)"></span>
+    <span style="margin-left:auto;font-size:var(--fs-xs);color:var(--muted)">Cached 30 min · uses bhavcopy + screener.in fundamentals</span>
+  </div>
+
+  <!-- Progress -->
+  <div id="igProgress" style="display:none;padding:10px 0">
+    <div style="background:var(--border);border-radius:6px;height:8px;overflow:hidden">
+      <div id="igProgressBar" style="background:var(--green);height:100%;width:0%;transition:width .4s"></div>
+    </div>
+    <span id="igProgressMsg" style="font-size:var(--fs-sm);color:var(--text2)">Initialising…</span>
+  </div>
+
+  <!-- Empty state -->
+  <div id="igEmpty" style="padding:30px;text-align:center;color:var(--muted)">
+    Click <b>Run Scan</b> to find investment-grade stocks for long-term holdings.
+  </div>
+
+  <!-- Results -->
+  <div id="igResults" style="display:none">
+
+    <!-- Tier summary cards -->
+    <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:10px;margin-bottom:14px">
+      <div class="stat-card"><div class="stat-label">UNIVERSE</div><div class="stat-val" id="igUniverse">—</div></div>
+      <div class="stat-card"><div class="stat-label">🏆 GRADE A (≥10)</div><div class="stat-val" id="igTierA" style="color:var(--green)">—</div></div>
+      <div class="stat-card" title="Strong technicals but no fundamentals on file (e.g. micro-caps where screener.in data is still being fetched)"><div class="stat-label">🥈 A (TECH-ONLY)</div><div class="stat-val" id="igTierAT" style="color:var(--green2)">—</div></div>
+      <div class="stat-card"><div class="stat-label">💎 GRADE B (8–9)</div><div class="stat-val" id="igTierB" style="color:var(--gold)">—</div></div>
+      <div class="stat-card"><div class="stat-label">👀 WATCHLIST (6–7)</div><div class="stat-val" id="igTierW" style="color:var(--text2)">—</div></div>
+    </div>
+
+    <!-- Filter pills -->
+    <div class="panel" style="margin-bottom:12px">
+      <div class="panel-body" style="display:flex;flex-wrap:wrap;gap:8px;align-items:center">
+        <span style="font-size:var(--fs-xs);color:var(--text2);text-transform:uppercase">Tier:</span>
+        <button onclick="igFilter('tier','all')"      id="igF-all"      class="tag" style="cursor:pointer">All</button>
+        <button onclick="igFilter('tier','A')"        id="igF-A"        class="tag" style="cursor:pointer">🏆 A only</button>
+        <button onclick="igFilter('tier','AB')"       id="igF-AB"       class="tag" style="cursor:pointer">A + B</button>
+        <button onclick="igFilter('tier','watch')"    id="igF-watch"    class="tag" style="cursor:pointer">👀 Watchlist</button>
+        <span style="margin:0 12px;color:var(--border)">|</span>
+        <span style="font-size:var(--fs-xs);color:var(--text2);text-transform:uppercase">Trend:</span>
+        <button onclick="igFilter('trend','6m')"      id="igF-6m"       class="tag" style="cursor:pointer">≥ 6 months</button>
+        <button onclick="igFilter('trend','12m')"     id="igF-12m"      class="tag" style="cursor:pointer">≥ 12 months</button>
+        <span style="margin:0 12px;color:var(--border)">|</span>
+        <select id="igSectorFilter" onchange="igRender()" style="padding:5px 9px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;font-size:var(--fs-xs);color:var(--text)">
+          <option value="">All sectors</option>
+        </select>
+        <input type="text" id="igSearch" placeholder="🔍 Symbol…" oninput="igRender()"
+          style="padding:5px 9px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;font-size:var(--fs-xs);color:var(--text);width:140px"/>
+        <span id="igCount" style="margin-left:auto;font-size:var(--fs-xs);color:var(--text2)"></span>
+      </div>
+    </div>
+
+    <!-- Results table -->
+    <div class="panel">
+      <div class="panel-body" style="overflow-x:auto">
+        <table style="width:100%;border-collapse:collapse;font-size:var(--fs-sm);min-width:1500px">
+          <thead>
+            <tr style="border-bottom:2px solid var(--border);background:var(--surface2)">
+              <th class="ta-l">#</th>
+              <th class="ig-sort" onclick="igSort('symbol')" id="igTh-symbol">Symbol</th>
+              <th class="ig-sort" onclick="igSort('sector')" id="igTh-sector">Sector</th>
+              <th class="ig-sort ta-r" onclick="igSort('price')" id="igTh-price">Price</th>
+              <th class="ig-sort ta-c" onclick="igSort('score')" id="igTh-score" title="Total: Tech (8) + Fundamental (4)">Score</th>
+              <th class="ig-sort ta-c" onclick="igSort('tier')" id="igTh-tier" title="Investment grade tier">Tier</th>
+              <th class="ig-sort ta-r" onclick="igSort('months_ma200')" id="igTh-months_ma200" title="Days price has been continuously above its trend MA">Mths ↑</th>
+              <th class="ig-sort ta-r" onclick="igSort('r_squared')" id="igTh-r_squared" title="R² of log(price) over 132d (1 = perfect uptrend)">R²</th>
+              <th class="ig-sort ta-r" onclick="igSort('max_drawdown')" id="igTh-max_drawdown" title="Worst peak-to-trough drawdown (last 6m)">Max DD</th>
+              <th class="ig-sort ta-r" onclick="igSort('ret_6m')" id="igTh-ret_6m">6M Ret</th>
+              <th class="ig-sort ta-r" onclick="igSort('ret_6m_excess')" id="igTh-ret_6m_excess" title="6M outperformance vs Nifty">vs Nifty</th>
+              <th class="ig-sort ta-r" onclick="igSort('ret_12m')" id="igTh-ret_12m">12M Ret</th>
+              <th class="ig-sort ta-r" onclick="igSort('adtv_cr')" id="igTh-adtv_cr" title="Avg daily turnover ₹ Cr (last 30 sessions)">ADTV</th>
+              <th class="ig-sort ta-r" onclick="igSort('roe')" id="igTh-roe">ROE</th>
+              <th class="ig-sort ta-r" onclick="igSort('eps_growth')" id="igTh-eps_growth">EPS gr</th>
+              <th class="ig-sort ta-r" onclick="igSort('sales_growth')" id="igTh-sales_growth">Sales gr</th>
+              <th class="ig-sort ta-r" onclick="igSort('debt_eq')" id="igTh-debt_eq">D/E</th>
+              <th class="ig-sort ta-r" onclick="igSort('pe')" id="igTh-pe">PE</th>
+              <th class="ta-l">Why</th>
+            </tr>
+          </thead>
+          <tbody id="igTbody"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+  <p class="disclaimer">{{ DISCLAIMER }}</p>
+</div>
+
+<script src="/static/investment_grade.js"></script>
