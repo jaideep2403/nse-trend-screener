@@ -1,224 +1,77 @@
-name: Deploy to EC2
+name: Deploy to EC2 (SSH + Docker)
+
+# Simple deploy: SSH to the box, pull v2, rebuild the image, restart the container.
+# No ECR / no SSM / no AWS IAM — matches the "pull from GitHub + run the Dockerfile"
+# decision. Replaces the old ECR+SSM pipeline (kept in git history).
+#
+# ── ONE-TIME SETUP (only the repo owner can do these; they involve a credential) ──
+#   1. On a machine with the box's key, create a deploy keypair (or reuse one):
+#        ssh-keygen -t ed25519 -f deploy_key -N ""
+#      Put the PUBLIC half on the EC2:
+#        ssh <user>@32.197.240.72 'cat >> ~/.ssh/authorized_keys' < deploy_key.pub
+#   2. Add GitHub repo secrets (Settings → Secrets and variables → Actions):
+#        EC2_SSH_KEY        = contents of the PRIVATE key file (deploy_key)
+#        EC2_USER           = ec2-user   (Amazon Linux)  OR  ubuntu  (Ubuntu AMI)
+#        ASCENT_ADMIN_PASS  = your admin password  (optional; demo login works without it)
+#   3. On the box (once): Docker installed, the ssh user in the `docker` group,
+#      /opt/ascent cloned, and /var/lib/ascent holding the bhavcopy cache.
+#
+# After that, every push to v2 (without [skip ci]) OR a manual "Run workflow"
+# deploys automatically.
 
 on:
   push:
     branches: [v2]
-  workflow_dispatch:
+  workflow_dispatch: {}
 
-permissions:
-  id-token: write   # required for OIDC token request
-  contents: read
+# Never let two deploys overlap.
+concurrency:
+  group: deploy-ec2
+  cancel-in-progress: false
 
 env:
-  AWS_REGION: us-east-1
-  ECR_REPOSITORY: nse-dashboard
-  CONTAINER_NAME: nse-dashboard
-  APP_PORT: 5050
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+  EC2_HOST: "32.197.240.72"
 
 jobs:
-  # ────────────────────────────────────────────────────────────────────────────
-  # 1. BUILD — compile image, push to ECR, sign with cosign
-  # ────────────────────────────────────────────────────────────────────────────
-  build:
-    name: Build & Push
-    runs-on: ubuntu-latest
-
-    outputs:
-      image-uri: ${{ steps.push.outputs.image-uri }}
-      image-digest: ${{ steps.push.outputs.image-digest }}
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Configure AWS credentials (OIDC)
-        uses: aws-actions/configure-aws-credentials@v4.1.0
-        with:
-          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
-          aws-region: ${{ env.AWS_REGION }}
-
-      - name: Login to Amazon ECR
-        id: ecr-login
-        uses: aws-actions/amazon-ecr-login@v2.0.1
-
-      - name: Build Docker image
-        run: |
-          docker build \
-            --tag ${{ steps.ecr-login.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${{ github.sha }} \
-            --tag ${{ steps.ecr-login.outputs.registry }}/${{ env.ECR_REPOSITORY }}:latest \
-            .
-
-      - name: Push to ECR
-        id: push
-        run: |
-          docker push ${{ steps.ecr-login.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${{ github.sha }}
-          docker push ${{ steps.ecr-login.outputs.registry }}/${{ env.ECR_REPOSITORY }}:latest
-
-          DIGEST=$(docker inspect --format='{{index .RepoDigests 0}}' \
-            ${{ steps.ecr-login.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${{ github.sha }} \
-            | cut -d@ -f2)
-
-          echo "image-uri=${{ steps.ecr-login.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${{ github.sha }}" >> "$GITHUB_OUTPUT"
-          echo "image-digest=$DIGEST" >> "$GITHUB_OUTPUT"
-
-      # ── Cosign image signing ─────────────────────────────────────────────────
-      # Signs the image digest in ECR using keyless signing (Sigstore).
-      # EC2 can verify this before running — ensures only CI-built images run.
-      - name: Install cosign
-        uses: sigstore/cosign-installer@v3
-
-      - name: Sign image with cosign (keyless)
-        env:
-          COSIGN_EXPERIMENTAL: "1"
-        run: |
-          cosign sign --yes \
-            ${{ steps.ecr-login.outputs.registry }}/${{ env.ECR_REPOSITORY }}@${{ steps.push.outputs.image-digest }}
-
-  # ────────────────────────────────────────────────────────────────────────────
-  # 2. DEPLOY — manual approval gate, then SSM deploy + healthcheck + rollback
-  # ────────────────────────────────────────────────────────────────────────────
   deploy:
-    name: Deploy to Production
-    needs: build
     runs-on: ubuntu-latest
-
-    # GitHub Environment — configure "required reviewers" in repo Settings →
-    # Environments → production to enable the manual approval gate.
-    environment:
-      name: production
-      url: https://jaiojha.link
-
     steps:
-      - name: Configure AWS credentials (OIDC)
-        uses: aws-actions/configure-aws-credentials@v4.1.0
+      - name: Deploy over SSH
+        uses: appleboy/ssh-action@v1.0.3
+        env:
+          ASCENT_ADMIN_PASS: ${{ secrets.ASCENT_ADMIN_PASS }}
         with:
-          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
-          aws-region: ${{ env.AWS_REGION }}
-
-      - name: Login to Amazon ECR
-        id: ecr-login
-        uses: aws-actions/amazon-ecr-login@v2.0.1
-
-      - name: Deploy via SSM (no SSH required)
-        id: ssm-deploy
-        run: |
-          IMAGE_URI="${{ needs.build.outputs.image-uri }}"
-          ECR_REGISTRY="${{ steps.ecr-login.outputs.registry }}"
-
-          COMMAND_ID=$(aws ssm send-command \
-            --instance-ids "${{ secrets.EC2_INSTANCE_ID }}" \
-            --document-name "AWS-RunShellScript" \
-            --comment "Deploy ${{ github.sha }}" \
-            --parameters "commands=[
-              'docker image prune -af || true',
-              'docker pull $IMAGE_URI',
-              'docker rm -f ${{ env.CONTAINER_NAME }} 2>/dev/null || true',
-              'docker run -d --restart=unless-stopped -p ${{ env.APP_PORT }}:${{ env.APP_PORT }} -v nse-data:/data --name ${{ env.CONTAINER_NAME }} $IMAGE_URI'
-            ]" \
-            --query "Command.CommandId" \
-            --output text)
-
-          echo "command-id=$COMMAND_ID" >> "$GITHUB_OUTPUT"
-
-          # Wait for SSM command to finish (max 3 min)
-          aws ssm wait command-executed \
-            --command-id "$COMMAND_ID" \
-            --instance-id "${{ secrets.EC2_INSTANCE_ID }}"
-
-          STATUS=$(aws ssm get-command-invocation \
-            --command-id "$COMMAND_ID" \
-            --instance-id "${{ secrets.EC2_INSTANCE_ID }}" \
-            --query "Status" --output text)
-
-          echo "SSM command status: $STATUS"
-          if [ "$STATUS" != "Success" ]; then
-            echo "===== SSM stdout (on-instance output) ====="
-            aws ssm get-command-invocation --command-id "$COMMAND_ID" \
-              --instance-id "${{ secrets.EC2_INSTANCE_ID }}" \
-              --query "StandardOutputContent" --output text || true
-            echo "===== SSM stderr (the real docker error) ====="
-            aws ssm get-command-invocation --command-id "$COMMAND_ID" \
-              --instance-id "${{ secrets.EC2_INSTANCE_ID }}" \
-              --query "StandardErrorContent" --output text || true
-            exit 1
-          fi
-
-      # ── Healthcheck + Auto-rollback ──────────────────────────────────────────
-      # Waits 30s for container boot, then polls /api/header for up to 180s.
-      # If 5 consecutive failures are seen, the previous SHA image is re-deployed.
-      - name: Healthcheck
-        id: healthcheck
-        continue-on-error: true
-        run: |
-          APP_URL="https://jaiojha.link/api/header"
-          MAX_WAIT=180
-          FAIL_THRESHOLD=5
-          consecutive_failures=0
-          elapsed=0
-
-          echo "Waiting 30s for container to boot..."
-          sleep 30
-
-          echo "Polling $APP_URL for ${MAX_WAIT}s..."
-
-          while [ $elapsed -lt $MAX_WAIT ]; do
-            HTTP=$(curl -o /dev/null -s -w "%{http_code}" --max-time 5 "$APP_URL" || echo "000")
-            if [ "$HTTP" = "200" ]; then
-              echo "✓ Healthy (HTTP $HTTP) after ${elapsed}s"
-              exit 0
+          host: ${{ env.EC2_HOST }}
+          username: ${{ secrets.EC2_USER }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+          # keep the private key out of the shell log; pass the password via env
+          envs: ASCENT_ADMIN_PASS
+          command_timeout: "20m"
+          script: |
+            set -euo pipefail
+            REPO=/opt/ascent
+            # first deploy clones; later deploys pull
+            if [ ! -d "$REPO/.git" ]; then
+              sudo mkdir -p "$REPO" && sudo chown "$USER":"$USER" "$REPO"
+              git clone https://github.com/jaideep2403/nse-trend-screener.git "$REPO"
             fi
-            consecutive_failures=$((consecutive_failures + 1))
-            echo "✗ HTTP $HTTP (failure $consecutive_failures)"
-            if [ $consecutive_failures -ge $FAIL_THRESHOLD ]; then
-              echo "HEALTH_FAILED=true" >> "$GITHUB_ENV"
-              exit 1
-            fi
-            sleep 5
-            elapsed=$((elapsed + 5))
-          done
+            cd "$REPO"
+            git config --global --add safe.directory "$REPO"
+            git fetch origin v2
+            git reset --hard origin/v2          # exact match to the pushed code
+            git log --oneline -1
 
-          echo "Healthcheck timed out"
-          echo "HEALTH_FAILED=true" >> "$GITHUB_ENV"
-          exit 1
+            docker build -t ascentx:latest .
 
-      - name: Auto-rollback on failure
-        if: env.HEALTH_FAILED == 'true'
-        run: |
-          ECR_REGISTRY="${{ steps.ecr-login.outputs.registry }}"
+            docker rm -f ascentx 2>/dev/null || true
+            docker run -d --name ascentx --restart unless-stopped \
+              -p 127.0.0.1:5050:5050 \
+              -v /var/lib/ascent:/data \
+              -e ASCENT_ENV=production \
+              -e ASCENT_BACKGROUND_JOBS=1 \
+              -e ASCENT_DEMO_PASS=demo123 \
+              -e ASCENT_ADMIN_PASS="${ASCENT_ADMIN_PASS:-}" \
+              ascentx:latest
 
-          # Find the previous image (second-most-recent by push time, not "latest")
-          PREV_SHA=$(aws ecr describe-images \
-            --repository-name "${{ env.ECR_REPOSITORY }}" \
-            --query "sort_by(imageDetails, &imagePushedAt)[-2].imageTags" \
-            --output json | jq -r '.[] | select(. != "latest")' | head -1)
-
-          if [ -z "$PREV_SHA" ]; then
-            echo "No previous image found — cannot rollback"
-            exit 1
-          fi
-
-          ROLLBACK_IMAGE="$ECR_REGISTRY/${{ env.ECR_REPOSITORY }}:$PREV_SHA"
-          echo "Rolling back to $ROLLBACK_IMAGE"
-
-          aws ssm send-command \
-            --instance-ids "${{ secrets.EC2_INSTANCE_ID }}" \
-            --document-name "AWS-RunShellScript" \
-            --comment "Rollback to $PREV_SHA" \
-            --parameters "commands=[
-              'docker pull $ROLLBACK_IMAGE',
-              'docker stop ${{ env.CONTAINER_NAME }} 2>/dev/null || true',
-              'docker rm ${{ env.CONTAINER_NAME }} 2>/dev/null || true',
-              'docker run -d --restart=unless-stopped -p ${{ env.APP_PORT }}:${{ env.APP_PORT }} -v nse-data:/data --name ${{ env.CONTAINER_NAME }} $ROLLBACK_IMAGE'
-            ]"
-
-          echo "::error::Deploy of ${{ github.sha }} failed healthcheck — rolled back to $PREV_SHA"
-          exit 1
-
-      - name: Deploy summary
-        if: env.HEALTH_FAILED != 'true'
-        run: |
-          echo "### Deploy successful" >> "$GITHUB_STEP_SUMMARY"
-          echo "- **SHA**: \`${{ github.sha }}\`" >> "$GITHUB_STEP_SUMMARY"
-          echo "- **Image**: \`${{ needs.build.outputs.image-uri }}\`" >> "$GITHUB_STEP_SUMMARY"
-          echo "- **URL**: https://jaiojha.link" >> "$GITHUB_STEP_SUMMARY"
+            docker image prune -f || true
+            echo "Deployed $(git rev-parse --short HEAD). Prewarm runs for ~90s; nginx proxies 80/443 -> 127.0.0.1:5050."
