@@ -81,6 +81,46 @@ app.permanent_session_lifetime = timedelta(days=14)
 import security
 security.init_app(app)
 
+
+# ── #17 — gzip responses over the wire (added 2026-08-13) ───────────────────
+# The dashboard HTML is ~722KB uncompressed and was being served raw — measured,
+# no Content-Encoding header. HTML/JS/CSS compress ~6:1, so this is the single
+# biggest load-time win available and it is nearly free: stdlib gzip in an
+# after_request, no new dependency, no template change. Guards: only text-ish
+# types, only when the client asks, only above 1KB (tiny bodies aren't worth the
+# CPU), never double-encode. Runs BEFORE security._headers via registration order
+# so both sets of headers land.
+import gzip as _gzip
+
+_COMPRESSIBLE = ("text/html", "text/css", "application/javascript",
+                 "text/javascript", "application/json", "image/svg+xml")
+
+@app.after_request
+def _compress(resp):
+    try:
+        if resp.direct_passthrough:
+            return resp
+        if "gzip" not in (request.headers.get("Accept-Encoding") or ""):
+            return resp
+        if resp.headers.get("Content-Encoding"):
+            return resp
+        ctype = (resp.content_type or "").split(";")[0].strip()
+        if ctype not in _COMPRESSIBLE:
+            return resp
+        data = resp.get_data()
+        if len(data) < 1024:
+            return resp
+        packed = _gzip.compress(data, compresslevel=6)
+        resp.set_data(packed)
+        resp.headers["Content-Encoding"] = "gzip"
+        resp.headers["Content-Length"] = str(len(packed))
+        vary = resp.headers.get("Vary")
+        resp.headers["Vary"] = (vary + ", Accept-Encoding") if vary else "Accept-Encoding"
+    except Exception:
+        pass
+    return resp
+
+
 # Paths reachable WITHOUT a session. Everything else requires login.
 _PUBLIC_PATHS = {"/login", "/logout", "/favicon.ico", "/healthz"}
 
@@ -127,9 +167,22 @@ def _login_pulse() -> dict:
             "decline":      b.get("decline"),
             "pct_above_50": b.get("pct_above_50ma"),
             "universe":     b.get("total_stocks"),
-            "regime":       rg.get("regime"),
+            # Show the SAME plain-English label the in-app header uses, not the raw
+            # IBD term — otherwise the login page said "Uptrend Under Pressure" while
+            # the header two clicks later said "Sideways" for the identical regime.
+            # Mapping is the header's regime_map (_resolve_trend); kept in sync here.
+            "regime":       {"Confirmed Uptrend": "Uptrend",
+                             "Uptrend Under Pressure": "Sideways",
+                             "Correction": "Downtrend",
+                             "Downtrend": "Downtrend"}.get(rg.get("regime"), rg.get("regime")),
+            "regime_raw":   rg.get("regime"),
             "regime_label": rg.get("label"),
-            "highs": [{"symbol": h.get("symbol"), "r3m": h.get("r3m")} for h in highs],
+            # Same fields the signed-in ticker renders (symbol/price/r3m/vol_ratio),
+            # so the landing tape and the in-app tape are the same component with
+            # the same data rather than two lookalikes that drift apart.
+            "highs": [{"symbol": h.get("symbol"), "price": h.get("price"),
+                       "r3m": h.get("r3m"), "vol_ratio": h.get("vol_ratio")}
+                      for h in highs],
         }
     except Exception:
         return {}
@@ -931,6 +984,27 @@ def api_header():
 
 
 # ── Risk & Regime engine (capital protection + sizing + honest scorecard) ────
+def canonical_regime_state() -> str | None:
+    """THE single market-regime accessor. BULL / SIDEWAYS / BEAR, or None.
+
+    Added 2026-08-13 to finish the consolidation. Two engines used to answer the
+    same visible question and disagreed outright — regime_engine said BEAR
+    ("Raise cash, do not initiate new longs") while market_breadth said "Uptrend
+    Under Pressure" (which the header renders "Sideways"). Portfolio advice was
+    reading the first and every other surface the second, so a BEAR-adj chip sat
+    two inches under a "Sideways" header. Everything that DISPLAYS a regime now
+    routes through here; regime_engine remains only for the backtest's validated
+    entry gate, where its own definition is what was measured.
+    """
+    try:
+        from market_breadth import _cache as _mb
+        r = ((_mb.get("data") or {}).get("regime") or {}).get("regime")
+        return {"Confirmed Uptrend": "BULL", "Uptrend Under Pressure": "SIDEWAYS",
+                "Correction": "BEAR", "Downtrend": "BEAR"}.get(r)
+    except Exception:
+        return None
+
+
 def _current_regime() -> str:
     """Canonical regime label from Market Breadth's cache (single source of truth)."""
     try:
@@ -1172,7 +1246,9 @@ def api_allweather():
         import regime_engine as _rg, industry_groups as _ig
         import system_backtest as _sb, defensive_scan as _ds
         reg = _rg.live_regime()
-        state = reg.get("state")
+        # DISPLAY state comes from the canonical accessor so this tab cannot
+        # contradict the header/portfolio; reg is still used for its own detail.
+        state = canonical_regime_state() or reg.get("state")
         stocks = _ig._get_stocks()
         picks, secondary = [], None
         # The validated engine runs the Defensive-Momentum Leaders whenever risk-on
@@ -2015,6 +2091,183 @@ def near_scan_status():
     })
 
 
+@app.route("/api/unusual-volume")
+def api_unusual_volume():
+    """Delivery-backed unusual volume — the smart-money section of the Vol Spike tab.
+
+    Uses data_fetcher.fetch_ohlcv (not shared_universe) because only that loader
+    keeps the DelivPer column, and delivery is the whole point: relative volume
+    alone cannot separate accumulation from intraday churn. ~26s cold, 30min cache.
+    """
+    try:
+        import unusual_volume as _uv
+        return jsonify(_uv.run_unusual_volume_scan())
+    except Exception as e:
+        return jsonify({"results": [], "scanned": 0, "found": 0, "error": str(e)})
+
+
+@app.route("/api/weekly-breakout")
+def api_weekly_breakout():
+    """Fresh weekly-bar breakouts — the short-horizon section of the Multi-Yr tab.
+
+    A plain GET rather than the scan/status pair the monthly scans use: this runs
+    off the daily bhavcopy cache that is already in memory (~6.5s cold, cached for
+    6h afterwards), so it needs no background thread or progress polling.
+    """
+    try:
+        import weekly_breakout as _wb
+        return jsonify(_wb.run_weekly_breakout_scan())
+    except Exception as e:
+        return jsonify({"results": [], "scanned": 0, "found": 0, "error": str(e)})
+
+
+@app.route("/api/today")
+def api_today():
+    """#8 — ONE view answering "what changed and what needs a decision today".
+
+    The app has 27 tabs and 89 endpoints; nobody works across that. This collapses
+    the signal surface to: the market call, what the ONE validated screen fired,
+    what broke out and is still working, and what needs attention. Every block
+    carries its capacity and its honest expectancy, because a list without those
+    implies a scalability and a hit-rate the measurements do not support.
+    """
+    out = {"computed_at": time.time()}
+    try:
+        import signal_context as _sc
+        import weekly_breakout as _wb
+        import unusual_volume as _uv
+
+        out["regime"] = {"state": canonical_regime_state(),
+                         "label": _current_regime()}
+
+        acc = (_uv.run_accumulation_scan() or {}).get("results") or []
+        wbo = (_wb.run_weekly_breakout_scan() or {}).get("results") or []
+        pb  = _wb.run_post_breakout_scan() or {}
+        pbr = pb.get("results") or []
+
+        working = [r for r in pbr if r.get("state") in ("CLIMBING", "EXTENDED")]
+        attention = [r for r in pbr if r.get("state") in ("STALLED", "AT PIVOT")]
+
+        out["blocks"] = [
+            {"key": "accumulation", "title": "Institutional accumulation",
+             "subtitle": "The only screen that survived 7-year walk-forward validation",
+             "rows": acc[:12], "n": len(acc),
+             "capacity": _sc.capacity_for(acc),
+             "evidence": ("+1.15pp vs peers over 349,124 observations (2019-2026); "
+                          "20 of 28 quarterly folds positive, t=3.37. Win rate 54.7% "
+                          "vs 51.4% — a real but modest edge.")},
+            {"key": "fresh_breakouts", "title": "Fresh breakouts",
+             "subtitle": "Triggered in the last 2 weeks, not yet extended",
+             "rows": wbo[:12], "n": len(wbo),
+             "capacity": _sc.capacity_for(wbo),
+             "evidence": ("Fat-tailed: the MEDIAN breakout LOSES to the market "
+                          "(-3.41% excess, 43.5% win). The edge is entirely a "
+                          "+29.6% top decile, so size for survival, not accuracy.")},
+            {"key": "still_working", "title": "Still working",
+             "subtitle": "Broke out earlier and holding above the pivot",
+             "rows": working[:12], "n": len(working),
+             "capacity": _sc.capacity_for(working),
+             "evidence": (f"{pb.get('hold_rate', 0)}% of {pb.get('tracked', 0)} tracked "
+                          "breakouts are still above their pivot. Bookkeeping, not a buy list.")},
+            {"key": "attention", "title": "Needs a decision",
+             "subtitle": "Stalled, or undecided at the pivot",
+             "rows": attention[:12], "n": len(attention),
+             "capacity": _sc.capacity_for(attention),
+             "evidence": "Holding above the pivot but well off the high, or oscillating at the trigger."},
+        ]
+
+        ov = _sc.annotate_overlap({"accumulation": acc, "weekly": wbo, "post": pbr})
+        out["overlap"] = {"n_multi": ov["n_multi"], "warning": ov["warning"],
+                          "examples": {k: v for k, v in list(ov["multi_screen"].items())[:8]}}
+        out["benchmark"] = {
+            "note": ("Buy & hold, equal-weight liquid universe: 18.11% CAGR / -29.5% maxDD "
+                     "over the tested window. No active configuration tested has beaten it. "
+                     "Judge anything below against that.")}
+        return jsonify(out)
+    except Exception as e:
+        return jsonify({"error": str(e), "blocks": []})
+
+
+@app.route("/api/system")
+def api_system():
+    """The System tab — RS>90 leaders at a pivot that beat the index, with a thesis,
+    actionable advice, and a live daily scoreboard. Honest expectancy is carried on
+    the payload, not hidden: this is a fat-tail screen (see system_leaders)."""
+    try:
+        import system_leaders as _sl
+        d = _sl.run_system_scan()
+        rows = d.get("results") or []
+        # daily tracking: log today's picks, then score every pick ever logged
+        try:
+            import market_breadth as _mb
+            as_of = ((_mb._cache.get("data") or {}).get("bhavcopy_date")) or ""
+        except Exception:
+            as_of = ""
+        _sl.record_picks(rows, as_of or "unknown")
+        # attach first-seen date + days-in-list from the tracker to each row
+        try:
+            _track = _sl._load_track()
+            import datetime as _dt
+            for r in rows:
+                rec = _track.get(r["symbol"]) or {}
+                r["first_seen"] = rec.get("first_seen")
+                try:
+                    d0 = _dt.date.fromisoformat(rec.get("first_seen"))
+                    r["days_in_list"] = (_dt.date.today() - d0).days
+                except Exception:
+                    r["days_in_list"] = 0
+        except Exception:
+            pass
+        try:
+            import shared_universe as _su
+            # Reuse the SAME cached window the scans already built (days=500) instead
+            # of a separate days=60 load — the latter rebuilt a whole universe (~1.4s)
+            # on every /api/today call for nothing but the latest close. Same prices,
+            # zero extra build. (Demo-latency fix 2026-08-17.)
+            U = _su.load_base_universe(days=500)
+            cur = {s: float(df["Close"].iloc[-1]) for s, df in U.items() if len(df)}
+            d["scoreboard"] = _sl.performance(cur)
+        except Exception:
+            d["scoreboard"] = {"picks": [], "aggregate": {"tracked": 0}}
+        segs = {}
+        for r in rows:
+            segs[r.get("segment", "?")] = segs.get(r.get("segment", "?"), 0) + 1
+        d["expectancy"] = {
+            "headline": ("REFINED screen (mcap>=Rs1000cr, best price action, RS 90-97), measured "
+                         "7yr: mean +8.43% / ~3 months, 57% win, +3.11pp vs the universe — up from "
+                         "+0.57pp for the raw RS>90 screen. Removing penny/small caps and keeping "
+                         "only tight price action did the work."),
+            "caveats": [
+                f"Segment split now: {segs.get('CASH',0)} cash, {segs.get('F&O',0)} F&O · "
+                f"{d.get('n_conviction',0)} HIGH-CONVICTION (F&O + established uptrend).",
+                "DUD-FILTER — measured, not guessed: a multi-factor 'leader score' was tested and "
+                "did NOT separate winners from duds (top-15 = the cohort). The ONLY filter that "
+                "worked is HIGH CONVICTION = F&O + >60 sessions trending: fwd-6m median +20.8pp / "
+                "69% beat vs the cohort +6.4pp / 58%. Use the 'High conviction' filter for that "
+                "subset — fewer names, better odds, wider variance (n=134 over 7yr).",
+                "This means the strongest subset is F&O, not cash — the opposite of the usual "
+                "'small caps run more' belief. The cash multi-baggers are a rarer, lower-odds fat tail.",
+                "No filter makes it certain: CUPID (+216%) and CSBBANK (-39%) looked identical at "
+                "signal. Spread across the subset, cut losers at the stop, let winners run."]}
+        return jsonify(d)
+    except Exception as e:
+        return jsonify({"results": [], "scanned": 0, "found": 0, "error": str(e)})
+
+
+@app.route("/api/post-breakout")
+def api_post_breakout():
+    """What happened AFTER each recent breakout — climbing / extended / stalled / failed.
+
+    Bookkeeping on open ideas, not a buy list. Same cache pattern as the sibling
+    weekly-breakout route above.
+    """
+    try:
+        import weekly_breakout as _wb
+        return jsonify(_wb.run_post_breakout_scan())
+    except Exception as e:
+        return jsonify({"results": [], "counts": {}, "tracked": 0, "error": str(e)})
+
+
 # ── Edge Engine state ─────────────────────────────────────────────────────────
 edge_state = {
     "running": False, "result": None, "error": None,
@@ -2855,6 +3108,15 @@ _PREWARM_SCANS = [
     ("early_growth", "early_growth",           "run_early_growth_scan"),
     ("vvv",          "minervini_vvv",          "run_vvv_scan"),
     ("mbo",          "multiyear_breakout",     "run_multiyear_scan"),   # slowest — last
+    # Added 2026-08-13 (#11). These three were NOT prewarmed, so the first visitor
+    # after every restart paid the full scan on the request thread — the "Full scan
+    # takes ~90 seconds" wait. They are cheap relative to mbo and share the already
+    # warm base universe, so warming them here costs seconds and removes the worst
+    # moment in the app.
+    ("weekly_bo",    "weekly_breakout",        "run_weekly_breakout_scan"),
+    ("post_bo",      "weekly_breakout",        "run_post_breakout_scan"),
+    ("accumulation", "unusual_volume",         "run_accumulation_scan"),
+    ("system",       "system_leaders",         "run_system_scan"),
 ]
 
 def _prewarm_all_scans(trigger="startup"):
@@ -2873,6 +3135,23 @@ def _prewarm_all_scans(trigger="startup"):
                 print(f"[prewarm/{trigger}] {label}: {time.time()-_t0:.1f}s", flush=True)
             except Exception as _pe:
                 print(f"[prewarm/{trigger}] {label} FAILED: {_pe}", flush=True)
+        # Warm the CACHED-BUT-NOT-run_* endpoints too (allweather, promoter, today,
+        # system) so the FIRST demo click is instant, not a 4-12s cold compute.
+        # These compute inside their routes and cache by bhavcopy tag, so a single
+        # server-side GET (synthetic admin session) fills their caches. Added
+        # 2026-08-17 for the client demo — measured cold: today 11.9s, promoter 7.9s.
+        try:
+            _wc = app.test_client()
+            with _wc.session_transaction() as _s:
+                _s["user"], _s["role"] = "_prewarm", "admin"
+            for _ep in ("/api/allweather", "/api/promoter", "/api/system", "/api/today"):
+                try:
+                    _t0 = time.time(); _wc.get(_ep)
+                    print(f"[prewarm/{trigger}] warm {_ep}: {time.time()-_t0:.1f}s", flush=True)
+                except Exception as _we:
+                    print(f"[prewarm/{trigger}] warm {_ep} FAILED: {_we}", flush=True)
+        except Exception as _we:
+            print(f"[prewarm/{trigger}] endpoint warm skipped: {_we}", flush=True)
     finally:
         _prewarm_lock.release()
 

@@ -79,3 +79,8 @@ guardian.db
 .auth_secret
 .auth_users.json
 .portfolio_hwm.json
+rs_leaders_validation.py
+
+# Runtime data artifacts — server-side state, never source
+.hypothesis_registry.json
+.system_track.json

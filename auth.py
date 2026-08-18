@@ -1,4 +1,4 @@
-"""Lightweight session auth for Ascent Wealth Labs.
+"""Lightweight session auth for AscentX.
 
 Two roles:
   • admin — full access, including personal positions (My Portfolio, Strategy,

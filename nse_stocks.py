@@ -136,6 +136,17 @@ def is_etf(symbol: str) -> bool:
     # Fund/ETF name tokens that no real (non-whitelisted) stock carries.
     if any(t in s for t in ("ETF", "BEES", "LIQUID", "GILT", "GSEC")):
         return True
+    # INDEX-TRACKER GAP (fixed 2026-08-06). The list above catches fund-suffixed
+    # names but not index trackers, so 44 ETFs were reaching every stock screener:
+    # AONENIFTY, AXISNIFTY, HDFCNEXT50, MONIFTY500, PSUBANK, MIDCAP, SMALLCAP,
+    # SENSEXBETA … A weekly-breakout scan surfaced HDFCNEXT50 as a "stock
+    # breakout", which is what exposed it. Verified against the live 2,597-symbol
+    # universe: these tokens flag exactly those 44 index products and ZERO real
+    # operating companies (the fund-named real stocks stay covered by _NOT_ETF
+    # whitelisting above).
+    if any(t in s for t in ("NIFTY", "NEXT50", "SENSEX", "MIDCAP", "SMALLCAP",
+                            "PSUBANK", "MOM50", "MOM100", "CPSE", "BHARATBOND")):
+        return True
     # Commodity (gold / silver) ETFs.
     if "GOLD" in s or "SILVER" in s or "SLVR" in s:
         return True

@@ -3,28 +3,63 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Sign in · Ascent Wealth Labs</title>
+<title>Sign in · AscentX</title>
 <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
 <style>
   /* ── Sign-in page, redesigned 2026-08-04 (ideas 8–11 only) ─────────────────
      8  two-column: pitch owns the left, auth the right. The old single centred
         card left roughly 60% of a desktop viewport empty.
-     9  contrast: the old mint card on a mint field barely separated from its own
-        background. Measured in-browser against each element's real backdrop:
-        body copy 8.83:1 · stat value 9.50:1 · method chip 8.24:1 · card sub 8.24:1
-        · demo copy 7.66:1 · disclaimer 5.73:1 · as-of 5.35:1 · stat label 4.97:1.
-        Lowest is 4.97:1 — every one clears the 4.5:1 WCAG AA floor.
+     9  contrast: the original failure was a mint card on a mint field — same tone
+        against same tone, so nothing separated. The current design fixes that with
+        a genuine light/dark split: a light PAGE with the two panels held dark on
+        top of it. Ratios are in the :root block below; the lowest is 4.65:1, clear
+        of the 4.5:1 AA floor.
      10 live data as hero: real numbers from today's bhavcopy, server-rendered.
-     11 dark: matches the dashboard's terminal aesthetic, instead of promising a
-        mint-green app and then delivering a navy one.
+     11 palette (2026-08-13, final): canvas + gradient taken from bananapatterns.com,
+        the reference the user wanted matched. Their page is NOT tinted — --bg is
+        pure #ffffff and the warmth is one hero gradient; their yellow #FFC926 is a
+        brand accent only. Earlier mint and light-yellow canvases were tried and
+        rejected. The panels stay dark — that split carries the terminal identity.
      The grid collapse below 900px is a structural requirement of #8 — without it
      two columns simply break — not the separate mobile pass (#13), which is out
      of scope here. */
   :root{
-    --bg:#0b1017; --surface:#111823; --surface2:#161f2d;
-    --border:#22304a; --border2:#2c3d5c;
-    --text:#e8eef8; --text2:#9fb2cc; --muted:#7d8ea8;
-    --green:#22c55e; --green2:#4ade80; --red:#f87171;
+    /* CANVAS = bananapatterns.com's, sampled from their live site 2026-08-13:
+       their --bg is pure #ffffff and the visible warmth is a single hero gradient
+       rgb(253,252,247) -> rgb(251,251,250) -> #ffffff, applied verbatim on body
+       below. #fdfcf7 is that gradient's top stop and is the solid fallback.
+       The two panels (.pulse and .card) stay DARK on top of it; that light/dark
+       split is the layout. Text on the canvas uses ink tokens; anything inside a
+       dark panel keeps the light-on-dark tokens further down.
+       Measured against #fdfcf7 for WCAG AA:
+         ink  #1e293b -> 14.24:1      ink2/ink3 #475569 -> 7.38:1
+         headline gradient #2563eb -> 5.03:1, #1d4ed8 -> 6.52:1
+         dark panel #111823 on it -> 17.34:1
+       NOTE the app's --muted #94a3b8 is NOT used for text here (2.31:1). */
+    --page:#fdfcf7; --page2:#f1f5f9; --band:#e9f0fb;
+    --ink:#1e293b; --ink2:#475569; --ink3:#475569; --rule:#d7dbe2;
+    /* Headline gradient — the app's blue action accents, not the old greens. */
+    --accent-1:#2563eb; --accent-2:#1d4ed8;
+    /* PANELS ARE NOW LIGHT (2026-08-13), matching bananapatterns' white cards.
+       These were a dark set (#111823 surface, #e8eef8 text). Everything inside a
+       panel reads these tokens, so flipping them here flips the whole card at once
+       instead of hunting ~20 rules.
+       NOTE several of THEIR text tokens fail WCAG AA on their own surfaces and are
+       therefore nudged darker rather than copied blind — measured over BOTH #ffffff
+       and #f7f8fa: their --muted #6b7480 = 4.46:1, --faint #9aa3ad = 2.41:1,
+       --green #1a8a4a = 4.14:1. The values below are the nearest AA-safe
+       neighbours: text2 4.94:1, muted 4.80:1, green 4.94:1, red 4.53:1. */
+    --bg:#ffffff; --surface:#ffffff; --surface2:#f7f8fa;
+    --border:#e9ecef; --border2:#dfe3e8;
+    --text:#1a1a17; --text2:#646d78; --muted:#666f7a;
+    --green:#177c42; --green2:#177c42; --red:#d2392f;
+    /* 52-week-high tape chips. They were --surface2 #f7f8fa on a #ffffff card =
+       1.05:1 — effectively invisible, which is why they read as unhighlighted.
+       Tinted with bananapatterns' own --green-bg #e6f4ec (these rows ARE new highs,
+       so green is semantic, not decoration) and given a real edge. The % is darkened
+       from #177c42 (4.63:1 on the tint) to #12592e (7.42:1) — it is the number being
+       read, so it gets the headroom. Symbol ink stays #1a1a17 = 15.38:1. */
+    --tape-chip-bg:#e6f4ec; --tape-chip-bd:#bcdcc9; --tape-chip-pct:#12592e;
     --green3:#16a34a;
     /* This page is standalone — it does NOT inherit index.html's tokens, so the
        scale is defined here. The previous version referenced var(--fs-*) 16 times
@@ -37,26 +72,23 @@
   html,body{min-height:100%}
   body{
     font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
-    background:var(--bg); color:var(--text);
+    /* bananapatterns' literal hero gradient, sampled from their site. */
+    background:var(--page);
+    background-image:linear-gradient(rgb(253,252,247) 0%, rgb(251,251,250) 62%, #ffffff 100%);
+    background-attachment:fixed;
+    color:var(--ink);
     -webkit-font-smoothing:antialiased;
     display:flex; align-items:center; justify-content:center;
     padding:32px 24px; position:relative; overflow-x:hidden;
   }
-  /* Depth without noise: two soft pools of colour + a faint market grid. */
-  body::before{
-    content:''; position:fixed; inset:0; z-index:0; pointer-events:none;
-    background:
-      radial-gradient(900px 520px at 12% -8%, rgba(34,197,94,.13), transparent 62%),
-      radial-gradient(760px 460px at 96% 8%, rgba(59,130,246,.12), transparent 58%);
-  }
-  body::after{
-    content:''; position:fixed; inset:0; z-index:0; pointer-events:none; opacity:.5;
-    background-image:
-      linear-gradient(rgba(120,160,220,.045) 1px, transparent 1px),
-      linear-gradient(90deg, rgba(120,160,220,.045) 1px, transparent 1px);
-    background-size:46px 46px;
-    mask-image:radial-gradient(circle at 45% 35%, #000 45%, transparent 92%);
-  }
+  /* NO viewport overlays — this is what was tinting the page BLUE. Two fixed,
+     full-viewport layers used to sit over the canvas: radial pools of
+     rgba(37,99,235,.13) (blue) + rgba(148,163,184,.20) (slate), and a
+     rgba(71,85,105,.07) slate grid. Against bananapatterns' clean cream->white
+     sweep those read as a cold cast, which is exactly the "bluish tone" reported.
+     Their page has no such layers — sweeping every surface >40,000 px^2 on their
+     site returned ONE element, the gradient itself. Removed rather than re-tinted,
+     because any overlay at all defeats matching their canvas. */
 
   /* ── 8. Two-column shell ── */
   .shell{
@@ -78,19 +110,26 @@
     box-shadow:0 6px 20px rgba(22,163,74,.32);
   }
   .brand h1{font-size:var(--fs-xl); font-weight:800; letter-spacing:-.3px; line-height:1.15}
-  .brand p{font-size:var(--fs-xs); font-weight:700; color:var(--text2); letter-spacing:1.4px; text-transform:uppercase; margin-top:3px}
+  .brand p{font-size:var(--fs-xs); font-weight:700; color:var(--ink3); letter-spacing:1.4px; text-transform:uppercase; margin-top:3px}
 
   .headline{font-size:var(--fs-display); line-height:1.14; font-weight:800; letter-spacing:-1.1px; margin-bottom:14px}
   .headline .hl{
-    background:linear-gradient(95deg,var(--green2),#5eead4);
+    background:linear-gradient(95deg,var(--accent-1),var(--accent-2));
     -webkit-background-clip:text; background-clip:text; -webkit-text-fill-color:transparent;
   }
-  .kicker{font-size:var(--fs-lg); line-height:1.65; color:var(--text2); max-width:52ch; margin-bottom:26px}
+  .kicker{font-size:var(--fs-lg); line-height:1.65; color:var(--ink2); max-width:52ch; margin-bottom:26px}
+
+  /* Panels re-assert their own ink. Kept (rather than deleted) now that the panels
+     are light too: --ink and --text are different values, and leaving descendants
+     to inherit whichever won last is how the earlier 1.04:1 invisible-text bug
+     happened. Explicit beats implicit here. */
+  .pulse, .card{color:var(--text)}
 
   /* ── 10. Live data hero ── */
   .pulse{
     border:1px solid var(--border); border-radius:14px; background:var(--surface);
-    padding:16px 18px 14px; box-shadow:0 10px 34px rgba(0,0,0,.34);
+    padding:16px 18px 14px; border-radius:12px;
+    box-shadow:0 1px 2px rgba(20,30,40,.04), 0 1px 3px rgba(20,30,40,.06);
   }
   .pulse-top{display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap; margin-bottom:14px}
   .live{display:flex; align-items:center; gap:7px; font-size:var(--fs-xs); font-weight:800; letter-spacing:1.1px; text-transform:uppercase; color:var(--text2)}
@@ -116,22 +155,23 @@
   .tape-track{display:inline-flex; gap:9px; white-space:nowrap; animation:tape 46s linear infinite; will-change:transform}
   .tape:hover .tape-track{animation-play-state:paused}
   @keyframes tape{from{transform:translateX(0)}to{transform:translateX(-50%)}}
-  .tk{display:inline-flex; align-items:center; gap:6px; padding:5px 10px; border-radius:7px;
-      background:var(--surface2); border:1px solid var(--border); font-size:var(--fs-sm)}
+  .tk{display:inline-flex; align-items:center; gap:6px; padding:5px 11px; border-radius:7px;
+      background:var(--tape-chip-bg); border:1px solid var(--tape-chip-bd); font-size:var(--fs-sm)}
   .tk b{font-weight:700; letter-spacing:.2px}
-  .tk span{font-family:var(--mono); font-size:var(--fs-xs)}
+  .tk span{font-family:var(--mono); font-size:var(--fs-xs); font-weight:600; color:var(--tape-chip-pct)}
   .asof{margin-top:11px; font-size:var(--fs-xs); color:var(--muted); font-family:var(--mono)}
 
   .method{display:flex; flex-wrap:wrap; gap:7px; margin-top:22px}
   .method span{
     font-size:var(--fs-xs); font-weight:600; color:var(--text2);
     background:var(--surface); border:1px solid var(--border);
+    box-shadow:0 2px 8px rgba(30,41,59,.10);
     padding:6px 11px; border-radius:999px;
   }
 
   /* ── Right: auth ── */
   .card{
-    background:var(--surface); border:1px solid var(--border2); border-radius:16px;
+    background:var(--surface); border:1px solid var(--border2); border-radius:12px;
     padding:30px 30px 26px; box-shadow:0 22px 60px rgba(0,0,0,.5);
   }
   .card h2{font-size:var(--fs-2xl); font-weight:800; letter-spacing:-.35px}
@@ -140,7 +180,7 @@
   .field label{display:block; font-size:var(--fs-micro); font-weight:800; letter-spacing:1px; text-transform:uppercase; color:var(--text2); margin-bottom:7px}
   .field input{
     width:100%; padding:12px 14px; border-radius:10px; font-size:var(--fs-base);
-    background:#0d1420; border:1px solid var(--border2); color:var(--text);
+    background:#ffffff; border:1px solid var(--border2); color:var(--text);
     font-family:inherit; transition:border-color .14s, box-shadow .14s;
   }
   .field input::placeholder{color:#5d6f88}
@@ -164,7 +204,7 @@
   .demo{background:var(--surface2); border:1px solid var(--border); border-radius:11px; padding:14px 15px}
   .demo b{font-size:var(--fs-md)}
   .demo p{font-size:var(--fs-sm); color:var(--text2); line-height:1.6; margin-top:3px}
-  .demo code{font-family:var(--mono); font-size:var(--fs-xs); background:#0d1420; border:1px solid var(--border); padding:1px 6px; border-radius:5px; color:var(--green2)}
+  .demo code{font-family:var(--mono); font-size:var(--fs-xs); background:var(--surface2); border:1px solid var(--border); padding:1px 6px; border-radius:5px; color:var(--green2)}
   .demo-fill{
     display:inline-block; margin-top:10px; width:100%; padding:9px; cursor:pointer;
     background:transparent; border:1px solid var(--green); border-radius:8px;
@@ -175,7 +215,7 @@
 
   .err{display:none; background:color-mix(in srgb, var(--red) 14%, transparent);
        border:1px solid color-mix(in srgb, var(--red) 42%, transparent);
-       color:#fca5a5; font-size:var(--fs-md); padding:10px 13px; border-radius:9px; margin-bottom:16px}
+       color:var(--red); font-size:var(--fs-md); padding:10px 13px; border-radius:9px; margin-bottom:16px}
   .err.show{display:block}
   .signed-in{background:color-mix(in srgb, var(--green) 12%, transparent);
              border:1px solid color-mix(in srgb, var(--green) 34%, transparent);
@@ -185,8 +225,8 @@
   .si-alt{color:var(--text2); font-size:var(--fs-sm); margin-top:6px}
 
   .foot{
-    grid-column:1/-1; text-align:center; font-size:var(--fs-xs); color:var(--muted);
-    line-height:1.75; margin-top:38px; padding-top:20px; border-top:1px solid var(--border);
+    grid-column:1/-1; text-align:center; font-size:var(--fs-xs); color:var(--ink3);
+    line-height:1.75; margin-top:38px; padding-top:20px; border-top:1px solid var(--rule);
   }
 
   /* Structural collapse for the 2-col grid — without this #8 simply breaks. */
@@ -211,7 +251,7 @@
           <svg width="23" height="23" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3 17l6-6 4 4 8-8"/><path d="M17 7h4v4" stroke="#fde68a"/></svg>
         </div>
         <div>
-          <h1>Ascent Wealth Labs</h1>
+          <h1>AscentX</h1>
           <p>AI Powered Analytics Platform</p>
         </div>
       </div>
@@ -234,7 +274,7 @@
             <div class="k">52W Highs</div>
             <div class="v pos">{{ pulse.new_highs }}</div>
           </div>
-          <div class="stat">
+          <div class="stat" title="Advancing vs declining stocks on the last session. These deliberately do NOT sum to Universe: stocks that closed exactly unchanged are counted in neither leg (standard advance/decline convention), and any stock that did not trade that session cannot advance or decline. On 12-Aug that was 7 unchanged + 5 not traded = the 12-stock gap between 739 and 751.">
             <div class="k">Adv / Dec</div>
             <div class="v neu">{{ pulse.advance }}<small>/{{ pulse.decline }}</small></div>
           </div>
@@ -242,9 +282,9 @@
             <div class="k">Above 50-DMA</div>
             <div class="v {{ 'pos' if (pulse.pct_above_50 or 0) >= 50 else 'neg' }}">{{ pulse.pct_above_50 }}<small>%</small></div>
           </div>
-          <div class="stat">
+          <div class="stat" title="Breadth universe: the curated liquid set these market-health figures are measured on. The screeners themselves run on a wider set of every NSE EQ symbol that still trades — so this number is the breadth sample, not the scan coverage.">
             <div class="k">Universe</div>
-            <div class="v neu">{{ pulse.universe }}</div>
+            <div class="v neu">{{ pulse.universe }}<small>&nbsp;breadth</small></div>
           </div>
         </div>
 

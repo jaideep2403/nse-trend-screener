@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Ascent Wealth Labs — Analytics Platform</title>
+<title>AscentX — Analytics Platform</title>
 <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -50,24 +50,42 @@
     --mono:       'JetBrains Mono', 'Courier New', monospace;
   }
   body.light {
-    /* Warm ivory canvas (matched to the reference grid-paper swatch), replacing the
-       navy trading floor. White cards on ivory sit only ~4% apart, so separation now
-       rests on the near-black --border + the card shadow, NOT on canvas luminance —
-       that is why --border must stay dark here.
+    /* Canvas #fdfcf7 — read directly off bananapatterns.com (2026-08-13), which is
+       the look being matched. Worth knowing what their palette actually is, because
+       it is NOT a yellow page: their --bg and card surface are pure #ffffff and the
+       warmth comes from one hero gradient, rgb(253,252,247) -> rgb(251,251,250) ->
+       #ffffff. #fdfcf7 is that gradient's top stop. Their yellow (--banana #FFC926)
+       is a small brand ACCENT, never a background. Channel spread: their #fdfcf7 is
+       6, our previous yellow #fbf7e4 was 23 — i.e. the professional feel comes from
+       near-white with a whisper of warmth, not from a tinted canvas.
+       --surface2 also moved to their #f7f8fa (was slate #f1f5f9).
+       Canvas, surfaces, borders and the card shadow are now bananapatterns' exact
+       values. NOTE this INVERTS the old separation mechanism: this theme used to
+       use a near-black --border (#1e293b) because white cards on a tinted canvas
+       were only ~4% apart. Their system is white-on-white with a #e9ecef hairline
+       and a very soft shadow doing the separating instead. Border and shadow are
+       therefore coupled — changing one without the other either muddies the cards
+       or makes them disappear entirely.
        --on-bg flips DARK with the canvas: it was #dbe3ee (light text for navy), which
        would be invisible on ivory. */
-    --bg: #f4f3ee; --surface: #ffffff; --surface2: #f1f5f9;
+    --bg: #fdfcf7; --surface: #ffffff; --surface2: #f7f8fa;
     --on-bg: #475569;
     /* Fields are WHITE in light mode — they sit inside white cards. */
     --field: #ffffff;
     /* Borders sit on a #fff surface. Pale greys dissolved into the background, so
        these are near-black for unambiguous separation between sections. */
-    --border: #1e293b; --border2: #0f172a;
+    --border: #e9ecef; --border2: #dfe3e8;
     --accent: #2563eb; --accent2: #1d4ed8;
     --gold: #b45309; --gold2: #92400e;   /* #d97706 was 3.19:1 on white */
     --green: #15803d; --green2: #047857; /* #059669 was 3.77:1 on white */
     --red: #dc2626; --red2: #b91c1c;
-    --muted: #94a3b8; --text: #1e293b; --text2: #475569;
+    /* --muted was #94a3b8, which measured 2.56:1 on a white card and 2.38:1 on the
+       canvas — far under the 4.5:1 AA floor, and it is not decorative: 27 sidebar
+       nav items, stat labels and table sub-text all use it, so a real slice of the
+       UI was effectively low-vision-hostile. #5b6980 is the lightest value in the
+       same slate family that clears AA against BOTH backdrops (5.56:1 on white,
+       5.17:1 on the canvas). Dark mode keeps its own --muted and is untouched. */
+    --muted: #5b6980; --text: #1e293b; --text2: #475569;
     --white: #0f172a; --card: #ffffff;
     /* Very light blue header band: reads as chrome, and gives the header its own
        identity against BOTH the ivory canvas and the white cards. */
@@ -139,12 +157,20 @@
        vivid green are part of that look — rounding them to the scale made the strip
        look dull and washed out. Fixed values, on purpose. */
     --fs-tk:      11.5px;
-    --fs-tk-px:   11px;
+    --fs-tk-px:   11.5px;
     --fs-tk-chg:  10.5px;
     --fs-tk-vol:  9.5px;
     --tk-up:      #22c55e;   /* vivid tape green — 8.5:1 on black */
     --tk-down:    #f87171;   /* tape red         — 6.9:1 on black */
     --tk-vol:     #fbbf24;   /* volume chip      — 11.4:1 on black */
+    /* --tk-px was the literal #97a6bd in both files. It measured 8.51:1 on the black
+       strip — technically past AA, but it was the DIMMEST element on the tape (the
+       symbol is 18.00:1) and the second smallest, set in mono, ON MOVING TEXT. The
+       price is the number a reader actually wants, so styling it as the least
+       prominent thing was the bug. Raised to #c5d0e0 = 13.47:1 and sized to match
+       the symbol; the symbol stays dominant via weight 700 + the brighter #e8eef7,
+       so the hierarchy survives while the number becomes readable in motion. */
+    --tk-px-col:#c5d0e0;
 
     /* ── 9. DENSITY — COMPACT is the default everywhere (no toggle).
        These tables are the product; fitting more rows on screen beats airiness. */
@@ -273,10 +299,20 @@
     -webkit-font-smoothing: antialiased;
     /* Flat neutral canvas. The bull/bear photo (still in /static, keep it for
        marketing pages) sat behind live data: it fought text for contrast, carried
-       an NSE watermark that contradicts the Ascent brand, and forced a whole
+       an NSE watermark that contradicts the AscentX brand, and forced a whole
        cascade of blur + !important opacity hacks below just to stay readable.
        Data surfaces should be calm and flat. */
     background: var(--bg);
+    /* bananapatterns' .hmband gradient, copied verbatim. Their warmth is NOT a flat
+       tint — sweeping every element >40k px^2 on their site found exactly ONE
+       non-white surface, this gradient; everything else is #ffffff/#e9ecef. That is
+       why a flat #fdfcf7 did not read the same: the character comes from the cream
+       -> white sweep, not from the colour alone. `fixed` keeps the warm stop at the
+       top of the viewport on our long scrolling pages, matching how their fixed-
+       height hero presents it. --bg #fdfcf7 is the gradient's first stop and is the
+       fallback wherever background-image cannot paint. */
+    background-image: linear-gradient(rgb(253,252,247) 0%, rgb(251,251,250) 62%, rgb(255,255,255) 100%);
+    background-attachment: fixed;
     min-height: 100vh;
     /* Sticky footer: flex column lets .site-footer's margin-top:auto pin it to
        the bottom on short tabs instead of floating mid-page. */
@@ -538,7 +574,7 @@
   .tk-item { display: inline-flex; align-items: center; gap: 6px; font-size: var(--fs-tk); white-space: nowrap; cursor: pointer; }
   .tk-item:hover .tk-sym { color: #60a5fa; }
   .tk-sym { font-weight: 700; color: #e8eef7; }
-  .tk-px  { font-family: var(--mono); color: #97a6bd; font-size: var(--fs-tk-px); }
+  .tk-px  { font-family: var(--mono); color: var(--tk-px-col); font-size: var(--fs-tk-px); }
   .tk-chg { font-family: var(--mono); font-size: var(--fs-tk-chg); }
   .tk-vol { font-family: var(--mono); font-size: var(--fs-tk-vol); color: var(--tk-vol); background: rgba(245,158,11,0.16); padding: 1px 5px; border-radius: 3px; }
   /* Respect users who ask the OS for less motion — show the tape, just static. */
@@ -584,7 +620,7 @@
   body.light .tab-btn.active { background: #fff; border-color: var(--accent); border-bottom-color: #fff; }
   .tab-content { display: none; }
   .tab-content.active { display: block; }
-  /* ── Ascent Wealth Labs — professional grouped sidebar navigation ──── */
+  /* ── AscentX — professional grouped sidebar navigation ──── */
   .app-shell { display: flex; align-items: flex-start; }
   .sidebar {
     position: sticky; top: 0; align-self: flex-start;
@@ -740,7 +776,12 @@
     background: var(--surface2); color: var(--accent2); font-weight: 700;
     box-shadow: inset 3px 0 0 var(--accent); border: none;
   }
-  body.light .sidebar .tab-btn { background: transparent; border: none; }
+  /* color is asserted HERE, not left to `.sidebar .tab-btn`, because the 27 sidebar
+     items were measured painting #94a3b8 (2.56:1 on the light canvas — below the
+     4.5:1 AA floor) even though both lower-specificity rules resolve to #475569 on
+     that element. Rather than leave a cascade this app cannot explain deciding a
+     legibility-critical colour, light mode states it explicitly at (0,0,3,0). */
+  body.light .sidebar .tab-btn { background: transparent; border: none; color: var(--text2); }
   body.light .sidebar .tab-btn:hover { background: #eef2f7; border: none; }
   body.light .sidebar .tab-btn.active { background: #eaf1ff; border: none; }
   @media (max-width: 860px) {
@@ -750,6 +791,29 @@
       display: flex; flex-wrap: wrap; gap: 3px; }
     .sb-label { width: 100%; }
     .sidebar .tab-btn { width: auto; }
+  }
+
+  /* ── #13 PHONE PASS (added 2026-08-13) ──────────────────────────────────────
+     At 375px the page overflowed to 1281px — the header is a fixed-height nowrap
+     flex of ~10 items, and content padding was desktop-sized. This makes the
+     header wrap, drops the non-essential stats, lets the search go full-width,
+     and shrinks page padding. Wide tables already live in .tbl-scroll and scroll
+     inside their own box, so they are left to scroll rather than forced to reflow. */
+  @media (max-width: 600px) {
+    html, body { overflow-x: hidden; }
+    header { height: auto; flex-wrap: wrap; gap: 8px 12px; padding: 8px 12px; }
+    header > .hdr-sep { display: none; }
+    /* keep NIFTY + market trend + search + account; hide the secondary stats */
+    .hdr-stat.secondary { display: none; }   /* Adv/Dec + Users Online */
+    .hdr-search { flex: 1 1 100%; order: 10; }
+    .hdr-search input { width: 100%; }
+    .container { padding-left: 10px; padding-right: 10px; }
+    .panel-body { padding: 10px; }
+    .tab-intro { font-size: var(--fs-xs); }
+    .stats, #pfSummary { grid-template-columns: repeat(2, 1fr) !important; }
+    .tbl-scroll { max-height: none; }
+    /* the .pulse / hero stat grids on the login-style cards go two-up */
+    .sysStatGrid { grid-template-columns: repeat(2, 1fr); }
   }
 
   /* ── Sortable table headers ── */
@@ -800,7 +864,7 @@
   .card {
     background: var(--surface);
     border: 1px solid var(--border);
-    border-radius: 10px;
+    border-radius: 12px;
     padding: 14px 18px;
     margin-bottom: 12px;
   }
@@ -813,7 +877,7 @@
   .panel {
     background: var(--surface);
     border: 1px solid var(--border);
-    border-radius: 10px;
+    border-radius: 12px;
     margin-bottom: 12px;
     overflow: hidden;
     box-shadow: 0 1px 2px rgba(0,0,0,0.5), 0 6px 18px -6px rgba(0,0,0,0.6),
@@ -824,8 +888,15 @@
      rather than just seating them — but it must stay soft. The 0.35 black shadow this
      replaced was tuned for white-on-navy and reads as a heavy 2010s drop shadow on a
      light canvas. */
-  body.light .panel {
-    box-shadow: 0 1px 2px rgba(30,41,59,0.06), 0 4px 14px -6px rgba(30,41,59,0.14);
+  /* bananapatterns' literal --shadow, sampled from their site. Their cards are
+     white-on-white with a #e9ecef hairline; what actually separates them is this
+     shadow, so the border and the shadow MUST move together — a light border with
+     our old heavy shadow looks muddy, and a light border with NO shadow makes the
+     cards vanish (white card on a white canvas is 1.00:1). */
+  body.light .panel,
+  body.light .card,
+  body.light .stat-card {
+    box-shadow: 0 1px 2px rgba(20,30,40,.04), 0 1px 3px rgba(20,30,40,.06);
   }
   body.light .panel-header { background: none; }
   .panel-header { display: flex; justify-content: space-between; align-items: center; padding: 12px 16px; border-bottom: 1px solid var(--border); }
@@ -1125,7 +1196,7 @@
       <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M3 17l6-6 4 4 8-8"/><path d="M17 7h4v4" stroke="#f6d365"/></svg>
     </div>
     <div style="line-height:1.12">
-      <h1 style="font-size:var(--fs-lg);margin:0;font-weight:800;letter-spacing:-0.3px">Ascent Wealth Labs</h1>
+      <h1 style="font-size:var(--fs-lg);margin:0;font-weight:800;letter-spacing:-0.3px">AscentX</h1>
       <div style="font-size:var(--fs-2xs);color:var(--text2);text-transform:uppercase;letter-spacing:1.2px;margin-top:2px;font-weight:700">AI Powered Analytics Platform</div>
     </div>
   </div>
@@ -1136,7 +1207,7 @@
     <span class="hs-val" id="hdrNifty">—</span>
     <span class="hs-chg" id="hdrNiftyChg" style="font-size:var(--fs-micro)"></span>
   </div>
-  <div class="hdr-stat">
+  <div class="hdr-stat secondary">
     <span class="hs-label">Adv / Dec</span>
     <span class="hs-val" id="hdrAdvDec">—</span>
     <span class="hs-chg" id="hdrAdvDecRatio" style="font-size:var(--fs-micro);color:var(--text2)"></span>
@@ -1145,7 +1216,7 @@
     <span class="hs-label">Market Trend</span>
     <span class="hdr-trend muted" id="hdrTrend">—</span>
   </div>
-  <div class="hdr-stat" title="Unique visitors active on the site in the last minute">
+  <div class="hdr-stat secondary" title="Unique visitors active on the site in the last minute">
     <span class="hs-label">Users Online</span>
     <!-- var(--green2), not a literal: var(--green2) is the DARK-theme green and measured
          1.68:1 on the light header — effectively invisible. -->
@@ -1296,6 +1367,8 @@
   {% if investgrade_enabled %}<button class="tab-btn" onclick="showTab('investgrade', this)"><svg class="ic"><use href="#i-gem"/></svg>Investment Grade</button>{% endif %}
 
   <div class="sb-label">Screeners</div>
+  <button class="tab-btn" onclick="showTab('today', this);todayLoad()"><svg class="ic"><use href="#i-activity"/></svg>Today</button>
+  <button class="tab-btn" onclick="showTab('system', this);sysLoad()"><svg class="ic"><use href="#i-target"/></svg>System</button>
   <button class="tab-btn" onclick="showTab('allweather', this)"><svg class="ic"><use href="#i-umbrella"/></svg>All-Weather Investing</button>
   <button class="tab-btn" onclick="showTab('defensive', this)"><svg class="ic"><use href="#i-shield"/></svg>Defensive Leaders</button>
   <button class="tab-btn" onclick="showTab('trending', this)"><svg class="ic"><use href="#i-flame"/></svg>Trending Stocks</button>
@@ -2731,11 +2804,97 @@
       <li><strong>⚠️ Distribution</strong> — avoid. High volume + closed near low + price fell = institutions selling.</li>
     </ul>
   </div>
+  <!-- ── UNUSUAL VOLUME — delivery-backed, distinct from the rvol scan above ── -->
+  <div class="panel" style="margin-top:14px">
+    <div class="panel-header">
+      <h2><svg class="ic ic-h"><use href="#i-flame"/></svg>Institutional Accumulation — sustained delivery</h2>
+      <span class="timestamp" id="uvTimestamp"></span>
+    </div>
+    <div class="panel-body">
+      <p style="font-size:var(--fs-xs);color:var(--text2);margin:0 0 8px;line-height:1.6">
+        Relative volume cannot separate accumulation from churn — a stock can trade 3&times; normal
+        volume entirely intraday and close in the same hands. NSE publishes <b>delivery %</b>: the
+        share that actually settled into a demat account. This scan requires delivery to stay above
+        <b>this stock's own baseline for 4 of the last 5 sessions</b> AND reach <b>≥55%</b> absolute,
+        within a <b>₹1–25cr/day</b> liquidity band.
+      </p>
+      <div style="font-size:var(--fs-micro);color:var(--muted);background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:9px 11px;margin-bottom:10px;line-height:1.7">
+        <b style="color:var(--text2)">Validated before shipping</b> — 900-stock sample, point-in-time,
+        forward 21 sessions, n=12,158 observations, split by date for in/out-of-sample.<br>
+        <b style="color:var(--green-vivid)">Signal</b> n=190 &rarr; mean <b>+3.52%</b>, median +2.81%, win <b>62.6%</b>.
+        <b>Peers in the same liquidity band</b> n=7,071 &rarr; mean +2.03%, median +0.31%, win 51.1%.
+        <b style="color:var(--green-vivid)">Edge +1.49pp mean, +11.5pp win-rate</b> · IS +1.02pp · <b>OOS +2.16pp</b>.
+        Large losses are rarer too: forward ≤&minus;10% on <b>11.1%</b> of signals vs 14.9% of peers.<br>
+        <b style="color:var(--red)">Rejected by measurement</b> — volume <em>dry-up</em> (Wyckoff) &minus;0.57pp,
+        volume <em>surge</em> &minus;1.93pp, <em>tight range</em> &minus;0.92pp, requiring price above the
+        50-DMA cut the win rate 60.3%&rarr;54.3%. Below ₹1cr ADTV the signal is <b>negative</b> (&minus;1.09pp);
+        above ₹100cr it inverts. Hence the band.<br>
+        Modest, real, and a watchlist generator — not a reason to size aggressively.
+      </div>
+      <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:10px">
+        <button class="btn btn-primary" id="uvBtn" onclick="loadUnusualVolume()">
+          <svg class="ic ic-b"><use href="#i-flame"/></svg>Scan Accumulation</button>
+        <input type="text" id="uvFilter" placeholder="Filter symbol…" oninput="renderUnusualVolume()"
+          style="padding:6px 10px;border-radius:7px;border:1px solid var(--border);background:var(--surface2);color:var(--text);font-size:var(--fs-sm);min-width:170px">
+        <span id="uvSummary" style="font-size:var(--fs-xs);color:var(--muted)"></span>
+      </div>
+      <div id="uvBody"></div>
+    </div>
+  </div>
+
   <p class="disclaimer">{{ DISCLAIMER }} <span class="dc-note">Volume is end-of-day only; intraday spikes are not captured.</span></p>
 </div>
 </div>
 
 <!-- ══════════════════════════════════════════════ MULTI-YEAR BREAKOUT TAB -->
+<div id="tab-today" class="tab-content">
+  <div class="tab-intro"><span class="ti-title">Today</span>One screen: the market call, what the validated signals fired, what's still working, what needs a decision — each with its capacity and its honest expectancy.</div>
+  <div style="display:flex;gap:10px;align-items:center;margin-bottom:12px">
+    <button class="btn btn-primary" id="todayBtn" onclick="todayLoad(true)"><svg class="ic ic-b"><use href="#i-activity"/></svg>Refresh</button>
+    <span id="todayRegime" style="font-size:var(--fs-sm);font-weight:700"></span>
+    <span id="todayMeta" style="font-size:var(--fs-xs);color:var(--muted);margin-left:auto"></span>
+  </div>
+  <div id="todayBench" class="card" style="border-left:3px solid var(--gold);margin-bottom:12px;font-size:var(--fs-sm);color:var(--text2);display:none"></div>
+  <div id="todayBody"></div>
+</div>
+
+<div id="tab-system" class="tab-content">
+  <div class="tab-intro"><span class="ti-title">System</span>The strongest stocks (RS &gt; 90) sitting at a pivot with a trigger, that are beating the index — with a thesis, an action, and a live daily scoreboard.</div>
+
+  <!-- Brutally honest expectancy banner — measured, not asserted -->
+  <div class="card" id="sysExpectancy" style="border-left:3px solid var(--gold);margin-bottom:12px">
+    <div style="font-weight:800;color:var(--gold2);text-transform:uppercase;font-size:var(--fs-xs);letter-spacing:.5px;margin-bottom:5px">Read this before you act</div>
+    <div id="sysExpText" style="font-size:var(--fs-sm);color:var(--text2);line-height:1.6">Loading measured expectancy…</div>
+  </div>
+
+  <!-- Live scoreboard of every pick this tab has ever surfaced -->
+  <div class="panel" style="margin-bottom:12px">
+    <div class="panel-header"><h2><svg class="ic ic-h"><use href="#i-activity"/></svg>Live scoreboard — every pick since first surfaced</h2><span class="timestamp" id="sysScoreMeta"></span></div>
+    <div class="panel-body"><div id="sysScoreboard" style="font-size:var(--fs-sm);color:var(--text2)">—</div></div>
+  </div>
+
+  <div class="panel">
+    <div class="panel-header">
+      <h2><svg class="ic ic-h"><use href="#i-target"/></svg>Leaders at a pivot</h2>
+      <span class="timestamp" id="sysTimestamp"></span>
+    </div>
+    <div class="panel-body">
+      <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:10px">
+        <button class="btn btn-primary" id="sysBtn" onclick="sysLoad(true)"><svg class="ic ic-b"><use href="#i-target"/></svg>Refresh</button>
+        <select id="sysTrig" onchange="sysRender()" style="padding:6px 10px;border-radius:7px;border:1px solid var(--border);background:var(--surface2);color:var(--text);font-size:var(--fs-sm)">
+          <option value="conviction">★ High conviction only (measured best odds)</option>
+          <option value="all">All leaders (Triggered + Setup)</option>
+          <option value="TRIGGERED">Triggered only (in buy range)</option>
+          <option value="SETUP">Setup only (watch for the trigger)</option>
+        </select>
+        <input type="text" id="sysFilter" placeholder="Filter symbol…" oninput="sysRender()" style="padding:6px 10px;border-radius:7px;border:1px solid var(--border);background:var(--surface2);color:var(--text);font-size:var(--fs-sm);min-width:160px">
+        <span id="sysSummary" style="font-size:var(--fs-xs);color:var(--muted)"></span>
+      </div>
+      <div id="sysBody"></div>
+    </div>
+  </div>
+</div>
+
 <div id="tab-mbo" class="tab-content">
   <div class="tab-intro"><span class="ti-title">Multi-Year Breakout</span>Stocks breaking out of multi-year bases — the longest consolidations, where the largest moves tend to begin.</div>
 <div class="container">
@@ -2944,6 +3103,77 @@
     <div id="nearEmpty" class="state" style="display:none">
       <div class="state-icon"><svg class="ic" style="width:34px;height:34px;--ic:var(--text2)"><use href="#i-target"/></svg></div>
       <p>No stocks found within 10% of a multi-year resistance level.</p>
+    </div>
+  </div>
+
+  <!-- ── WEEKLY BREAKOUTS — short-horizon sibling of the multi-year scan ────── -->
+  <div class="panel" style="margin-top:14px">
+    <div class="panel-header">
+      <h2><svg class="ic ic-h"><use href="#i-zap"/></svg>Weekly Breakouts — fresh, still actionable</h2>
+      <span class="timestamp" id="wbTimestamp"></span>
+    </div>
+    <div class="panel-body">
+      <p style="font-size:var(--fs-xs);color:var(--text2);margin:0 0 10px;line-height:1.6">
+        Weekly-bar breakouts from a base of <b>26 weeks</b>, triggered in the last
+        <b>2 weeks</b> and <b>not yet extended</b> past 15% above the pivot. Gates:
+        breakout week volume ≥ <b>1.5×</b> the base's median week, base range within
+        60% of resistance, and ≥ <b>₹5cr/day</b> traded so the name is actually
+        fillable. Rows where price has fallen back <em>below</em> the pivot are
+        dropped — that is a failed breakout, not a signal.
+        <br><span style="color:var(--muted)">The ₹5cr floor was raised from ₹1cr after
+        measuring 55,272 breakouts: the ₹1–5cr band had the highest average winner but
+        the <b>worst</b> out-of-sample result (−2.80%) and is the band you cannot get
+        filled in.</span>
+      </p>
+      <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:10px">
+        <button class="btn btn-primary" id="wbBtn" onclick="loadWeeklyBreakouts()">
+          <svg class="ic ic-b"><use href="#i-zap"/></svg>Load Weekly Breakouts</button>
+        <input type="text" id="wbFilter" placeholder="Filter symbol…" oninput="renderWeeklyBreakouts()"
+          style="padding:6px 10px;border-radius:7px;border:1px solid var(--border);background:var(--surface2);color:var(--text);font-size:var(--fs-sm);min-width:170px">
+        <span id="wbSummary" style="font-size:var(--fs-xs);color:var(--muted)"></span>
+      </div>
+      <div id="wbBody"></div>
+    </div>
+  </div>
+
+  <!-- ── AFTER THE BREAKOUT — lifecycle of every recent trigger ─────────────── -->
+  <div class="panel" style="margin-top:14px">
+    <div class="panel-header">
+      <h2><svg class="ic ic-h"><use href="#i-trend"/></svg>After the Breakout — what became of them</h2>
+      <span class="timestamp" id="pbTimestamp"></span>
+    </div>
+    <div class="panel-body">
+      <p style="font-size:var(--fs-xs);color:var(--text2);margin:0 0 10px;line-height:1.6">
+        The scan above only shows what broke out <em>this week</em>. This one tracks every
+        base breakout of the last <b>16 weeks</b> and reports what happened next —
+        <b style="color:var(--green-vivid)">CLIMBING</b> (above pivot, working),
+        <b style="color:var(--green-vivid)">EXTENDED</b> (&gt;20% past the pivot — beyond a buy point),
+        <b style="color:var(--muted)">AT PIVOT</b> (within 2%, undecided),
+        <b style="color:var(--gold-vivid)">STALLED</b> (holding but ≥15% off its high),
+        <b style="color:var(--red)">FAILED</b> (decisively back below).
+        <br><span style="color:var(--muted)">Bookkeeping on open ideas, <b>not a buy list</b>.
+        Measured on 55,272 breakouts, the <b>median</b> one <b>loses</b> to the market
+        (−3.41% excess, 43.5% win rate) and the whole edge sits in a +29.6% top decile —
+        which is precisely why it matters to see which bucket a name is in.</span>
+      </p>
+      <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:10px">
+        <button class="btn btn-primary" id="pbBtn" onclick="loadPostBreakouts()">
+          <svg class="ic ic-b"><use href="#i-trend"/></svg>Load Breakout Tracker</button>
+        <select id="pbState" onchange="renderPostBreakouts()"
+          style="padding:6px 10px;border-radius:7px;border:1px solid var(--border);background:var(--surface2);color:var(--text);font-size:var(--fs-sm)">
+          <option value="working">Still working (climbing + extended)</option>
+          <option value="all">All states</option>
+          <option value="CLIMBING">Climbing only</option>
+          <option value="EXTENDED">Extended only</option>
+          <option value="AT PIVOT">At pivot only</option>
+          <option value="STALLED">Stalled only</option>
+          <option value="FAILED">Failed only</option>
+        </select>
+        <input type="text" id="pbFilter" placeholder="Filter symbol…" oninput="renderPostBreakouts()"
+          style="padding:6px 10px;border-radius:7px;border:1px solid var(--border);background:var(--surface2);color:var(--text);font-size:var(--fs-sm);min-width:170px">
+        <span id="pbSummary" style="font-size:var(--fs-xs);color:var(--muted)"></span>
+      </div>
+      <div id="pbBody"></div>
     </div>
   </div>
 
@@ -6872,6 +7102,344 @@ function renderMboTable(rows) {
 // ── Near Multi-Year Breakout Scanner ─────────────────────────────────────────
 let _nearRows = [], _nearBaseFilter = 'all', _nearFilter = '', _nearSortCol = 'gap_pct', _nearSortAsc = true, _nearPoll = null;
 
+// ── Weekly breakouts (Multi-Yr tab) ─────────────────────────────────────────
+// Uses the shared state components (stateLoading/stateEmpty/stateError) rather
+// than hand-rolled markup, per the design-system pass.
+let _wbRows = [];
+
+// ── Unusual Volume (delivery-backed) — Vol Spike tab ────────────────────────
+let _uvRows = [];
+async function loadUnusualVolume() {
+  const btn = document.getElementById('uvBtn'), body = document.getElementById('uvBody');
+  btn.disabled = true; btn.innerHTML = '<span class="spinner"></span>Scanning…';
+  body.innerHTML = stateLoading(6);
+  try {
+    const d = await (await fetch('/api/unusual-volume')).json();
+    btn.disabled = false; btn.innerHTML = '<svg class="ic ic-b"><use href="#i-flame"/></svg>Rescan';
+    if (d.error) { body.innerHTML = stateError(d.error); return; }
+    _uvRows = d.results || [];
+    const ts = document.getElementById('uvTimestamp');
+    if (ts && d.computed_at) ts.textContent = new Date(d.computed_at * 1000).toLocaleString('en-IN');
+    document.getElementById('uvSummary').textContent =
+      `${d.found} accumulating from ${d.scanned} stocks scanned`;
+    renderUnusualVolume();
+  } catch (e) {
+    btn.disabled = false; btn.innerHTML = '<svg class="ic ic-b"><use href="#i-flame"/></svg>Rescan';
+    body.innerHTML = stateError('Could not load unusual volume.');
+  }
+}
+function renderUnusualVolume() {
+  const body = document.getElementById('uvBody');
+  const q = (document.getElementById('uvFilter').value || '').trim().toUpperCase();
+  const rows = q ? _uvRows.filter(r => (r.symbol || '').toUpperCase().includes(q)) : _uvRows;
+  if (!rows.length) {
+    body.innerHTML = stateEmpty('No accumulation detected',
+      'No stock held delivery above its own baseline for 4 of 5 sessions at 55%+ in the liquidity band.');
+    return;
+  }
+  const tr = rows.map((r, i) => {
+    const strong = r.deliv_5d >= 65;
+    const c = strong ? 'var(--green-vivid)' : 'var(--gold-vivid)';
+    return `<tr>
+      <td class="ta-l"><span class="rank-badge">${i + 1}</span></td>
+      <td class="ta-l"><span class="sym">${r.symbol}</span></td>
+      <td class="num">${fmtINR(r.price)}</td>
+      <td title="Sessions of the last 5 with delivery above this stock's own baseline"
+          style="font-weight:700;color:${r.persist >= 5 ? 'var(--green-vivid)' : 'var(--text)'}">${r.persist}/5</td>
+      <td title="5-day mean delivery %" style="font-weight:700;color:${c}">${r.deliv_5d}%</td>
+      <td title="This stock's own 25-day delivery baseline — sector-neutral by construction">${r.deliv_base}%</td>
+      <td title="Delivery vs its own baseline">${r.deliv_mult}×</td>
+      <td title="Relative volume — REPORTED ONLY. Variants that gated on it measured worse."
+          style="color:var(--text2)">${r.rvol_5d}×</td>
+      <td style="color:${r.move_5d >= 0 ? 'var(--green-vivid)' : 'var(--red)'}">${r.move_5d >= 0 ? '+' : ''}${r.move_5d}%</td>
+      <td title="20-day average traded value — the edge lives in the ₹1–25cr band">₹${r.adtv_cr}cr</td>
+      <td style="font-weight:700;font-family:var(--mono)">${r.score}</td>
+    </tr>`;
+  }).join('');
+  body.innerHTML = `<div class="tbl-scroll"><table><thead><tr>
+      <th class="ta-l">#</th><th class="ta-l">Symbol</th><th>Price</th><th>Persist</th>
+      <th>Deliv 5d</th><th>Base</th><th>vs Base</th><th>RVol</th><th>5d</th>
+      <th>ADTV</th><th>Score</th>
+    </tr></thead><tbody>${tr}</tbody></table></div>`;
+}
+
+// ── AFTER THE BREAKOUT — lifecycle tracker ────────────────────────────────
+// Descriptive bookkeeping, not a buy list. The colouring deliberately does NOT
+// paint EXTENDED green-as-good: >20% past the pivot is past the buy point, which
+// is information about being LATE, not about being right.
+let _pbRows = [];
+const PB_COLOR = {
+  'CLIMBING': 'var(--green-vivid)', 'EXTENDED': 'var(--gold-vivid)',
+  'AT PIVOT': 'var(--muted)', 'STALLED': 'var(--gold-vivid)', 'FAILED': 'var(--red)'
+};
+
+function renderPostBreakouts() {
+  const body = document.getElementById('pbBody');
+  if (!body) return;
+  const want = (document.getElementById('pbState') || {}).value || 'working';
+  const q = ((document.getElementById('pbFilter') || {}).value || '').trim().toUpperCase();
+  let rows = _pbRows;
+  if (want === 'working') rows = rows.filter(r => r.state === 'CLIMBING' || r.state === 'EXTENDED');
+  else if (want !== 'all') rows = rows.filter(r => r.state === want);
+  if (q) rows = rows.filter(r => (r.symbol || '').toUpperCase().includes(q));
+  if (!rows.length) { body.innerHTML = stateEmpty('No breakouts in this state.'); return; }
+
+  const tr = rows.map((r, i) => {
+    const col = PB_COLOR[r.state] || 'var(--text)';
+    const vp = r.vs_pivot_pct, gb = r.give_back_pct;
+    return `<tr>
+      <td class="ta-l">${i + 1}</td>
+      <td class="ta-l"><b>${r.symbol}</b></td>
+      <td style="color:${col};font-weight:800">${r.state}</td>
+      <td>${fmtINR(r.price)}</td>
+      <td>${fmtINR(r.pivot)}</td>
+      <td style="color:${vp >= 0 ? 'var(--green-vivid)' : 'var(--red)'};font-weight:700">${vp >= 0 ? '+' : ''}${vp.toFixed(1)}%</td>
+      <td style="color:var(--text2)">${r.peak_gain_pct >= 0 ? '+' : ''}${r.peak_gain_pct.toFixed(1)}%</td>
+      <td style="color:${gb <= -15 ? 'var(--red)' : 'var(--text2)'}">${gb.toFixed(1)}%</td>
+      <td>${r.weeks_since}w</td>
+      <td>${r.adtv_cr.toFixed(1)}</td>
+      <td class="ta-l" style="color:var(--text2);font-size:var(--fs-xs)">${r.note}</td>
+    </tr>`;
+  }).join('');
+
+  body.innerHTML = `<div class="tbl-scroll"><table><thead><tr>
+      <th class="ta-l">#</th><th class="ta-l">Symbol</th><th>State</th><th>Price</th>
+      <th title="The level that triggered the breakout">Pivot</th>
+      <th title="Where price sits now versus that pivot">vs Pivot</th>
+      <th title="Best gain it reached above the pivot">Peak</th>
+      <th title="How far it has given back from that best level">Give-back</th>
+      <th>Age</th><th title="Avg daily turnover, Rs cr">ADTV</th><th class="ta-l">Read</th>
+    </tr></thead><tbody>${tr}</tbody></table></div>`;
+}
+
+async function loadPostBreakouts() {
+  const btn = document.getElementById('pbBtn');
+  const body = document.getElementById('pbBody');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span>Scanning…';
+  body.innerHTML = stateLoading(6);
+  try {
+    const d = await (await fetch('/api/post-breakout')).json();
+    btn.disabled = false;
+    btn.innerHTML = '<svg class="ic ic-b"><use href="#i-trend"/></svg>Refresh';
+    if (d.error) { body.innerHTML = stateError(d.error); return; }
+    _pbRows = d.results || [];
+    const ts = document.getElementById('pbTimestamp');
+    if (ts && d.computed_at) ts.textContent = new Date(d.computed_at * 1000).toLocaleString('en-IN');
+    const c = d.counts || {};
+    document.getElementById('pbSummary').innerHTML =
+      `<b>${d.tracked}</b> breakouts tracked · <b style="color:var(--green-vivid)">${d.still_working}</b> still working ` +
+      `(${d.hold_rate}%) · ${c['STALLED'] || 0} stalled · <span style="color:var(--red)">${c['FAILED'] || 0} failed</span>`;
+    renderPostBreakouts();
+  } catch (e) {
+    btn.disabled = false;
+    btn.innerHTML = '<svg class="ic ic-b"><use href="#i-trend"/></svg>Retry';
+    body.innerHTML = stateError(e.message || String(e));
+  }
+}
+
+// ── #8 Today: one decision surface (regime + 4 blocks, each with capacity) ──
+async function todayLoad(force) {
+  const btn = document.getElementById('todayBtn');
+  const body = document.getElementById('todayBody');
+  if (btn) { btn.disabled = true; btn.innerHTML = '<span class="spinner"></span>Loading…'; }
+  if (body && !body.innerHTML) body.innerHTML = stateLoading(4);
+  try {
+    const d = await (await fetch('/api/today')).json();
+    if (btn) { btn.disabled = false; btn.innerHTML = '<svg class="ic ic-b"><use href="#i-activity"/></svg>Refresh'; }
+    if (d.error) { body.innerHTML = stateError(d.error); return; }
+    const reg = d.regime || {};
+    const rc = reg.state==='BULL'?'var(--green-vivid)':reg.state==='BEAR'?'var(--red)':'var(--gold-vivid)';
+    document.getElementById('todayRegime').innerHTML =
+      `Market: <span style="color:${rc}">${reg.label||reg.state||'—'}</span>`;
+    if (d.computed_at) document.getElementById('todayMeta').textContent =
+      'as of ' + new Date(d.computed_at*1000).toLocaleString('en-IN');
+    const bn = document.getElementById('todayBench');
+    if (d.benchmark && d.benchmark.note) { bn.style.display='block'; bn.innerHTML = '<b>Benchmark.</b> '+d.benchmark.note; }
+    body.innerHTML = (d.blocks||[]).map(blk => {
+      const cap = blk.capacity || {};
+      const rows = (blk.rows||[]).slice(0,10).map(r => {
+        const sym = r.symbol||'';
+        const extra = (r.excess_3m_pp!=null) ? `<span style="color:var(--green-vivid)">+${(r.excess_3m_pp).toFixed(0)}pp</span>` :
+                      (r.vs_pivot_pct!=null) ? `<span style="color:${r.vs_pivot_pct>=0?'var(--green-vivid)':'var(--gold-vivid)'}">${r.vs_pivot_pct>=0?'+':''}${(r.vs_pivot_pct).toFixed(1)}%</span>` :
+                      (r.deliv5!=null) ? `<span style="color:var(--text2)">deliv ${(r.deliv5).toFixed(0)}%</span>` : '';
+        return `<span style="display:inline-flex;gap:5px;align-items:center;border:1px solid var(--border);border-radius:6px;padding:3px 8px;margin:2px;font-size:var(--fs-xs)"><b>${sym}</b>${extra}</span>`;
+      }).join('');
+      return `<div class="panel" style="margin-bottom:12px"><div class="panel-header">
+          <h2><svg class="ic ic-h"><use href="#i-target"/></svg>${blk.title} <span style="color:var(--muted);font-weight:500;font-size:var(--fs-xs)">${blk.n} names</span></h2>
+          ${cap.capacity_20_cr!=null?`<span class="timestamp" title="${cap.note||''}">₹${cap.capacity_20_cr}cr capacity (20-name)</span>`:''}
+        </div><div class="panel-body">
+          <div style="font-size:var(--fs-xs);color:var(--text2);margin-bottom:6px">${blk.subtitle||''}</div>
+          <div>${rows || '<span style="color:var(--muted)">nothing today</span>'}</div>
+          <div style="font-size:var(--fs-2xs);color:var(--muted);font-style:italic;margin-top:8px;line-height:1.5">${blk.evidence||''}</div>
+        </div></div>`;
+    }).join('');
+    if (d.overlap && d.overlap.n_multi) {
+      body.innerHTML += `<div class="card" style="font-size:var(--fs-xs);color:var(--text2)"><b>${d.overlap.n_multi}</b> names appear on more than one screen. ${d.overlap.warning||''}</div>`;
+    }
+  } catch (e) {
+    if (btn) { btn.disabled = false; btn.innerHTML = '<svg class="ic ic-b"><use href="#i-activity"/></svg>Retry'; }
+    if (body) body.innerHTML = stateError(e.message || String(e));
+  }
+}
+
+// ── System tab: RS>90 leaders at a pivot, with thesis + live scoreboard ──────
+let _sysRows = [];
+function sysColor(t){ return t==='TRIGGERED' ? 'var(--green-vivid)' : 'var(--gold-vivid)'; }
+
+function sysRender() {
+  const body = document.getElementById('sysBody');
+  if (!body) return;
+  const want = (document.getElementById('sysTrig')||{}).value || 'conviction';
+  const q = ((document.getElementById('sysFilter')||{}).value || '').trim().toUpperCase();
+  let rows = _sysRows;
+  if (want === 'conviction') rows = rows.filter(r => r.conviction);
+  else if (want !== 'all') rows = rows.filter(r => r.trigger === want);
+  if (q) rows = rows.filter(r => (r.symbol||'').toUpperCase().includes(q));
+  const nConv = _sysRows.filter(r=>r.conviction).length;
+  if (!rows.length) {
+    body.innerHTML = stateEmpty(want==='conviction'
+      ? 'No high-conviction names today (F&O + >60 sessions trending). Switch to "All leaders" to see the rest.'
+      : 'No leaders in this state right now.');
+    document.getElementById('sysSummary').textContent = `0 shown · ${nConv} high-conviction in the full list`;
+    return;
+  }
+  document.getElementById('sysSummary').textContent =
+    `${rows.length} shown · ★${nConv} high-conviction · ${_sysRows.filter(r=>r.trigger==='TRIGGERED').length} triggered, ${_sysRows.filter(r=>r.trigger==='SETUP').length} setup`;
+
+  const esc = t => (t||'').replace(/"/g,'&quot;');
+  const tsCol = t => t>=75?'var(--green-vivid)':t>=50?'var(--gold-vivid)':'var(--red)';
+  const tr = rows.map((r,i) => {
+    const dp = r.dist_to_pivot_pct;
+    const tip = esc(`WHY: ${r.thesis}  |  ${r.action}  |  ${r.caveat}`);
+    const seg = r.segment==='F&O'
+      ? '<span style="color:var(--text2);font-size:var(--fs-2xs)">F&amp;O</span>'
+      : '<span style="color:var(--accent2);font-weight:700;font-size:var(--fs-2xs)">CASH</span>';
+    return `<tr title="${tip}" style="cursor:help">
+      <td class="ta-l">${i+1}</td>
+      <td class="ta-l"><b>${r.symbol}</b>${r.conviction?' <span title="High conviction: F&amp;O + established uptrend — the only subset that measurably beat the cohort" style="color:var(--gold-vivid)">★</span>':''}</td>
+      <td style="color:${sysColor(r.trigger)};font-weight:800">${r.trigger}</td>
+      <td style="font-family:var(--mono);font-weight:700">${r.rs}</td>
+      <td style="font-family:var(--mono);color:${tsCol(r.trend_score)};font-weight:700">${r.trend_score}</td>
+      <td>${seg}</td>
+      <td>${fmtINR(r.price)}</td>
+      <td>${fmtINR(r.pivot)}</td>
+      <td style="color:${dp>=0?'var(--green-vivid)':'var(--gold-vivid)'};font-weight:700">${dp>=0?'+':''}${dp.toFixed(1)}%</td>
+      <td style="color:var(--green-vivid);font-weight:700" title="pivot-based 25% objective">${fmtINR(r.target)} <span style="color:var(--text2);font-size:var(--fs-2xs)">+${r.upside_to_target_pct.toFixed(0)}%</span></td>
+      <td style="color:var(--green-vivid);font-weight:700">+${r.excess_3m_pp.toFixed(0)}pp</td>
+      <td title="sessions held above the 50-DMA">${r.days_trending}d</td>
+      <td style="font-size:var(--fs-2xs);color:var(--text2)" title="date first surfaced by System">${r.first_seen||'today'}${(r.days_in_list>0)?' ('+r.days_in_list+'d)':''}</td>
+      <td class="ta-l" style="color:${r.trigger==='TRIGGERED'?'var(--accent2)':'var(--text2)'};font-size:var(--fs-xs)">${r.action}</td>
+    </tr>`;
+  }).join('');
+
+  body.innerHTML = `<div class="tbl-scroll"><table><thead><tr>
+      <th class="ta-l" style="cursor:default">#</th>
+      <th class="ta-l" style="cursor:default">Symbol</th>
+      <th style="cursor:default" title="TRIGGERED = cleared the pivot, in buy range · SETUP = coiling under it">Trigger</th>
+      <th style="cursor:default" title="IBD-style relative strength, 1-99">RS</th>
+      <th style="cursor:default" title="0-100 structural trend gauge">Trend</th>
+      <th style="cursor:default" title="CASH stock or in the F&amp;O list">Seg</th>
+      <th style="cursor:default">Price</th>
+      <th style="cursor:default" title="55-bar base high — the trigger level">Pivot</th>
+      <th style="cursor:default" title="distance of price from the pivot">vs Pivot</th>
+      <th style="cursor:default" title="pivot-based 25% target and upside from current price">Target</th>
+      <th style="cursor:default" title="3-month return above NIFTY">vs Index</th>
+      <th style="cursor:default" title="sessions the close has held above the 50-DMA">Trending</th>
+      <th style="cursor:default" title="date first surfaced in System (days in list)">Since</th>
+      <th class="ta-l" style="cursor:default" title="hover any row for the full thesis">Action</th>
+    </tr></thead><tbody>${tr}</tbody></table></div>`;
+}
+
+async function sysLoad(force) {
+  const btn = document.getElementById('sysBtn');
+  const body = document.getElementById('sysBody');
+  if (btn) { btn.disabled = true; btn.innerHTML = '<span class="spinner"></span>Scanning…'; }
+  if (body && !_sysRows.length) body.innerHTML = stateLoading(5);
+  try {
+    const d = await (await fetch('/api/system')).json();
+    if (btn) { btn.disabled = false; btn.innerHTML = '<svg class="ic ic-b"><use href="#i-target"/></svg>Refresh'; }
+    if (d.error) { if(body) body.innerHTML = stateError(d.error); return; }
+    _sysRows = d.results || [];
+    const ts = document.getElementById('sysTimestamp');
+    if (ts && d.computed_at) ts.textContent = new Date(d.computed_at*1000).toLocaleString('en-IN');
+    // expectancy banner
+    const ex = d.expectancy || {};
+    document.getElementById('sysExpText').innerHTML =
+      (ex.headline || '') + (ex.caveats ? '<ul style="margin:6px 0 0 16px;padding:0">' +
+        ex.caveats.map(c=>`<li style="margin:2px 0">${c}</li>`).join('') + '</ul>' : '');
+    // scoreboard
+    const sb = (d.scoreboard || {}).aggregate || {};
+    const el = document.getElementById('sysScoreboard');
+    if (sb.tracked) {
+      el.innerHTML = `<b>${sb.tracked}</b> picks tracked since first surfaced · ` +
+        `mean <b>${sb.mean_pct>=0?'+':''}${sb.mean_pct}%</b> · median ${sb.median_pct>=0?'+':''}${sb.median_pct}% · ` +
+        `win <b>${sb.win_rate}%</b> · best ${sb.best} · worst ${sb.worst}` +
+        `<div style="color:var(--muted);font-size:var(--fs-2xs);margin-top:4px">Real picks, marked to the latest close. On day one everything reads 0% — the scoreboard fills in as days pass.</div>`;
+    } else { el.textContent = 'No picks tracked yet — first scan seeds the scoreboard.'; }
+    sysRender();
+  } catch (e) {
+    if (btn) { btn.disabled = false; btn.innerHTML = '<svg class="ic ic-b"><use href="#i-target"/></svg>Retry'; }
+    if (body) body.innerHTML = stateError(e.message || String(e));
+  }
+}
+
+async function loadWeeklyBreakouts() {
+  const btn = document.getElementById('wbBtn');
+  const body = document.getElementById('wbBody');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span>Scanning…';
+  body.innerHTML = stateLoading(6);
+  try {
+    const d = await (await fetch('/api/weekly-breakout')).json();
+    btn.disabled = false;
+    btn.innerHTML = '<svg class="ic ic-b"><use href="#i-zap"/></svg>Refresh';
+    if (d.error) { body.innerHTML = stateError(d.error); return; }
+    _wbRows = d.results || [];
+    const ts = document.getElementById('wbTimestamp');
+    if (ts && d.computed_at) ts.textContent = new Date(d.computed_at * 1000).toLocaleString('en-IN');
+    document.getElementById('wbSummary').textContent =
+      `${d.found} breakouts from ${d.scanned} stocks scanned`;
+    renderWeeklyBreakouts();
+  } catch (e) {
+    btn.disabled = false;
+    btn.innerHTML = '<svg class="ic ic-b"><use href="#i-zap"/></svg>Refresh';
+    body.innerHTML = stateError('Could not load weekly breakouts.');
+  }
+}
+
+function renderWeeklyBreakouts() {
+  const body = document.getElementById('wbBody');
+  const q = (document.getElementById('wbFilter').value || '').trim().toUpperCase();
+  const rows = q ? _wbRows.filter(r => (r.symbol || '').toUpperCase().includes(q)) : _wbRows;
+  if (!rows.length) {
+    body.innerHTML = stateEmpty('No weekly breakouts',
+      'No stock cleared a 26-week base on volume in the last 2 weeks.');
+    return;
+  }
+  // Freshness: 0 = broke out this week. Tighter base + heavier volume rank higher.
+  const tr = rows.map((r, i) => `<tr>
+    <td class="ta-l"><span class="rank-badge">${i + 1}</span></td>
+    <td class="ta-l"><span class="sym">${r.symbol}</span>
+      ${r.weeks_ago === 0 ? '<span class="pill" style="background:color-mix(in srgb, var(--green) 16%, transparent);color:var(--green2)">NEW</span>' : ''}</td>
+    <td class="num">${fmtINR(r.price)}</td>
+    <td class="num">${fmtINR(r.pivot)}</td>
+    <td title="How far past the pivot you already are — higher = more chased">${r.extended_pct}%</td>
+    <td title="Weeks the stock was capped by this level before clearing it">${r.base_weeks}w</td>
+    <td title="Base range as % of resistance — lower = tighter, better">${r.tightness_pct}%</td>
+    <td title="Breakout week volume vs the base's median week" style="color:${r.vol_ratio >= 3 ? 'var(--green2)' : 'var(--text)'}">${r.vol_ratio}×</td>
+    <td title="20-day average traded value">₹${r.adtv_cr}cr</td>
+    <td class="num" title="8% below the pivot">${fmtINR(r.stop)}</td>
+    <td title="Reward to a +20% target vs risk to the stop">${r.rr_to_t1 ?? '—'}</td>
+    <td style="font-weight:700;font-family:var(--mono)">${r.score}</td>
+  </tr>`).join('');
+  body.innerHTML = `<div class="tbl-scroll"><table><thead><tr>
+      <th class="ta-l">#</th><th class="ta-l">Symbol</th><th>Price</th><th>Pivot</th>
+      <th>Ext</th><th>Base</th><th>Tight</th><th>Vol</th><th>ADTV</th>
+      <th>Stop</th><th>R:R</th><th>Score</th>
+    </tr></thead><tbody>${tr}</tbody></table></div>`;
+}
+
 function startNearScan() {
   fetch('/api/mbo/near-scan', {
     method: 'POST',
@@ -7978,6 +8546,67 @@ function _bucketFor(r){
     return (typeof pfh === 'number' && pfh < -6) ? 'FADED_BREAKOUT' : 'TRENDING_NO_BREAKOUT';
   return 'TRENDING_NO_BREAKOUT';
 }
+
+// Trending VERDICT (2026-08-06) — replaces a row of 4-5 competing pills with ONE
+// ranked call plus the single reason behind it. Measured on the live scan: 365 of
+// 458 rows carried >=1 warning and 44 carried three or four, so the old cell was a
+// wall of green-and-red pills with no hierarchy; the reader had to arbitrate
+// between "Sustained" and "extended +41% MA50" themselves, on every row.
+//
+// The bucket win% chip is not dropped, it is MOVED. It is a BUCKET statistic, so it
+// printed an identical "51.8% win" on 11 of 12 visible rows -- accurate (its tooltip
+// always said "what stocks in this state did historically, NOT a prediction for this
+// one") but useless for choosing BETWEEN rows, and it read like a copy-paste bug.
+// It now lives in the verdict tooltip instead.
+//
+// Priority: worst news wins. A stock can be a Sustained Breakout AND 41% extended;
+// the extension governs whether you can act on it today.
+function _trendVerdict(r) {
+  const W = (r.warnings || []).map(x => String(x));
+  const has  = t => W.some(w => w.toLowerCase().includes(t));
+  const pick = t => W.find(w => w.toLowerCase().includes(t)) || '';
+  let label, tone, why;
+  if (has('fading') || has('distribution') || has('slipping')) {
+    label = 'AVOID'; tone = 'red';
+    why = pick('fading') || pick('distribution') || pick('slipping');
+  } else if (has('extended'))   { label = 'SIZE SMALL'; tone = 'gold'; why = pick('extended'); }
+  else if (has('weak trend'))   { label = 'WEAK TREND'; tone = 'gold'; why = pick('weak trend'); }
+  else if (has('delivery'))     { label = 'WATCH';      tone = 'gold'; why = pick('delivery'); }
+  else if (r.sustained_breakout && r.new_high_flag) {
+    label = 'BUY'; tone = 'green'; why = 'Sustained + new high, no warnings'; }
+  else if (r.sustained_breakout || r.new_high_flag || r.fresh_stage2) {
+    label = 'BUY'; tone = 'green';
+    why = r.sustained_breakout ? 'Sustained breakout' : (r.fresh_stage2 ? 'Fresh Stage 2' : 'New 52W high'); }
+  else if (r.at_support) { label = 'ENTRY ZONE'; tone = 'green'; why = 'At MA20 support'; }
+  else { label = 'NEUTRAL'; tone = 'grey'; why = 'No edge flag'; }
+  const C = { green:'var(--green-vivid)', gold:'var(--gold-vivid)',
+              red:'var(--red)', grey:'var(--text2)' }[tone];
+  const evi = [];
+  if (r.sustained_breakout) evi.push('Sustained breakout');
+  if (r.fresh_stage2)       evi.push('Fresh Stage 2');
+  if (r.new_high_flag)      evi.push('New 52W high');
+  if (r.at_support)         evi.push('At MA20 support');
+  let bucket = '';
+  try {
+    const b = _scBuckets && _scBuckets[_bucketFor(r)];
+    if (b) bucket = 'Bucket ' + b.label + ': ' + b.win_pct + '% historical win, OOS alpha '
+                  + (b.oos_alpha>=0?'+':'') + b.oos_alpha + '% (what stocks in this state did, not a forecast).';
+  } catch (e) {}
+  const tip = [evi.join(' | '), W.length ? 'Warnings: ' + W.join(' | ') : '', bucket]
+              .filter(Boolean).join('\n').replace(/"/g,'&quot;');
+  // Trim the reason to the fact. The verdict chip already says the action, so
+  // "SIZE SMALL | extended +29% MA50 - tail risk, size small" said it twice.
+  const shortWhy = why.replace(/^\u26a0\s*/, '')
+                      .replace(/\s*[-\u2014]\s*tail risk.*$/i, '')
+                      .replace(/^extended\s*/i, '')
+                      .replace(/\s*MA50$/i, ' over MA50');
+  return '<span title="' + tip + '" style="display:inline-flex;align-items:center;gap:6px;white-space:nowrap">'
+       + '<span style="font-size:var(--fs-micro);font-weight:800;letter-spacing:.3px;padding:2px 7px;border-radius:8px;'
+       + 'background:color-mix(in srgb, ' + C + ' 16%, transparent);color:' + C
+       + ';border:1px solid color-mix(in srgb, ' + C + ' 45%, transparent)">' + label + '</span>'
+       + '<span style="font-size:var(--fs-micro);color:var(--text2)">' + shortWhy + '</span></span>';
+}
+
 function _evChip(r){
   if (!_scBuckets) return '';
   const b = _scBuckets[_bucketFor(r)]; if (!b) return '';
@@ -8492,7 +9121,8 @@ function trendRender() {
       `<span style="font-size:var(--fs-micro);padding:2px 6px;border-radius:8px;background:color-mix(in srgb, var(--red) 13%, transparent);color:var(--red);border:1px solid color-mix(in srgb, var(--red) 33%, transparent)" title="${w}">${w}</span>`
     ).join(' ');
 
-    const flagsCell = [badges, warningHtml].filter(Boolean).join(' ');
+    // One ranked verdict instead of the old pill soup — see _trendVerdict().
+    const flagsCell = _trendVerdict(r);
 
     // Display the RAW weighted score (0-10) — never exceed 10.
     // The sector tailwind tilts the RANKING (via score_with_sector used as

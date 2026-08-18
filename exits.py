@@ -204,16 +204,30 @@ def evaluate_exit(
     trim_triggers: list[str] = []
 
     # ── 1. ATR trailing stop — Chandelier exit ────────────────────────────────
-    # highest-high(since entry, else last 22 bars) − 2.5 × ATR(22).
-    atr_val = _clean(atr(df, ATR_PERIOD))
-    if held_bars is not None and held_bars >= 1:
-        hh_window = high.iloc[-held_bars:]
+    # ONE STOP, ONE TRUTH (2026-08-06). When the caller passes stop_price — the
+    # Portfolio tab always does, and it IS the ratcheting Chandelier the SL column
+    # displays — use THAT as the trailing level, so the number shown and the number
+    # tested are the same. This block used to recompute its OWN Chandelier with
+    # (a) the current bar included in highest-high (the same look-ahead that let an
+    # ATH day set the very stop it then breached — see GRWRHITECH 2026-08-06), and
+    # (b) a held_bars window keyed on the user-typed entry date. The result was a
+    # tab showing "SL 4337.89, not hit" beside an "ATR trailing broken" exit driven
+    # by a DIFFERENT, worse Chandelier. Two stops, two answers, one position.
+    if stop_price is not None and stop_price > 0:
+        chandelier   = float(stop_price)
+        atr_val      = _clean(atr(df, ATR_PERIOD))     # kept for context display only
+        highest_high = None
     else:
-        hh_window = high.iloc[-CHANDELIER_LOOKBACK:]
-    highest_high = _clean(hh_window.max())
-    chandelier = None
-    if highest_high is not None and atr_val is not None and atr_val > 0:
-        chandelier = highest_high - CHANDELIER_MULT * atr_val
+        # No position stop (backtest harness / watchlist): compute a Chandelier that
+        # EXCLUDES the current bar so it cannot manufacture its own trigger, and use
+        # a fixed lookback rather than an entry-date window.
+        _prior       = df.iloc[:-1] if len(df) > 1 else df
+        atr_val      = _clean(atr(_prior, ATR_PERIOD))
+        _hh_window   = high.iloc[-(CHANDELIER_LOOKBACK + 1):-1] if len(high) > 1 else high.iloc[:0]
+        highest_high = _clean(_hh_window.max()) if len(_hh_window) else None
+        chandelier   = (highest_high - CHANDELIER_MULT * atr_val
+                        if highest_high is not None and atr_val is not None and atr_val > 0
+                        else None)
     chand_trig = bool(chandelier is not None and cur < chandelier)
     signals["atr_trailing_stop"] = {
         "level": _round(chandelier),
@@ -255,7 +269,12 @@ def evaluate_exit(
         "level": _round(stop),
         "triggered": hard_trig,
     }
-    if hard_trig:
+    # Since 2026-08-06 the trailing Chandelier (§1) uses this SAME stop_price when a
+    # position stop is passed, so a breach would otherwise list both "ATR trailing
+    # broken" and "Hard stop breached" for one event. Emit the hard-stop line only
+    # when it is a DISTINCT level from the trailing stop.
+    if hard_trig and not (chand_trig and chandelier is not None
+                          and abs(float(chandelier) - float(stop)) < 1e-6):
         exit_triggers.append("Hard stop breached")
 
     # ── 4. Moving-average break ───────────────────────────────────────────────
