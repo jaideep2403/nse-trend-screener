@@ -13,6 +13,24 @@ import numpy as np
 import pandas as pd
 from pathlib import Path
 from datetime import date, datetime, timedelta
+from datetime import timezone
+try:
+    from zoneinfo import ZoneInfo
+    _IST = ZoneInfo("Asia/Kolkata")
+except Exception:
+    # python:3.13-slim ships no tz database. requirements.txt pins the `tzdata`
+    # package so ZoneInfo works, but if it is ever missing, fall back to a FIXED
+    # +05:30 offset rather than crash the whole app on import. India has no DST, so
+    # the fixed offset is exact — the only thing lost is the IANA name.
+    _IST = timezone(timedelta(hours=5, minutes=30))
+
+# NSE operates on IST. The publication window MUST be evaluated in IST, or a box on
+# any other timezone (e.g. the EC2 host runs UTC) opens the window at the wrong wall
+# clock and waits hours after NSE has already published. Compute 'now' in IST.
+
+
+def _now_ist() -> datetime:
+    return datetime.now(_IST)
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # ── Directories ────────────────────────────────────────────────────────────────
@@ -142,7 +160,7 @@ def _weekdays_back(n: int) -> list[date]:
     Always tries today first — _download_one_day() returns None gracefully
     if today's bhavcopy isn't published yet (NSE typically publishes ~6–7 PM IST).
     """
-    today  = date.today()
+    today  = _now_ist().date()
     result = []
     d = today  # try today; skipped automatically if not a weekday or file not live yet
     cutoff = today - timedelta(days=n)
@@ -218,13 +236,13 @@ _CHECK_INTERVAL_STUCK   = 60     # 1 min  — emergency retry when scheduler app
 # those ran hours before publication was even possible. Waiting until the window
 # opens turns a day of futile scraping into a handful of real attempts — and keeps
 # us a polite client, which is the whole point.
-# Local clock is assumed to be IST (this box runs IST); `force=True` always bypasses.
-_PUBLISH_WINDOW_OPENS = (17, 45)   # HH, MM local time
+# Evaluated in IST regardless of the host timezone (EC2 runs UTC); force=True bypasses.
+_PUBLISH_WINDOW_OPENS = (17, 45)   # HH, MM India Standard Time
 
 
 def _publish_window_open(when: datetime | None = None) -> bool:
     """True once NSE could plausibly have published today's file."""
-    n = when or datetime.now()
+    n = when or _now_ist()
     return (n.hour, n.minute) >= _PUBLISH_WINDOW_OPENS
 # If we've gone this long without ANY successful download, treat the scheduler as
 # stuck and bypass the throttle. NSE publishes between ~6 PM IST and midnight,
@@ -252,7 +270,7 @@ def auto_refresh_bhavcopy(force: bool = False) -> dict:
              "msg": str, "since_success": float}
     """
     now = time.time()
-    today = date.today()
+    today = _now_ist().date()
 
     # Stuck detection: if we've gone too long without a successful download
     # during a trading day, ignore the throttle and aggressively retry. This
@@ -315,10 +333,10 @@ def auto_refresh_bhavcopy(force: bool = False) -> dict:
         # neither triggers a session reset nor trips the stuck-detector.
         if not force:
             _oh, _om = _PUBLISH_WINDOW_OPENS
-            _n = datetime.now()
+            _n = _now_ist()
             if (_n.hour, _n.minute) < (_oh, _om):
                 msg = (f"waiting for NSE publication window "
-                       f"(opens {_oh:02d}:{_om:02d}, now {_n.strftime('%H:%M')})")
+                       f"(opens {_oh:02d}:{_om:02d}, now {_n.strftime('%H:%M')} IST)")
                 _refresh_state["last_attempt_msg"] = msg
                 return {"downloaded": False, "date": None, "already_had": False,
                         "msg": msg,

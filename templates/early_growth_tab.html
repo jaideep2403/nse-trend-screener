@@ -388,6 +388,7 @@ function egRender(rows) {
 
     var tr = document.createElement("tr");
     tr.id = "eg-row-" + i;
+    tr.setAttribute("data-sym", r.symbol || "");
     tr.onclick = function(){ egToggle(i); };
     tr.innerHTML =
       '<td style="color:var(--muted)">' + (i+1) + '</td>' +
@@ -494,7 +495,24 @@ function egDetailHtml(r) {
 function egToggle(i) {
   var dr = document.getElementById("eg-detail-" + i);
   if (!dr) return;
-  dr.style.display = dr.style.display === "none" ? "table-row" : "none";
+  var show = dr.style.display === "none";
+  dr.style.display = show ? "table-row" : "none";
+  // Chart lives inside the detail panel this row already opens.
+  if (show) {
+    var main = document.getElementById("eg-row-" + i);
+    var sym = main && main.getAttribute("data-sym");
+    var cell = dr.querySelector("td");
+    if (sym && cell && typeof awlChartInto === "function") {
+      var h = cell.querySelector(".awl-inline-chart");
+      if (!h) {
+        h = document.createElement("div");
+        h.className = "awl-inline-chart";
+        h.style.marginTop = "10px";
+        cell.appendChild(h);
+      }
+      awlChartInto(sym, h);
+    }
+  }
 }
 
 /* ── Sort ───────────────────────────────────────────────────────────── */

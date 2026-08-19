@@ -72,3 +72,31 @@ def round_trip_cost_pct(adtv_cr: float | None = None) -> float:
         ADTV ₹0.5 Cr → ~3.2  %   (micro-cap — costs eat the edge)
     """
     return round(REGULATORY_RT_PCT + 2.0 * slippage_pct_one_way(adtv_cr), 4)
+
+
+# ── 3. Capital-gains tax (India, cash equities) ─────────────────────────────────
+# The round-trip cost above is what the BROKER/exchange/government take at trade
+# time. It is NOT the whole leakage: realised gains are taxed. A monthly-rebalanced
+# momentum book turns the whole portfolio over well inside 12 months, so virtually
+# every rupee of gain is SHORT-TERM. Ignoring this overstates what you keep — the
+# single biggest reason a high-turnover strategy that "beats the index" gross can
+# trail a buy-and-hold index fund net.
+#
+# Rates: post-2024-Budget (effective 23-Jul-2024). STCG on listed equity 20%
+# (was 15%); LTCG 12.5% above a ₹1.25L/yr exemption (was 10%). A monthly strategy
+# is ~all STCG. These are the headline rates; surcharge/cess and the LTCG
+# exemption are deliberately omitted (they make the drag SMALLER, so leaving them
+# out keeps the tax estimate conservative-high rather than flattering).
+STCG_RATE = 0.20      # short-term (holding < 12 months)
+LTCG_RATE = 0.125     # long-term  (holding ≥ 12 months)
+
+
+def capital_gains_tax(net_gain: float, short_term: bool = True) -> float:
+    """Tax owed on a realised gain (same currency in, out). Losses owe nothing.
+
+    Deliberately simple and per-lot: the caller decides the netting policy (e.g.
+    offsetting losses against gains within a fiscal year before calling this).
+    """
+    if net_gain <= 0:
+        return 0.0
+    return net_gain * (STCG_RATE if short_term else LTCG_RATE)

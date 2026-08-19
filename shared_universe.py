@@ -45,18 +45,20 @@ def _bhav_tag() -> str:
         return "nodate"
 
 
-def load_base_universe(days: int = 400, progress_callback=None) -> dict[str, pd.DataFrame]:
+def load_base_universe(days: int = 400, progress_callback=None,
+                       include_stale: bool = False) -> dict[str, pd.DataFrame]:
     """Return {symbol: split-adjusted OHLCV DataFrame} for ALL NSE EQ stocks
     (ETFs excluded), built once per bhavcopy date and cached in memory. No
     MIN_BARS / index-membership / ADTV filter is applied — each scanner applies
     its own. Identical frames to the per-scanner build."""
     tag = _bhav_tag()
-    cached = _CACHE.get(days)
+    _key = (days, include_stale)
+    cached = _CACHE.get(_key)
     if cached is not None and cached["tag"] == tag:
         return cached["data"]
 
     with _LOCK:
-        cached = _CACHE.get(days)
+        cached = _CACHE.get(_key)
         if cached is not None and cached["tag"] == tag:
             return cached["data"]
 
@@ -105,7 +107,10 @@ def load_base_universe(days: int = 400, progress_callback=None) -> dict[str, pd.
                 _cols.append("DelivPer")
             g = grp.set_index("Date")[_cols]
             g = g[~g.index.duplicated(keep="last")].sort_index()
-            if g.empty or g.index[-1] < cutoff:
+            # include_stale keeps recently-delisted/suspended names so the CHART
+            # endpoint can still draw their history — the recency gate is about not
+            # SURFACING stale rows in scans, not about hiding a year of candles.
+            if g.empty or (not include_stale and g.index[-1] < cutoff):
                 dropped_stale += 1
                 continue
             g = adjust_for_splits(g, sym)
@@ -114,7 +119,7 @@ def load_base_universe(days: int = 400, progress_callback=None) -> dict[str, pd.
             print(f"[universe] dropped {dropped_stale} stale symbols "
                   f"(no bar since {cutoff.date()}, newest in load {latest.date()})")
 
-        _CACHE[days] = {"tag": tag, "data": out}
+        _CACHE[_key] = {"tag": tag, "data": out}
         return out
 
 

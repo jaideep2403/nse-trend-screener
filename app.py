@@ -2254,6 +2254,47 @@ def api_system():
         return jsonify({"results": [], "scanned": 0, "found": 0, "error": str(e)})
 
 
+@app.route("/api/chart/<symbol>")
+def api_chart(symbol):
+    """OHLCV series for a breakout chart — served from the cached universe
+    (no new NSE fetch), so it's instant. Default 260 sessions ≈ 1 trading year, which
+    is what the pattern overlays need: the VCP contraction legs look back 50 bars and
+    the Rectangular base 53, so a 6-month window clipped the very structure being
+    drawn. Used by the inline SVG charts on the breakout tabs."""
+    try:
+        import shared_universe as _su
+        days = min(int(request.args.get("bars", 260)), 400)
+        sym = symbol.upper().replace(".NS", "")
+        U = _su.load_base_universe(days=400)
+        df = U.get(sym)
+        if df is None or len(df) == 0:
+            # Fall back to the ungated universe: a name the recency gate dropped
+            # (recently suspended/delisted/renamed) still has a year of candles worth
+            # charting, and scanners can surface it, so it must be chartable too.
+            df = _su.load_base_universe(days=400, include_stale=True).get(sym)
+        if df is None or len(df) == 0:
+            return jsonify({"error": "no data", "symbol": symbol})
+        d = df.tail(days)
+        out = {
+            "symbol": symbol.upper(),
+            "dates": [t.strftime("%Y-%m-%d") for t in d.index],
+            "o": [round(float(x), 2) for x in d["Open"]],
+            "h": [round(float(x), 2) for x in d["High"]],
+            "l": [round(float(x), 2) for x in d["Low"]],
+            "c": [round(float(x), 2) for x in d["Close"]],
+            "v": [int(x) for x in d["Volume"].fillna(0)],
+        }
+        # Delivery % per session, when the bhavcopy carried it. The chart uses this
+        # to mark accumulation days — delivery above the stock's OWN baseline is the
+        # spec that survived walk-forward validation, so the chart marks the same
+        # thing the accumulation scan does rather than inventing a second rule.
+        if "DelivPer" in d.columns:
+            out["d"] = [None if pd.isna(x) else round(float(x), 1) for x in d["DelivPer"]]
+        return jsonify(out)
+    except Exception as e:
+        return jsonify({"error": str(e), "symbol": symbol})
+
+
 @app.route("/api/post-breakout")
 def api_post_breakout():
     """What happened AFTER each recent breakout — climbing / extended / stalled / failed.
@@ -3144,7 +3185,7 @@ def _prewarm_all_scans(trigger="startup"):
             _wc = app.test_client()
             with _wc.session_transaction() as _s:
                 _s["user"], _s["role"] = "_prewarm", "admin"
-            for _ep in ("/api/allweather", "/api/promoter", "/api/system", "/api/today"):
+            for _ep in ("/api/allweather", "/api/system", "/api/today"):
                 try:
                     _t0 = time.time(); _wc.get(_ep)
                     print(f"[prewarm/{trigger}] warm {_ep}: {time.time()-_t0:.1f}s", flush=True)

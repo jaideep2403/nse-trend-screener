@@ -589,6 +589,7 @@
       rows.forEach(function(r, i) {
         var col = _scoreColor(r.score);
         var tr = document.createElement('tr');
+        tr.setAttribute('data-sym', r.symbol);
         tr.innerHTML =
           '<td style="color:var(--text2); font-weight:600">' + (i+1) + '</td>' +
           '<td><strong style="color:#c084fc; font-size:var(--fs-base)">' + r.symbol + '</strong></td>' +

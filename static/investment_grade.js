@@ -179,7 +179,7 @@ function igRender() {
   }
 
   tbody.innerHTML = rows.map((r, idx) => `
-    <tr style="border-bottom:1px solid var(--border)" title="${(r.tech_flags||[]).concat(r.funda_flags||[]).join(' · ')}">
+    <tr data-sym="${r.symbol}" style="border-bottom:1px solid var(--border)" title="${(r.tech_flags||[]).concat(r.funda_flags||[]).join(' · ')}">
       <td style="padding:7px 10px;color:var(--muted);font-size:var(--fs-xs)">${idx+1}</td>
       <td style="padding:7px 10px"><b style="color:var(--accent)">${r.symbol}</b></td>
       <td style="padding:7px 10px;font-size:var(--fs-xs);color:var(--text2)">${r.sector || '—'}</td>

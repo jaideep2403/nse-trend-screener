@@ -243,6 +243,7 @@
           : '<span style="color:var(--muted); font-size:var(--fs-xs)">—</span>';
 
         var tr = document.createElement('tr');
+        tr.setAttribute('data-sym', s.symbol);
         tr.innerHTML =
           '<td style="color:var(--text2); font-weight:600">' + (i + 1) + '</td>' +
           '<td><strong style="color:#a5b4fc; font-size:var(--fs-base)">' + s.symbol + '</strong></td>' +

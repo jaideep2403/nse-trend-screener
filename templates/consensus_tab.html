@@ -206,6 +206,7 @@
         var why = (r.scans || []).map(function(s){ return s.why || ''; }).filter(function(x){return x;}).join(' · ');
 
         var tr = document.createElement('tr');
+        tr.setAttribute('data-sym', r.symbol);
         var holderCellId = 'cnHld-' + r.symbol;
         tr.innerHTML =
           '<td style="color:var(--text2); font-weight:600">' + (i + 1) + '</td>' +

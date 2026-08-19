@@ -113,7 +113,7 @@ function awDefTable(picks){
   const col = v => v>=70?'var(--green2)':v>=40?'var(--gold2)':'var(--text2)';
   const qcol = q => q>=0.66?'var(--green2)':q>=0.4?'var(--gold2)':'var(--text2)';
   const hasQ = (picks||[]).some(s => s.quality != null || s.roe != null);
-  const rows = (picks||[]).map((s,i) => `<tr>
+  const rows = (picks||[]).map((s,i) => `<tr data-sym="${s.symbol}">
     <td style="text-align:left"><span class="rank-badge">${i+1}</span></td>
     <td style="text-align:left"><span class="sym">${s.symbol}</span></td>
     <td class="num">${fmtINR(s.price)}</td>

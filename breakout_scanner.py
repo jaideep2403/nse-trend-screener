@@ -589,6 +589,11 @@ def _analyze(symbol: str, df: pd.DataFrame) -> dict | None:
             "group_rank":   0,    # updated after group RS computed
             "total_groups": 0,
             # ── Trading levels ───────────────────────────────────────
+            # base_high/base_low are the DETECTED base extremes that produced the
+            # pattern label above. Exposed so the inline chart can draw the real
+            # base box rather than re-deriving (and possibly disagreeing with) it.
+            "base_high":   base_high,
+            "base_low":    base_low,
             "entry":       entry,
             "sl":          lvls["sl"],
             "t1":          lvls["t1"],

@@ -258,7 +258,7 @@
           '</tr></thead>' +
           '<tbody>' +
           stocks.map(function (st) {
-            return '<tr>' +
+            return '<tr data-sym="' + (st.symbol||'') + '">' +
               '<td style="font-family:var(--mono);font-weight:700;color:var(--white)">' + (st.symbol || '—') + '</td>' +
               '<td style="font-family:var(--mono);color:' + pctColor(st.rs) + '">' + (st.rs != null ? parseFloat(st.rs).toFixed(0) : '—') + '</td>' +
               '<td style="font-family:var(--mono);color:' + pctColor(st.r1m) + '">' + fmt1(st.r1m) + '</td>' +

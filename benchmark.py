@@ -99,6 +99,57 @@ def get_benchmark(days: int = 1600) -> pd.Series | None:
         return _build_benchmark(days)
 
 
+# ── Smallcap benchmark ──────────────────────────────────────────────────────────
+# WHY: a small/micro-cap momentum + delivery-accumulation book must be judged
+# against a SMALL-CAP index, not the Nifty 50. Small-caps beat large-caps over this
+# sample, so benchmarking to NIFTYBEES flatters the strategy — it can "beat the
+# market" while trailing a cheap smallcap index fund. HDFCSML250 (HDFC Nifty
+# Smallcap 250 ETF) is the most liquid smallcap ETF in the bhavcopy (ADTV ~₹26 Cr).
+# CAVEAT surfaced to callers: it only lists from 2023-02, so it can benchmark the
+# recent window, NOT the full 7-yr backtest. That limitation is real and honest —
+# there is no longer-history investable smallcap total-return series in the cache.
+_SC_SYMBOL = "HDFCSML250"
+_SC_FALLBACKS = ["MOSMALL250", "MIDSMALL"]   # thinner/shorter; last resort only
+_sc_cache: dict = {"series": None, "ts": 0.0, "days": 0}
+
+
+def get_smallcap_benchmark(days: int = 900) -> pd.Series | None:
+    """Split-adjusted close series for the smallcap benchmark ETF, or None.
+
+    Same construction as get_benchmark (bhavcopy walk + split adjust), for a
+    smallcap ETF. History is short (~2023-02→), so callers should intersect on
+    dates and report the actual covered window rather than assume full depth.
+    """
+    now = time.time()
+    c = _sc_cache
+    if (c["series"] is not None and now - c["ts"] < CACHE_TTL and c["days"] >= days * 0.9):
+        return _slice_to(c["series"], days)
+    with _COMPUTE_LOCK:
+        c = _sc_cache
+        if (c["series"] is not None and now - c["ts"] < CACHE_TTL and c["days"] >= days * 0.9):
+            return _slice_to(c["series"], days)
+        recs: dict[pd.Timestamp, float] = {}
+        for dt in _weekdays_back(days):
+            df = _download_one_day(dt)
+            if df is None:
+                continue
+            for sym in [_SC_SYMBOL] + _SC_FALLBACKS:
+                sub = df[df["Symbol"] == sym]
+                if not sub.empty:
+                    recs[pd.Timestamp(dt)] = float(sub.iloc[0]["Close"])
+                    break
+        if not recs:
+            return None
+        s = _clean(pd.Series(recs))
+        try:
+            from analysis_utils import adjust_for_splits
+            s = adjust_for_splits(pd.DataFrame({"Close": s}), _SC_SYMBOL)["Close"].astype(float)
+        except Exception:
+            pass
+        _sc_cache.update({"series": s, "ts": now, "days": days})
+        return s
+
+
 def _cached_for(days: int) -> pd.Series | None:
     """Return the cached series trimmed to `days`, or None if it can't serve it."""
     now = time.time()

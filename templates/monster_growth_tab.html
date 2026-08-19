@@ -428,6 +428,20 @@
     if (!det) return;
     var show = det.style.display === "none";
     det.style.display = show ? "table-row" : "none";
+    // Chart lives inside the detail panel this row already opens.
+    if (show) {
+      var _cell = det.querySelector("td");
+      if (_cell && typeof awlChartInto === "function") {
+        var _h = _cell.querySelector(".awl-inline-chart");
+        if (!_h) {
+          _h = document.createElement("div");
+          _h.className = "awl-inline-chart";
+          _h.style.marginTop = "10px";
+          _cell.appendChild(_h);
+        }
+        awlChartInto(sym, _h);
+      }
+    }
     // Rotate arrow
     var lastTd = tr.querySelector("td:last-child");
     if (lastTd) lastTd.textContent = show ? "▴" : "▾";

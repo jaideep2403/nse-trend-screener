@@ -32,7 +32,7 @@ async function defScan(force) {
     if (d.error) { body.innerHTML = stateError(d.error); return; }
     document.getElementById('defMeta').textContent = `${d.count} qualify · as of ${d.as_of}`;
     const col = v => v>=70?'var(--green2)':v>=40?'var(--gold2)':'var(--text2)';
-    const rows = (d.stocks||[]).map((s,i) => `<tr>
+    const rows = (d.stocks||[]).map((s,i) => `<tr data-sym="${s.symbol}">
       <td style="text-align:left"><span class="rank-badge">${i+1}</span></td>
       <td style="text-align:left"><span class="sym">${s.symbol}</span></td>
       <td class="num">${fmtINR(s.price)}</td>
