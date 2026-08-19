@@ -26,7 +26,42 @@ import pickle
 import threading
 
 _BASE = os.path.dirname(os.path.abspath(__file__))
-_DIR = os.path.join(os.environ.get("DATA_DIR", _BASE), ".scan_cache")
+_PREF_DIR = os.path.join(os.environ.get("DATA_DIR", _BASE), ".scan_cache")
+
+
+def _pick_writable_dir(preferred: str) -> str:
+    """Pick a cache dir we can actually WRITE to. If the preferred one (usually the
+    /data volume) is not writable — the classic root-owned-volume permission bug —
+    fall back to a writable path and SHOUT about it, because a silently-unwritable
+    cache means every scan recomputes cold forever (the exact 'scans are slow'
+    symptom). Persistence across redeploys still needs /data fixed, but at least the
+    running container caches and stays fast, and the log names the real problem."""
+    import tempfile
+    candidates = [preferred,
+                  os.path.join(_BASE, ".scan_cache"),
+                  os.path.join(tempfile.gettempdir(), "ascent_scan_cache")]
+    for cand in candidates:
+        try:
+            os.makedirs(cand, exist_ok=True)
+            _t = os.path.join(cand, ".wtest")
+            with open(_t, "w") as f:
+                f.write("ok")
+            os.remove(_t)
+            if cand != preferred:
+                print(f"[result_cache] WARNING: {preferred!r} is NOT writable — scan "
+                      f"results cannot persist there, so every scan was recomputing "
+                      f"cold. Falling back to {cand!r} (fast within this container, but "
+                      f"lost on redeploy). FIX: chown {preferred} to the container user "
+                      f"on the EC2 box so the cache survives deploys.", flush=True)
+            return cand
+        except Exception:
+            continue
+    print("[result_cache] CRITICAL: no writable cache dir found — scans will recompute "
+          "on EVERY request. Check DATA_DIR / volume permissions.", flush=True)
+    return preferred
+
+
+_DIR = _pick_writable_dir(_PREF_DIR)
 _LOCK = threading.Lock()
 
 # ── Stale-while-revalidate ───────────────────────────────────────────────────
@@ -125,6 +160,38 @@ def get(name: str):
     except Exception:
         pass
     return None
+
+
+def stats() -> dict:
+    """Health snapshot for /api/diag/cache — is the cache persisting, and is each
+    scan fresh/stale/missing? Turns 'scans are slow' into a fact instead of a guess."""
+    import time as _t
+    out = {"dir": _DIR, "preferred_dir": _PREF_DIR,
+           "using_fallback": _DIR != _PREF_DIR,
+           "writable": os.access(_DIR, os.W_OK),
+           "current_tag": _tag(), "scans": {}}
+    try:
+        for pth in sorted(glob.glob(os.path.join(_DIR, "*.pkl"))):
+            nm = os.path.basename(pth)[:-4]
+            try:
+                with open(pth, "rb") as f:
+                    blob = pickle.load(f)
+                data = blob.get("data")
+                rows = None
+                if isinstance(data, dict):
+                    for k in ("results", "stocks", "ranked", "picks", "leaders"):
+                        if isinstance(data.get(k), list):
+                            rows = len(data[k]); break
+                out["scans"][nm] = {
+                    "fresh": blob.get("tag") == _tag(),
+                    "age_min": round((_t.time() - os.path.getmtime(pth)) / 60, 1),
+                    "rows": rows,
+                }
+            except Exception as e:
+                out["scans"][nm] = {"error": str(e)}
+    except Exception as e:
+        out["error"] = str(e)
+    return out
 
 
 def get_or_stale(name: str):

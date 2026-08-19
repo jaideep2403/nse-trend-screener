@@ -1783,6 +1783,33 @@ def do_momentum_scan():
             momentum_state["running"] = False
 
 
+@app.route("/api/diag/cache")
+def api_diag_cache():
+    """Admin-only cache health — answers 'why are scans slow on the live box?'.
+    Reports whether the scan-result cache is persisting (writable dir), which scans
+    are fresh/stale/missing, prewarm status, and the bhavcopy data on hand."""
+    if not auth.is_admin():
+        return jsonify({"error": "forbidden"}), 403
+    import result_cache as _rc
+    out = {"result_cache": _rc.stats()}
+    # bhavcopy data present on disk
+    try:
+        from data_fetcher import BHAV_DIR, _bhav_cache_path
+        from datetime import date as _d
+        import glob as _g
+        files = _g.glob(str(BHAV_DIR / "*.pkl"))
+        out["bhavcopy"] = {"dir": str(BHAV_DIR), "day_files": len(files),
+                           "today_present": _bhav_cache_path(_d.today()).exists()}
+    except Exception as e:
+        out["bhavcopy"] = {"error": str(e)}
+    # prewarm status
+    try:
+        out["prewarm_running"] = _prewarm_lock.locked()
+    except Exception:
+        pass
+    return jsonify(out)
+
+
 @app.route("/api/momentum/scan", methods=["POST"])
 def start_momentum_scan():
     with momentum_lock:
