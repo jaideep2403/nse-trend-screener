@@ -871,7 +871,7 @@ def run_trending_scan(progress_callback=None):
     global _cache
     if _cache["data"] and time.time() - _cache["ts"] < CACHE_TTL:
         return _cache["data"]
-    _disk = result_cache.get("trending")
+    _disk = result_cache.get_or_stale("trending")
     if _disk is not None:
         _cache["data"] = _disk
         _cache["ts"] = time.time()

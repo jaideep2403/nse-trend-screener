@@ -320,7 +320,7 @@ def run_momentum_scan(progress_callback=None) -> dict:
     """
     if _cache["data"] and time.time() - _cache["ts"] < CACHE_TTL:
         return _cache["data"]
-    _disk = result_cache.get("momentum")
+    _disk = result_cache.get_or_stale("momentum")
     if _disk is not None:
         _cache["data"] = _disk
         _cache["ts"] = time.time()

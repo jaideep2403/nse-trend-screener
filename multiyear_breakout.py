@@ -368,7 +368,7 @@ def run_multiyear_scan(min_base_years: int = 1,
     if cached and time.time() - _scan_cache["ts"] < SCAN_CACHE_TTL:
         return cached
 
-    _disk = result_cache.get("multiyear")
+    _disk = result_cache.get_or_stale("multiyear")
     if _disk is not None:
         _scan_cache["data"] = _disk
         _scan_cache["ts"] = time.time()

@@ -652,7 +652,7 @@ def run_early_growth_scan(progress_callback=None) -> dict:
                 and _cache["data"].get("results")):
             return _cache["data"]
 
-    _disk = result_cache.get("early_growth")
+    _disk = result_cache.get_or_stale("early_growth")
     if _disk is not None:
         with _cache_lock:
             _cache["data"] = _disk

@@ -727,7 +727,7 @@ def run_industry_analysis(progress_callback=None) -> dict:
     if _cache["data"] and time.time() - _cache["ts"] < CACHE_TTL:
         return _cache["data"]
 
-    _disk = result_cache.get("industry")
+    _disk = result_cache.get_or_stale("industry")
     if _disk is not None:
         _cache["data"] = _disk
         _cache["ts"] = time.time()

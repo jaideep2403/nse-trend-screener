@@ -261,7 +261,7 @@ def run_advanced_scan(progress_callback=None) -> dict:
             and _cache["data"].get("results")):
         return _cache["data"]
 
-    _disk = result_cache.get("advanced")
+    _disk = result_cache.get_or_stale("advanced")
     if _disk is not None:
         _cache["data"] = _disk
         _cache["ts"] = time.time()

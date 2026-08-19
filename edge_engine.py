@@ -1487,7 +1487,7 @@ def run_edge_engine(progress_callback=None, include_backtests=False) -> dict:
         return cache["data"]
 
     if not include_backtests:
-        _disk = result_cache.get("edge")
+        _disk = result_cache.get_or_stale("edge")
         if _disk is not None:
             _cache["data"] = _disk
             _cache["ts"] = time.time()

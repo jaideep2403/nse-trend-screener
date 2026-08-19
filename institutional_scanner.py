@@ -528,7 +528,7 @@ def run_institutional_scan(progress_callback=None) -> dict:
             and _cache["data"].get("results")):
         return _cache["data"]
 
-    _disk = result_cache.get("institutional")
+    _disk = result_cache.get_or_stale("institutional")
     if _disk is not None:
         _cache["data"] = _disk
         _cache["ts"] = time.time()

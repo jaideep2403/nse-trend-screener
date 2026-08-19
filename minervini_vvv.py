@@ -548,7 +548,7 @@ def run_vvv_scan(progress_callback=None) -> dict:
                 and _cache["data"].get("results") is not None):
             return _cache["data"]
 
-    _disk = result_cache.get("vvv")
+    _disk = result_cache.get_or_stale("vvv")
     if _disk is not None:
         with _cache_lock:
             _cache["data"] = _disk

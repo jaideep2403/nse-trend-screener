@@ -326,7 +326,7 @@ def run_early_mover_scan(progress_callback=None) -> dict:
     if _cache["data"] and time.time() - _cache["ts"] < CACHE_TTL:
         return _cache["data"]
 
-    _disk = result_cache.get("early_mover")
+    _disk = result_cache.get_or_stale("early_mover")
     if _disk is not None:
         _cache["data"] = _disk
         _cache["ts"] = time.time()

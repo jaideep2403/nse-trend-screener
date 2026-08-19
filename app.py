@@ -3172,7 +3172,12 @@ def _prewarm_all_scans(trigger="startup"):
                 _fn = getattr(__import__(mod_name), fn_name, None)
                 if _fn is None:
                     continue
-                _fn()   # synchronous — fills the module _cache as a side-effect
+                import result_cache as _rc
+                _rc.force_mode(True)          # recompute fresh, never serve stale to prewarm
+                try:
+                    _fn()   # synchronous — fills the module _cache as a side-effect
+                finally:
+                    _rc.force_mode(False)
                 print(f"[prewarm/{trigger}] {label}: {time.time()-_t0:.1f}s", flush=True)
             except Exception as _pe:
                 print(f"[prewarm/{trigger}] {label} FAILED: {_pe}", flush=True)
@@ -3182,6 +3187,8 @@ def _prewarm_all_scans(trigger="startup"):
         # server-side GET (synthetic admin session) fills their caches. Added
         # 2026-08-17 for the client demo — measured cold: today 11.9s, promoter 7.9s.
         try:
+            import result_cache as _rc
+            _rc.force_mode(True)
             _wc = app.test_client()
             with _wc.session_transaction() as _s:
                 _s["user"], _s["role"] = "_prewarm", "admin"
@@ -3193,6 +3200,12 @@ def _prewarm_all_scans(trigger="startup"):
                     print(f"[prewarm/{trigger}] warm {_ep} FAILED: {_we}", flush=True)
         except Exception as _we:
             print(f"[prewarm/{trigger}] endpoint warm skipped: {_we}", flush=True)
+        finally:
+            try:
+                import result_cache as _rc
+                _rc.force_mode(False)
+            except Exception:
+                pass
     finally:
         _prewarm_lock.release()
 
@@ -3343,6 +3356,23 @@ def _boot_prewarm():
         print(f"[prewarm/startup] skipped: {_e}", flush=True)
         return
     _prewarm_all_scans("startup")
+
+
+def _register_stale_refresh_hook():
+    """Let result_cache.get_or_stale() kick a background prewarm when it serves a
+    stale result — so the fresh data replaces it within seconds, without any client
+    ever blocking on a cold compute."""
+    try:
+        import result_cache as _rc
+        def _bg_refresh():
+            threading.Thread(target=_prewarm_all_scans, args=("stale-revalidate",),
+                             daemon=True, name="stale-revalidate").start()
+        _rc.set_refresh_hook(_bg_refresh)
+    except Exception as _e:
+        print(f"[prewarm] refresh hook not registered: {_e}", flush=True)
+
+
+_register_stale_refresh_hook()
 
 
 if _BG_JOBS:

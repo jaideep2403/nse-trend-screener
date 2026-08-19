@@ -431,7 +431,7 @@ def run_emerging_leaders_scan(progress_callback=None, _stocks=None,
     if use_cache and _cache["data"] and time.time() - _cache["ts"] < CACHE_TTL:
         return _cache["data"]
     if use_cache:
-        _disk = result_cache.get("emerging")
+        _disk = result_cache.get_or_stale("emerging")
         if _disk is not None:
             _cache["data"] = _disk
             _cache["ts"] = time.time()

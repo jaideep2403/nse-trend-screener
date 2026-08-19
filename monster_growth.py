@@ -450,7 +450,7 @@ def run_monster_growth_scan(progress_callback=None) -> dict:
                 and _cache["data"].get("results")):
             return _cache["data"]
 
-    _disk = result_cache.get("monster")
+    _disk = result_cache.get_or_stale("monster")
     if _disk is not None:
         with _cache_lock:
             _cache["data"] = _disk

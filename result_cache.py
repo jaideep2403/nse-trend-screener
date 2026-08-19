@@ -29,6 +29,48 @@ _BASE = os.path.dirname(os.path.abspath(__file__))
 _DIR = os.path.join(os.environ.get("DATA_DIR", _BASE), ".scan_cache")
 _LOCK = threading.Lock()
 
+# ── Stale-while-revalidate ───────────────────────────────────────────────────
+# A client must NEVER block on a cold scan. When the cache tag has moved (a deploy
+# bumped the code version, or a new bhavcopy landed), get_or_stale() serves the
+# LAST-GOOD result instantly and kicks a background refresh, so the page paints
+# immediately with data that is at most one compute-cycle old and then updates.
+# Prewarm runs in "force mode" so IT recomputes fresh instead of serving stale.
+import time as _time
+_force_local = threading.local()
+_refresh_hook = None
+_last_refresh_kick = [0.0]
+
+
+def set_refresh_hook(cb):
+    """app wires this to spawn _prewarm_all_scans in the background."""
+    global _refresh_hook
+    _refresh_hook = cb
+
+
+def force_mode(on: bool = True):
+    """Prewarm sets this around its compute so get_or_stale forces a real recompute
+    (returns None) rather than serving the stale copy back to the warmer itself."""
+    _force_local.force = on
+
+
+def _in_force_mode() -> bool:
+    return getattr(_force_local, "force", False)
+
+
+def _kick_refresh():
+    """Fire the background prewarm at most once every 20s (it self-serializes via
+    its own lock anyway; this just avoids spawning a burst of no-op threads)."""
+    if _refresh_hook is None:
+        return
+    now = _time.time()
+    if now - _last_refresh_kick[0] < 20:
+        return
+    _last_refresh_kick[0] = now
+    try:
+        _refresh_hook()
+    except Exception:
+        pass
+
 
 def _bhav_tag() -> str:
     """A token that changes only when a newer bhavcopy is available."""
@@ -83,6 +125,32 @@ def get(name: str):
     except Exception:
         pass
     return None
+
+
+def get_or_stale(name: str):
+    """Client-facing read. Fresh result if the tag matches; otherwise the last-good
+    result served INSTANTLY plus a background refresh (stale-while-revalidate); None
+    only when nothing was ever computed. In force mode (prewarm) always returns None
+    so the caller recomputes fresh."""
+    try:
+        path = os.path.join(_DIR, f"{name}.pkl")
+        if not os.path.exists(path):
+            return None
+        with open(path, "rb") as f:
+            blob = pickle.load(f)
+    except Exception:
+        return None
+    data = blob.get("data")
+    if blob.get("tag") == _tag():
+        if not blob.get("breakdown_done"):
+            _schedule_breakdown(name, data)
+        return data                       # fresh
+    if _in_force_mode() or data is None:
+        return None                       # prewarm must recompute (or nothing cached)
+    _kick_refresh()                       # stale: serve now, refresh behind the scenes
+    if not blob.get("breakdown_done"):
+        _schedule_breakdown(name, data)
+    return data
 
 
 # ── Universal breakdown annotation ───────────────────────────────────────────

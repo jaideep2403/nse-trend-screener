@@ -656,7 +656,7 @@ def run_breakout_scan(progress_callback=None) -> dict:
             and time.time() - _cache["ts"] < CACHE_TTL
             and _cache["data"].get("results")):
         return _cache["data"]
-    _disk = result_cache.get("breakout")
+    _disk = result_cache.get_or_stale("breakout")
     if _disk is not None:
         _cache["data"] = _disk
         _cache["ts"] = time.time()
