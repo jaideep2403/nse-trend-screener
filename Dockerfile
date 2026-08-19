@@ -20,6 +20,11 @@ FROM python:3.13-slim
 # Non-root user for security
 RUN useradd --create-home --shell /bin/bash appuser
 
+# gosu lets the root entrypoint drop cleanly to appuser after fixing /data perms.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends gosu \
+    && rm -rf /var/lib/apt/lists/*
+
 WORKDIR /app
 
 # ── Dependencies ──────────────────────────────────────────────────────────────
@@ -35,8 +40,6 @@ COPY . .
 RUN mkdir -p /data/nse_bhav_days /data/nse_ohlcv_pkl \
     && chown -R appuser:appuser /app /data
 
-USER appuser
-
 # ── Environment ───────────────────────────────────────────────────────────────
 # DATA_DIR  → fundamentals.db + nse_universe_cache.pkl
 # BHAV_DIR  → bhavcopy daily pkl files (one per trading day, never deleted)
@@ -46,6 +49,11 @@ ENV DATA_DIR=/data \
     OHLCV_DIR=/data/nse_ohlcv_pkl \
     PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1
+
+# Root entrypoint fixes /data ownership on every start, then drops to appuser.
+COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
+RUN chmod +x /usr/local/bin/docker-entrypoint.sh
+ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]
 
 EXPOSE 5050
 
