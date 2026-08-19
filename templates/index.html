@@ -7414,7 +7414,7 @@ async function loadWeeklyBreakouts() {
 // a name is coiling under the pivot or has cleared it.
 // Shared candle colours. (The old fixed-margin awlBreakoutChartSVG was retired —
 // one renderer now, awlPatternChartSVG, so nothing clips and every tab looks alike.)
-const _AWL_UP='#1a8a4a', _AWL_DN='#d2392f', _AWL_UPV='#cfe7d8', _AWL_DNV='#f1d4d1';
+const _AWL_UP='#1a8a4a', _AWL_DN='#d2392f', _AWL_UPV='#2ea25b', _AWL_DNV='#d8544f';  // vol up=green, down=red
 // ── awlChart : the ONE click-to-expand chart used by every tab ───────────────────
 // Auto-detects the colspan from the clicked row (rowEl.cells.length), so any table
 // can call it with the SAME signature — no per-table column count to keep in sync.
@@ -7558,7 +7558,7 @@ function awlPatternChartSVG(d, opt) {
   // Height grows gently with width so the pane keeps a ~3.5:1 shape.
   const W = Math.max(760, Math.min(Math.round(opt.width || 760), 1400));
   const H = Math.round(268 + (W - 760) * 0.20);
-  const padT = 14, padL = 42;
+  const padT = 14, padL = 8;   // price axis lives on the RIGHT now, no left gutter
   const volH   = Math.round(44 + (W - 760) * 0.03);
   const axisH  = 24, paneGap = 18;
   const priceH = H - padT - volH - axisH - paneGap;
@@ -7580,17 +7580,20 @@ function awlPatternChartSVG(d, opt) {
     for (let i = Math.max(0, n - 1 - PIVOT_LB); i < n - 1; i++) if (h[i] > mx) mx = h[i];
     if (isFinite(mx) && mx > 0) { pivotVal = Math.round(mx * 100) / 100; pivotDerived = true; }
   }
+  // Format a price for a label: round to 2dp (kills float dust like 49429.2000004
+  // that would otherwise overflow the label) with Indian thousands separators.
+  const _rs = x => '₹' + (Math.round(x * 100) / 100).toLocaleString('en-IN');
   const pivotTxt = pivotVal == null ? null
-    : `pivot ₹${pivotVal}${pivotDerived ? ' · 55d' : ''}`;
+    : `pivot ${_rs(pivotVal)}${pivotDerived ? ' · 55d' : ''}`;
 
   // Right margin sized to the widest level label. 6.3px/char is the safe width for
   // 10.5px text containing ₹ and digits — the previous 5.6 estimate was optimistic,
   // which is why "pivot ₹1863.57" crossed the chart border.
-  const CHW = 6.3;
-  const rTexts = [`₹${last}`];
+  const CHW = 6.5;
+  const rTexts = [_rs(last)];
   if (pivotTxt) rTexts.push(pivotTxt);
-  if (sl != null && isFinite(sl))       rTexts.push(`stop ₹${sl}`);
-  const padR = Math.min(140, Math.max(...rTexts.map(t => t.length)) * CHW + 12);
+  if (sl != null && isFinite(sl))       rTexts.push(`stop ${_rs(sl)}`);
+  const padR = Math.min(158, Math.max(...rTexts.map(t => t.length)) * CHW + 12);
 
   // y-scale spans the candles AND every level we draw, so nothing lands off-canvas
   const lvls = [pivotVal, bHi, bLo].filter(x => x != null && isFinite(x));
@@ -7622,14 +7625,23 @@ function awlPatternChartSVG(d, opt) {
   const step = _nice((hi - lo) / Math.max(3, Math.min(7, Math.round(priceH / 55)))) || 1;
   const fmtAx = x => x >= 1000 ? Math.round(x).toLocaleString('en-IN')
                    : x >= 100  ? x.toFixed(0) : x.toFixed(1);
+  // Axis on the RIGHT: labels sit in the right gutter, left-anchored. Skip any
+  // round-number that would collide with a level tag (pivot / last / stop), which
+  // also live in the right gutter, so the two never overprint.
+  const _axX = (W - padR + 4);
+  const _lastY = yP(last);
+  const _pivY = (pivotVal != null && isFinite(pivotVal)) ? yP(pivotVal) : null;
+  const _slY  = (sl != null && isFinite(sl) && sl >= lo && sl <= hi) ? yP(sl) : null;
+  const _tagYs = [_lastY, _pivY, _slY].filter(y => y != null);
+  const _nearTag = y => _tagYs.some(ty => Math.abs(ty - y) < 11);
   for (let g = Math.ceil(lo / step) * step; g <= hi; g += step) {
     const gy = yP(g);
     s += `<line x1="${padL}" y1="${gy.toFixed(1)}" x2="${(W - padR).toFixed(1)}" y2="${gy.toFixed(1)}" stroke="${AX}" stroke-width="1" opacity="0.15"/>`;
-    s += `<text x="${padL - 6}" y="${(gy + 3).toFixed(1)}" font-size="9" fill="${AX}" text-anchor="end">${fmtAx(g)}</text>`;
+    if (!_nearTag(gy)) s += `<text x="${_axX}" y="${(gy + 3).toFixed(1)}" font-size="9" fill="${AX}">${fmtAx(g)}</text>`;
   }
   // divider so the volume pane reads as its own strip rather than more chart
   s += `<line x1="${padL}" y1="${(volTop - 10).toFixed(1)}" x2="${(W - padR).toFixed(1)}" y2="${(volTop - 10).toFixed(1)}" stroke="${AX}" stroke-width="1" opacity="0.28"/>`;
-  s += `<text x="${padL - 6}" y="${(volTop + 12).toFixed(1)}" font-size="9" fill="${AX}" text-anchor="end">Vol</text>`;
+  s += `<text x="${_axX}" y="${(volTop + 12).toFixed(1)}" font-size="9" fill="${AX}">Vol</text>`;
 
   // ── base box (drawn first so candles sit on top) ──────────────────────────
   const boxPat  = ['VCP', 'Box', 'Rectangular', 'HTF', 'ATH'].find(p => pats.includes(p));
@@ -7771,9 +7783,9 @@ function awlPatternChartSVG(d, opt) {
   if (sl != null && isFinite(sl) && sl >= lo && sl <= hi) {
     const sy = yP(sl);
     s += `<line x1="${padL}" y1="${sy.toFixed(1)}" x2="${(W - padR).toFixed(1)}" y2="${sy.toFixed(1)}" stroke="${_AWL_DN}" stroke-width="1" stroke-dasharray="2 4" opacity="0.75"/>`;
-    labels.push({ y: sy, t: `stop ₹${sl}`, c: _AWL_DN, w: 400, s: 10 });
+    labels.push({ y: sy, t: `stop ${_rs(sl)}`, c: _AWL_DN, w: 400, s: 10 });
   }
-  labels.push({ y: yP(last), t: `₹${last}`, c: 'var(--text)', w: 600, s: 10.5 });
+  labels.push({ y: yP(last), t: _rs(last), c: 'var(--text)', w: 600, s: 10.5 });
 
   labels.sort((a, b) => a.y - b.y);
   const MINGAP = 12.5;

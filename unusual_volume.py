@@ -81,6 +81,7 @@ from __future__ import annotations
 import time
 import numpy as np
 import pandas as pd
+import result_cache
 
 # ── Validated parameters — do not change without re-running the study ────────
 BASE_WINDOW      = 25     # sessions forming the stock's own delivery baseline
@@ -210,6 +211,11 @@ def run_accumulation_scan(progress_callback=None, force: bool = False) -> dict:
     """
     if not force and _cache["data"] and time.time() - _cache["ts"] < CACHE_TTL:
         return _cache["data"]
+    if not force:
+        _disk = result_cache.get_or_stale("accumulation")
+        if _disk is not None:
+            _cache["data"], _cache["ts"] = _disk, time.time()
+            return _disk
     try:
         import shared_universe as su
         import data_fetcher as dfch
@@ -245,6 +251,7 @@ def run_accumulation_scan(progress_callback=None, force: bool = False) -> dict:
                         "edge_mean_pp": 1.49, "edge_win_pp": 11.5,
                         "is_pp": 1.02, "oos_pp": 2.11, "guarded_n": 177}}
     _cache["data"], _cache["ts"] = out, time.time()
+    result_cache.put("accumulation", out)
     return out
 
 

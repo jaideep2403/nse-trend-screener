@@ -31,6 +31,7 @@ from __future__ import annotations
 import time
 import numpy as np
 import pandas as pd
+import result_cache
 
 # ── Tunables (the user's spec, made explicit) ───────────────────────────────
 RS_MIN            = 90      # "strongest" — IBD-style cross-sectional percentile
@@ -263,6 +264,11 @@ def _thesis(row: dict) -> dict:
 def run_system_scan(progress_callback=None, force: bool = False) -> dict:
     if not force and _cache["data"] and time.time() - _cache["ts"] < CACHE_TTL:
         return _cache["data"]
+    if not force:
+        _disk = result_cache.get_or_stale("system")
+        if _disk is not None:
+            _cache["data"], _cache["ts"] = _disk, time.time()
+            return _disk
     try:
         import shared_universe as su
         import benchmark as bm
@@ -339,6 +345,7 @@ def run_system_scan(progress_callback=None, force: bool = False) -> dict:
            "params": {"rs_min": RS_MIN, "min_adtv_cr": MIN_ADTV_CR,
                       "base_lookback": BASE_LOOKBACK, "extended_pct": EXTENDED_PCT}}
     _cache["data"], _cache["ts"] = out, time.time()
+    result_cache.put("system", out)
     return out
 
 

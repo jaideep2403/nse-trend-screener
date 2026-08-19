@@ -37,6 +37,7 @@ from __future__ import annotations
 import time
 import numpy as np
 import pandas as pd
+import result_cache
 
 # ── Tunables ────────────────────────────────────────────────────────────────
 MIN_WEEKS_HISTORY = 30      # need a real base to measure against
@@ -319,6 +320,11 @@ def run_post_breakout_scan(progress_callback=None, force: bool = False) -> dict:
     """
     if not force and _pb_cache["data"] and time.time() - _pb_cache["ts"] < CACHE_TTL:
         return _pb_cache["data"]
+    if not force:
+        _disk = result_cache.get_or_stale("post_breakout")
+        if _disk is not None:
+            _pb_cache["data"], _pb_cache["ts"] = _disk, time.time()
+            return _disk
 
     try:
         import shared_universe as su
@@ -357,6 +363,7 @@ def run_post_breakout_scan(progress_callback=None, force: bool = False) -> dict:
            "params": {"lookback_weeks": LOOKBACK_WEEKS, "min_adtv_cr": MIN_ADTV_CR,
                       "base_weeks": BASE_WEEKS}}
     _pb_cache["data"], _pb_cache["ts"] = out, time.time()
+    result_cache.put("post_breakout", out)
     return out
 
 
@@ -395,6 +402,11 @@ def run_weekly_breakout_scan(progress_callback=None, force: bool = False) -> dic
     """
     if not force and _cache["data"] and time.time() - _cache["ts"] < CACHE_TTL:
         return _cache["data"]
+    if not force:
+        _disk = result_cache.get_or_stale("weekly_breakout")
+        if _disk is not None:
+            _cache["data"], _cache["ts"] = _disk, time.time()
+            return _disk
 
     try:
         import shared_universe as su
@@ -435,6 +447,7 @@ def run_weekly_breakout_scan(progress_callback=None, force: bool = False) -> dic
                       "vol_mult": VOL_MULT, "min_adtv_cr": MIN_ADTV_CR,
                       "risk_pct": RISK_PCT, "hard_stop_pct": HARD_STOP_PCT}}
     _cache["data"], _cache["ts"] = out, time.time()
+    result_cache.put("weekly_breakout", out)
     return out
 
 
