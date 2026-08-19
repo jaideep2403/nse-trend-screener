@@ -824,7 +824,7 @@ def api_new_highs():
         cached = None
     if not cached:
         import result_cache as _rc
-        cached = _rc.get("breadth")
+        cached = _rc.get_or_stale("breadth")
     # No data = breadth hasn't computed for THIS bhavcopy yet (boot, or a new
     # bhavcopy just landed and the prewarm is recomputing). That is NOT the same
     # as "today genuinely had zero new highs" — the UI must not confuse the two.
@@ -1173,7 +1173,7 @@ def api_system_backtest_status():
     if not _sysbt_state["running"] and _sysbt_state["result"] is None:
         cached = None
         try:
-            cached = _rc.get("system_backtest")
+            cached = _rc.get_or_stale("system_backtest")
         except Exception:
             cached = None
         if cached:
@@ -1201,7 +1201,7 @@ def api_defensive():
     import result_cache as _rc
     cached = None
     try:
-        cached = _rc.get("defensive")
+        cached = _rc.get_or_stale("defensive")
     except Exception:
         cached = None
     if cached:
@@ -1237,7 +1237,7 @@ def api_allweather():
     import result_cache as _rc
     cached = None
     try:
-        cached = _rc.get("allweather")
+        cached = _rc.get_or_stale("allweather")
     except Exception:
         cached = None
     if cached:
