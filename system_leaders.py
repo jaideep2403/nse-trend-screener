@@ -292,7 +292,10 @@ def run_system_scan(progress_callback=None, force: bool = False) -> dict:
     mcap = {}
     try:
         import sqlite3, os
-        dbp = os.path.join(os.path.dirname(__file__), "fundamentals.db")
+        # fundamentals.db lives on the DATA_DIR volume (/data), not the code dir.
+        # It is gitignored, so /app never has it — reading from __file__ made System
+        # find no market caps and reject every stock (empty tab on the live box).
+        dbp = os.path.join(os.environ.get("DATA_DIR", os.path.dirname(__file__)), "fundamentals.db")
         if os.path.exists(dbp):
             con = sqlite3.connect(dbp)
             mcap = {r[0]: r[1] for r in con.execute(
