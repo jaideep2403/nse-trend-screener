@@ -77,7 +77,7 @@ def _seed_users() -> dict:
         "jai":  {"hash": generate_password_hash(admin_pw), "role": "admin",
                  "display": "Jai"},
         "demo": {"hash": generate_password_hash(demo_pw),  "role": "demo",
-                 "display": "Demo User"},
+                 "display": "User"},
     }
 
 
@@ -115,7 +115,10 @@ def verify(username: str, password: str):
 
 def display_name(username: str) -> str:
     rec = _load_users().get((username or "").lower())
-    return (rec or {}).get("display") or (username or "").title()
+    name = (rec or {}).get("display") or (username or "").title()
+    # Normalise the legacy demo label so an already-seeded .auth_users.json still
+    # shows the shorter "User" without needing a re-seed.
+    return "User" if name == "Demo User" else name
 
 
 # ── Session helpers ──────────────────────────────────────────────────────────
