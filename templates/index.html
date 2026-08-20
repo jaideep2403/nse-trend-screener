@@ -7727,10 +7727,9 @@ function awlPatternChartSVG(d, opt) {
   for (let i = 0; i < n; i++) {
     const x = padL + i * cw, up = c[i] >= o[i];
     const vh = v[i] / maxV * volH;
-    const fill = i === maxVi ? _AWL_MAXV
-               : acc[i] > 0 ? _AWL_ACC
-               : acc[i] < 0 ? _AWL_DIST
-               : (up ? _AWL_UPV : _AWL_DNV);
+    // Green = up-close day, red = down-close day; the single heaviest session is
+    // called out in blue. (Reverted from the accumulation/distribution shading.)
+    const fill = i === maxVi ? _AWL_MAXV : (up ? _AWL_UPV : _AWL_DNV);
     s += `<rect x="${(x + cw / 2 - bw / 2).toFixed(1)}" y="${(volTop + volH - vh).toFixed(1)}" width="${bw.toFixed(1)}" height="${vh.toFixed(1)}" fill="${fill}"/>`;
   }
   if (maxVi >= 0) {
@@ -7823,8 +7822,6 @@ function awlPatternChartSVG(d, opt) {
   legend += chip(_AWL_MA20, 'MA20');
   if (sl != null) legend += chip(_AWL_DN, 'stop');
   legend += chip(_AWL_MAXV, 'heaviest volume');
-  legend += chip(_AWL_ACC, `accumulation day (${nAcc})`);
-  legend += chip(_AWL_DIST, `distribution day (${nDist})`);
 
   const gap = pivotVal ? ((last - pivotVal) / pivotVal * 100) : 0;
   const verdict = pivotVal == null ? ''
@@ -7835,19 +7832,11 @@ function awlPatternChartSVG(d, opt) {
     ? ` · heaviest volume ${n - 1 - maxVi === 0 ? 'today' : (n - 1 - maxVi) + ' sessions ago'} (${dates[maxVi]})`
     : '';
 
-  // Recent balance matters more than the year total — 50 sessions ≈ 10 weeks.
-  const recent = acc.slice(-50);
-  const rAcc = recent.filter(x => x > 0).length, rDist = recent.filter(x => x < 0).length;
-  const balance = (rAcc || rDist)
-    ? ` · last 50 sessions: <b style="color:${_AWL_ACC}">${rAcc} accumulation</b> vs <b style="color:${_AWL_DIST}">${rDist} distribution</b>`
-    : '';
-
-  return `<div style="font-size:var(--fs-xs);color:var(--text2);margin:2px 0 4px">${verdict}${volNote}${balance}</div>` +
+  return `<div style="font-size:var(--fs-xs);color:var(--text2);margin:2px 0 4px">${verdict}${volNote}</div>` +
          `<div style="font-size:var(--fs-2xs);color:var(--muted);margin-bottom:6px">${legend}</div>` +
          `<svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto;background:var(--surface);border:1px solid var(--border);border-radius:8px">${s}</svg>` +
          `<div style="font-size:var(--fs-2xs);color:var(--muted);margin-top:5px;line-height:1.45">` +
-         `~1 year of daily candles. Boxes span the window each detector inspected; their price levels are the scan's own base high/low.<br>` +
-         `Accumulation / distribution day = volume ≥ 1.5× its trailing 50-day median <i>and</i> delivery above the stock's own 25-day baseline, on an up / down close. Trailing data only — no hindsight. Delivery proxies stock being held, not who bought.</div>`;
+         `~1 year of daily candles. Green / red volume = up / down close; the heaviest session is marked blue. Boxes span the window each detector inspected; their price levels are the scan's own base high/low.</div>`;
 }
 
 // Breakout Stocks tab: full pattern overlay. Looks up the scan row for the base
