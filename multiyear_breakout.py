@@ -376,8 +376,8 @@ def run_multiyear_scan(min_base_years: int = 1,
 
     # Universe
     try:
-        from nse_stocks import get_universe_symbols
-        symbols = get_universe_symbols()
+        from nse_stocks import get_full_universe_symbols
+        symbols = get_full_universe_symbols()
     except Exception:
         symbols = []
 
@@ -568,8 +568,8 @@ def run_near_breakout_scan(progress_callback=None) -> dict:
 
     # Universe
     try:
-        from nse_stocks import get_universe_symbols
-        symbols = get_universe_symbols()
+        from nse_stocks import get_full_universe_symbols
+        symbols = get_full_universe_symbols()
     except Exception:
         symbols = []
 

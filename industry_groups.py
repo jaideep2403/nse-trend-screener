@@ -252,9 +252,11 @@ INDUSTRY_GROUPS: dict[str, list[str]] = {
 # ── Data loader ───────────────────────────────────────────────────────────────
 
 def _load_stocks(progress_callback=None) -> dict[str, pd.DataFrame]:
-    # BUG-FIX (universe consistency): now filters to Nifty Total Market 750 to match
-    # every other scanner — was loading the full ~2500-stock bhavcopy including illiquid
-    # penny stocks which then bloated the in-memory dict.
+    # This snapshot is the shared "single source" for the breadth tape, the 52W-high
+    # ticker, the portfolio and the market-wide RS map — all market-wide STATISTICS,
+    # so it stays on the liquid Nifty Total Market 750, NOT the full ~2,300 universe
+    # (illiquid penny names would skew the tape / RS). The full-universe screeners and
+    # Sector Rotation load their own price data from shared_universe, not from here.
     try:
         from nse_stocks import get_universe_symbols
         _universe = set(get_universe_symbols())

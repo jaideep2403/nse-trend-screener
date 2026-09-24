@@ -68,7 +68,191 @@ DOWNLOAD_WORKERS = 10   # parallel bhavcopy downloads — NSE handles this fine
 LOOKBACK_DAYS    = 400  # calendar days to cover (~270 trading days / ~1yr OHLCV)
 
 _session = None
-_DAY_MEM: dict = {}   # in-memory memo: date → parsed DataFrame (never None)
+# Bounded LRU memo: date → parsed DataFrame. Was an UNBOUNDED dict, which ballooned to
+# ~330MB the moment any 3Y/5Y chart (or the deep-index build) touched all ~1,350 day
+# files, and never released — on a memory-tight host that pushed the box into swap and
+# made every chart hang. Capped now so RAM stays flat (~200MB) while recent scans/charts
+# still hit warm.
+from collections import OrderedDict as _OrderedDict
+_DAY_MEM: "_OrderedDict" = _OrderedDict()
+_DAY_MEM_MAX = 900    # ~3.5y of trading days — covers scans + 5Y charts, then evicts oldest
+
+
+def _day_mem_put(dt, df) -> None:
+    _DAY_MEM[dt] = df
+    _DAY_MEM.move_to_end(dt)
+    while len(_DAY_MEM) > _DAY_MEM_MAX:
+        _DAY_MEM.popitem(last=False)   # drop the least-recently-used day
+
+# ── Negative cache: dates that have NO bhavcopy (market holidays, or genuinely
+# absent/unparseable archive files) ──────────────────────────────────────────
+# Without this, every cold deep-history load (a 3Y/5Y chart, a 1900-day universe)
+# re-attempts a network download for each holiday in the window — ~13 of them in a
+# 5-year span (Christmas, Gandhi Jayanti, Mahashivratri, Muharram, …). Each doomed
+# fetch blocks the request thread for a few seconds, so a single 5Y chart spent
+# ~60s retrying files that will NEVER exist. We remember those dates once and skip
+# the network for them forever. Only dates OLD enough that a bhavcopy would surely
+# be published by now are cached — a recent date that's merely not-yet-published
+# must stay retryable so today's data appears the moment NSE posts it.
+_NO_BHAV_PATH = BHAV_DIR / "_no_bhav_dates.json"
+_NO_BHAV_MIN_AGE_DAYS = 4      # only negatively-cache dates at least this old
+_NO_BHAV: set = set()
+
+
+def _load_no_bhav() -> None:
+    global _NO_BHAV
+    try:
+        import json
+        with open(_NO_BHAV_PATH) as f:
+            _NO_BHAV = {date.fromisoformat(s) for s in json.load(f)}
+    except Exception:
+        _NO_BHAV = set()
+
+
+def _save_no_bhav() -> None:
+    try:
+        import json, tempfile
+        fd, tmp = tempfile.mkstemp(dir=str(BHAV_DIR), prefix="_no_bhav.", suffix=".tmp")
+        with os.fdopen(fd, "w") as f:
+            json.dump(sorted(d.isoformat() for d in _NO_BHAV), f)
+        os.replace(tmp, _NO_BHAV_PATH)
+    except Exception:
+        pass
+
+
+def _mark_no_bhav(dt: date, min_age: int = _NO_BHAV_MIN_AGE_DAYS) -> None:
+    """Record that `dt` has no bhavcopy — but only if it's at least `min_age` days old,
+    so we never permanently blacklist a file that just isn't published yet. A clean
+    holiday signal (a real 404/empty response) is trustworthy at 4 days; a network/parse
+    EXCEPTION is not — during an outage every un-cached trading day would raise, so those
+    only get blacklisted once they're far older than the scan window keeps fresh on disk."""
+    try:
+        if (_now_ist().date() - dt).days >= min_age and dt not in _NO_BHAV:
+            _NO_BHAV.add(dt)
+            _save_no_bhav()
+    except Exception:
+        pass
+
+
+_load_no_bhav()
+
+
+# ── Holiday / carry-forward detection ─────────────────────────────────────────
+# NSE sometimes serves a bhavcopy for a NON-trading day whose closes are byte-identical
+# to the previous real session — a pure carry-forward (e.g. an unscheduled holiday, or
+# the archive not yet rolled over). Ingested naively that becomes a "fresh" bar with a 0%
+# day-change on EVERY stock and a misleading "1-day-old" freshness stamp. We detect those
+# (≥98% of a large common universe with an unchanged close) and treat the date as a
+# holiday: it is dropped, never counts as the latest session, and never becomes a bar —
+# so day-change is always measured against the last REAL trading session.
+_HOLIDAY_PATH = BHAV_DIR / "_holiday_dates.json"
+_HOLIDAYS: set = set()
+
+
+def _load_holidays() -> None:
+    global _HOLIDAYS
+    try:
+        import json
+        with open(_HOLIDAY_PATH) as f:
+            _HOLIDAYS = {date.fromisoformat(s) for s in json.load(f)}
+    except Exception:
+        _HOLIDAYS = set()
+
+
+def _save_holidays() -> None:
+    try:
+        import json, tempfile
+        fd, tmp = tempfile.mkstemp(dir=str(BHAV_DIR), prefix="_holiday.", suffix=".tmp")
+        with os.fdopen(fd, "w") as f:
+            json.dump(sorted(d.isoformat() for d in _HOLIDAYS), f)
+        os.replace(tmp, _HOLIDAY_PATH)
+    except Exception:
+        pass
+
+
+_load_holidays()
+
+
+def _is_carry_forward(df, prev_df) -> bool:
+    """True when `df`'s closes are (near-)identical to the previous session's — NSE
+    carried the prior session forward for a non-trading day. Requires a large common
+    universe (≥500 names) so it can never misfire on a genuinely quiet real session,
+    where at least some prices always move."""
+    try:
+        if df is None or prev_df is None or len(df) < 500 or len(prev_df) < 500:
+            return False
+        a = dict(zip(df["Symbol"], df["Close"]))
+        b = dict(zip(prev_df["Symbol"], prev_df["Close"]))
+        common = [s for s in a if s in b]
+        if len(common) < 500:
+            return False
+        same = 0
+        for s in common:
+            try:
+                if abs(float(a[s]) - float(b[s])) < 1e-6:
+                    same += 1
+            except Exception:
+                pass
+        return (same / len(common)) >= 0.98
+    except Exception:
+        return False
+
+
+def _prev_cached_day(before: date):
+    """(date, DataFrame) of the newest cached, NON-holiday bhavcopy strictly older than
+    `before`, or (None, None). Used to compare a new day against the last real session."""
+    d = before - timedelta(days=1)
+    stop = before - timedelta(days=20)
+    while d >= stop:
+        if d not in _HOLIDAYS and _bhav_cache_path(d).exists():
+            try:
+                with open(_bhav_cache_path(d), "rb") as f:
+                    return d, pickle.load(f)
+            except Exception:
+                pass
+        d -= timedelta(days=1)
+    return None, None
+
+
+def detect_holidays(cleanup: bool = True, lookback: int = 20) -> list:
+    """Scan the most recent cached day-files; any that merely carry the prior session
+    forward are recorded as holidays and (if cleanup) removed, so they never become a
+    spurious trading bar. Returns the list of newly-detected holiday dates. Safe to run
+    repeatedly — already-known holidays are skipped."""
+    found = []
+    try:
+        days = []
+        for f in sorted(BHAV_DIR.glob("*.pkl")):
+            try:
+                days.append(datetime.strptime(f.stem, "%Y%m%d").date())
+            except ValueError:
+                continue
+        for d in days[-lookback:]:
+            if d in _HOLIDAYS:
+                continue
+            try:
+                with open(_bhav_cache_path(d), "rb") as f:
+                    cur = pickle.load(f)
+            except Exception:
+                continue
+            pday, prev = _prev_cached_day(d)
+            if prev is not None and _is_carry_forward(cur, prev):
+                _HOLIDAYS.add(d)
+                found.append(d)
+                if cleanup:
+                    try:
+                        _bhav_cache_path(d).unlink(missing_ok=True)
+                        _DAY_MEM.pop(d, None)
+                    except Exception:
+                        pass
+        if found:
+            _save_holidays()
+            print(f"[bhavcopy] 🏖️ market-holiday carry-forward "
+                  f"{'removed' if cleanup else 'flagged'}: "
+                  f"{[x.isoformat() for x in found]}", flush=True)
+    except Exception as e:
+        print(f"[bhavcopy] detect_holidays failed: {e}", flush=True)
+    return found
 
 
 # ── HTTP session (reused across calls) ────────────────────────────────────────
@@ -102,32 +286,57 @@ def _bhav_cache_path(dt: date) -> Path:
 
 def _download_one_day(dt: date) -> pd.DataFrame | None:
     """Download and cache one day's bhavcopy. Returns None for holidays/futures."""
+    # Known market-holiday carry-forward date → never a real trading session. This is the
+    # single choke point every loader (charts, universe, symbol store, fetch_ohlcv) goes
+    # through, so returning None here keeps that day out of ALL of them — and we delete any
+    # stray re-download (fetch_ohlcv walks weekdays and would otherwise re-fetch it from
+    # NSE, which still serves the carry-forward file).
+    if dt in _HOLIDAYS:
+        try:
+            _bhav_cache_path(dt).unlink(missing_ok=True)
+            _DAY_MEM.pop(dt, None)
+        except Exception:
+            pass
+        return None
     if dt in _DAY_MEM:
+        _DAY_MEM.move_to_end(dt)      # mark most-recently-used
         return _DAY_MEM[dt]
     cache = _bhav_cache_path(dt)
     if cache.exists():
         try:
             with open(cache, "rb") as f:
                 df = pickle.load(f)
-            _DAY_MEM[dt] = df
+            _day_mem_put(dt, df)
             return df
         except Exception as e:
             print(f"[data_fetcher] corrupt bhavcopy cache {cache.name} — deleting and re-downloading: {e}", flush=True)
             cache.unlink(missing_ok=True)
 
+    # Known holiday / permanently-absent date → skip the network entirely. This is the
+    # difference between a 5Y chart taking ~2s and ~60s (see _NO_BHAV above).
+    if dt in _NO_BHAV:
+        return None
+
     try:
         r = _get_session().get(_bhav_url(dt), timeout=15)
         if r.status_code != 200 or len(r.content) < 5_000:
-            return None   # holiday or future date
+            _mark_no_bhav(dt)   # holiday or future date — remember so we never retry
+            return None
 
         df = pd.read_csv(io.BytesIO(r.content))
         df.columns = [c.strip() for c in df.columns]
 
-        # Keep EQ series only
+        # Keep the tradeable equity series. EQ = normal rolling settlement; BE/BZ = the
+        # trade-to-trade (T2T) segment where NSE parks names after big corporate actions
+        # or under surveillance (still tradeable, delivery-only). STLTECH moved EQ→BE
+        # after the STL Networks demerger and silently vanished when this was EQ-only.
+        # Discovery screeners keep their own ADTV liquidity filters, so illiquid T2T
+        # names don't flood them — but charts / search / portfolio can now see them.
         if "SERIES" in df.columns:
-            df = df[df["SERIES"].str.strip() == "EQ"]
+            df = df[df["SERIES"].str.strip().isin(("EQ", "BE", "BZ"))]
 
         if df.empty:
+            _mark_no_bhav(dt)
             return None
 
         df["SYMBOL"] = df["SYMBOL"].str.strip()
@@ -147,11 +356,16 @@ def _download_one_day(dt: date) -> pd.DataFrame | None:
             out["DelivPer"] = df["DELIV_PER"].values
 
         _atomic_pickle_dump(out, cache)
-        _DAY_MEM[dt] = out
+        _day_mem_put(dt, out)
         return out
 
     except Exception as e:
         print(f"[data_fetcher] bhavcopy download/parse failed for {dt}: {e}", flush=True)
+        # A network hiccup on a recent date should stay retryable, but an OLD date that
+        # consistently fails to download/parse is a permanent hole — stop hammering it.
+        # Use a wide age margin here: during a full outage EVERY un-cached day raises,
+        # and we must not blacklist real trading days the scan window keeps on disk.
+        _mark_no_bhav(dt, min_age=120)
         return None
 
 
@@ -176,11 +390,12 @@ def _weekdays_back(n: int) -> list[date]:
 def _latest_bhavcopy_date() -> date | None:
     """
     Return the most recent date for which a bhavcopy pkl is cached locally.
-    Checks today first, then walks back up to 10 trading days.
+    Checks today first, then walks back up to 10 trading days. Known market-holiday
+    carry-forward dates are skipped, so this always returns the last REAL session.
     Returns None only if no cached bhavcopy exists at all.
     """
     for dt in _weekdays_back(20):
-        if _bhav_cache_path(dt).exists():
+        if dt not in _HOLIDAYS and _bhav_cache_path(dt).exists():
             return dt
     return None
 
@@ -356,6 +571,24 @@ def auto_refresh_bhavcopy(force: bool = False) -> dict:
                 pass
 
         result = _download_one_day(today)
+        if result is not None and _prev_cached_day(today)[1] is not None \
+                and _is_carry_forward(result, _prev_cached_day(today)[1]):
+            # NSE served a carry-forward of the prior session — today is a non-trading
+            # holiday, NOT fresh data. Drop the file, remember the date, and report it so
+            # the app keeps showing the last REAL session instead of a 0%-change "new day".
+            _pday, _ = _prev_cached_day(today)
+            _HOLIDAYS.add(today); _save_holidays()
+            try:
+                _bhav_cache_path(today).unlink(missing_ok=True)
+                _DAY_MEM.pop(today, None)
+            except Exception:
+                pass
+            msg = f"market holiday {today} (carried forward from {_pday}) — no new session"
+            _refresh_state["last_attempt_msg"] = msg
+            print(f"[bhavcopy] 🏖️ {msg}", flush=True)
+            return {"downloaded": False, "date": None, "already_had": False,
+                    "holiday": True, "msg": msg,
+                    "since_success": since_success if since_success != float("inf") else None}
         if result is not None:
             _refresh_state["last_new_date"] = today
             print(f"[bhavcopy] ✅ Auto-downloaded {today} bhavcopy "

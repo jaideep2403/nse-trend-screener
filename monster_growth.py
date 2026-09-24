@@ -68,8 +68,8 @@ def _load_universe_ohlcv(progress_callback=None) -> dict[str, pd.DataFrame]:
     Zero network calls if bhavcopy already cached.
     """
     try:
-        from nse_stocks import get_universe_symbols
-        universe = set(get_universe_symbols())
+        from nse_stocks import get_full_universe_symbols
+        universe = set(get_full_universe_symbols())
     except Exception:
         universe = set()
 

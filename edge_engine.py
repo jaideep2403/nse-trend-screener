@@ -268,6 +268,13 @@ _ETF_EXACT = frozenset({
 
 def _is_etf(sym: str) -> bool:
     s = sym.upper()
+    # AUTHORITATIVE: NSE's published ETF list (cached, no network here) first.
+    try:
+        from etf_list import etf_symbols
+        if s in etf_symbols():
+            return True
+    except Exception:
+        pass
     return (s in _ETF_EXACT or
             any(s.endswith(x) for x in _ETF_END) or
             any(k in s for k in _ETF_HAS))
@@ -276,12 +283,15 @@ def _is_etf(sym: str) -> bool:
 # ── Data loader ───────────────────────────────────────────────────────────────
 
 def _load_stocks(progress_callback=None, days: int = 400,
-                 survivorship_free: bool = False) -> dict[str, pd.DataFrame]:
+                 survivorship_free: bool = False,
+                 full_universe: bool = False) -> dict[str, pd.DataFrame]:
     """
     Load per-symbol OHLCV from the bhavcopy cache.
 
-    survivorship_free=False  → filter to the CURRENT curated universe
-                               (Nifty50∪Next50∪500∪Smallcap250∪Microcap250).
+    survivorship_free=False  → filter to a CURRENT universe.
+        full_universe=False    → the curated Nifty Total Market 750 (default).
+        full_universe=True     → the whole ~2,300-stock NSE EQ universe, so the
+                                 Edge scoreboard covers every listed stock.
                                Use for ranking/scoring — we score the present.
     survivorship_free=True   → NO universe filter; loads every symbol that
                                ever traded in the window (incl. delisted).
@@ -297,8 +307,12 @@ def _load_stocks(progress_callback=None, days: int = 400,
     universe: set[str] = set()
     if not survivorship_free:
         try:
-            from nse_stocks import get_universe_symbols
-            universe = set(get_universe_symbols())
+            if full_universe:
+                from nse_stocks import get_full_universe_symbols
+                universe = set(get_full_universe_symbols(days=days))
+            else:
+                from nse_stocks import get_universe_symbols
+                universe = set(get_universe_symbols())
         except Exception:
             universe = set()
 
@@ -1508,19 +1522,25 @@ def run_edge_engine(progress_callback=None, include_backtests=False) -> dict:
                           f"Loading bhavcopy ({load_days}d"
                           f"{', survivorship-free' if include_backtests else ''})…")
     stocks_all = _load_stocks(progress_callback, days=load_days,
-                              survivorship_free=include_backtests)
+                              survivorship_free=include_backtests,
+                              full_universe=not include_backtests)
     if not stocks_all:
         return {"error": "No bhavcopy data available"}
 
-    # For RANKING / scoring we use the current curated universe — the scoreboard
-    # reflects the present, so it's fine (and faster) not to score delisted names.
+    # For RANKING / scoring we use the CURRENT universe (not delisted names). The
+    # fast path scores the whole ~2,300-stock NSE market so the Edge scoreboard
+    # covers every listed stock; the survivorship-free backtest path stays curated.
     try:
-        from nse_stocks import get_universe_symbols
-        curated = set(get_universe_symbols())
+        if include_backtests:
+            from nse_stocks import get_universe_symbols
+            live_universe = set(get_universe_symbols())
+        else:
+            from nse_stocks import get_full_universe_symbols
+            live_universe = set(get_full_universe_symbols(days=load_days))
     except Exception:
-        curated = set()
-    stocks = ({s: df for s, df in stocks_all.items() if s in curated}
-              if curated else stocks_all)
+        live_universe = set()
+    stocks = ({s: df for s, df in stocks_all.items() if s in live_universe}
+              if live_universe else stocks_all)
 
     # Build Nifty proxy (still used by regime detection + RS — Phase 5 swaps it
     # for the real NIFTYBEES series everywhere; this is just Phase 1).

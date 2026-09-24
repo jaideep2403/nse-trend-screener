@@ -133,6 +133,16 @@ def is_etf(symbol: str) -> bool:
     s = (symbol or "").upper().strip()
     if not s or s in _NOT_ETF:
         return False
+    # AUTHORITATIVE first: NSE's own published ETF list (/api/etf, ~348 symbols,
+    # refreshed weekly). Catches index/sector trackers that carry no fund token
+    # in the symbol — ABSLMSCIN, AONETOTAL, ALPHA, BFSI, CONSUMER, DEFENCE, EBANK10
+    # … which the pattern rules below miss. Cached, never hits the network here.
+    try:
+        from etf_list import etf_symbols
+        if s in etf_symbols():
+            return True
+    except Exception:
+        pass
     # Fund/ETF name tokens that no real (non-whitelisted) stock carries.
     if any(t in s for t in ("ETF", "BEES", "LIQUID", "GILT", "GSEC")):
         return True
@@ -227,6 +237,22 @@ def get_universe_symbols() -> list[str]:
     return universe
 
 
+def get_full_universe_symbols(days: int = 400) -> list[str]:
+    """The FULL NSE EQ universe — every listed stock we have fresh bhavcopy data for
+    (ETFs and stale/delisted names already excluded by the shared loader), NOT just
+    the curated Nifty Total Market 750. This is what the display screeners use so
+    every tab covers the whole ~2,300-stock market. Falls back to the curated 750
+    if the shared loader isn't ready yet."""
+    try:
+        import shared_universe as _su
+        syms = list(_su.load_base_universe(days=days).keys())
+        if syms:
+            return syms
+    except Exception:
+        pass
+    return get_universe_symbols()
+
+
 # BUG-FIX: original name `get_nifty500_symbols` was misleading — it returns
 # the Nifty Total Market 750 universe (~750 stocks), NOT just Nifty 500.
 # The misleading name caused confusion: "why are we using Nifty 500 not Total Market?"
@@ -237,6 +263,42 @@ def get_nifty500_symbols() -> list[str]:
     """[DEPRECATED NAME] Returns the Nifty Total Market 750 universe (~751 stocks).
     Misleading name kept for back-compat. New code should use get_universe_symbols()."""
     return get_universe_symbols()
+
+
+_INDEX_MEMBER_CACHE: dict = {}   # name -> {"ts", "symbols"}
+
+
+def get_index_members(name: str) -> list[str]:
+    """Constituents of ONE named NSE index (e.g. 'Nifty500', 'NiftyTotalMarket'), cached
+    weekly on disk. Best-effort: returns [] if the index isn't configured or the fetch
+    fails — callers should read [] as 'membership unknown', not 'empty index'."""
+    url = _INDEX_URLS.get(name)
+    if not url:
+        return []
+    ent = _INDEX_MEMBER_CACHE.get(name)
+    if ent and time.time() - ent["ts"] < _CACHE_TTL:
+        return ent["symbols"]
+    path = os.path.join(os.environ.get("DATA_DIR", os.path.dirname(__file__)),
+                        f".nse_index_{name}.pkl")
+    try:
+        if os.path.exists(path):
+            with open(path, "rb") as f:
+                d = pickle.load(f)
+            if time.time() - d["ts"] < _CACHE_TTL:
+                _INDEX_MEMBER_CACHE[name] = d
+                return d["symbols"]
+    except Exception:
+        pass
+    syms = [s for s in _fetch_index(name, url) if _is_valid_symbol(s)]
+    if syms:
+        ent = {"ts": time.time(), "symbols": syms}
+        _INDEX_MEMBER_CACHE[name] = ent
+        try:
+            with open(path, "wb") as f:
+                pickle.dump(ent, f)
+        except Exception:
+            pass
+    return syms
 
 
 def get_nse_tickers() -> list[str]:

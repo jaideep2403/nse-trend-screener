@@ -92,10 +92,11 @@ def _load_all_stocks(progress_callback=None) -> dict[str, pd.DataFrame]:
             progress_callback(i, total, f"Loading bhavcopy… {i}/{total} days")
     if not frames:
         return {}
-    # BUG-FIX: was loading EVERY EQ symbol incl. illiquid penny stocks → "% above MA50"
-    # got dominated by ~1500 thinly traded names; other tabs used the Nifty Total Market
-    # 750 universe → cross-tab mismatch. Now consistent: breadth on the same 750-stock
-    # NSE Total Market universe used by every other scanner.
+    # Breadth is a MARKET-WIDE STATISTIC, not a stock-picking screen, so it stays on
+    # the liquid Nifty Total Market 750 — NOT the full ~2,300-stock EQ universe.
+    # (BUG-FIX, re-confirmed: including ~1,500 thinly traded penny names dominates
+    # "% above MA50/200" with noise and skews the header trend pill. The screeners
+    # cover the full universe; breadth deliberately does not.)
     try:
         from nse_stocks import get_universe_symbols
         _universe = set(get_universe_symbols())

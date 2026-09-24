@@ -1,15 +1,20 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
-  <title>AscentX</title>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <title>FortuneX</title>
   <defs>
-    <linearGradient id="awl" x1="0" y1="0" x2="1" y2="1">
+    <linearGradient id="fx" x1="0" y1="0" x2="1" y2="1">
       <stop offset="0" stop-color="#064e3b"/>
       <stop offset="1" stop-color="#10b981"/>
     </linearGradient>
   </defs>
-  <rect x="0" y="0" width="24" height="24" rx="6" fill="url(#awl)"/>
-  <g fill="none" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"
-     transform="translate(3.6,3.6) scale(0.7)">
-    <path d="M3 17l6-6 4 4 8-8" stroke="#ffffff"/>
-    <path d="M17 7h4v4" stroke="#f6d365"/>
+  <rect x="0" y="0" width="64" height="64" rx="14" fill="url(#fx)"/>
+  <g transform="translate(-3,5) scale(1)">
+    <g fill="#ffffff">
+      <path d="M32 25 L40 21 L53 25 L51 35 L45 41 L37 42 L32 38 Z"/>
+      <path d="M32 24 L23 29 L33 31 Z"/>
+      <path d="M32 28 L14 33 L17 37 L21 36 L19 39 L24 38 L31 36 Z"/>
+      <path d="M44 23 L63 14 L59 20 L46 26 Z"/>
+      <path d="M47 27 L64 21 L60 26 L48 30 Z"/>
+    </g>
+    <path d="M35 29 L40 28 L37 31 Z" fill="#064e3b"/>
   </g>
 </svg>

@@ -159,6 +159,17 @@ def build(from_year: int = 2019, to_year: int | None = None, log=print) -> dict:
     """Fetch + parse + cache. Returns {symbol: [{ex_date, mult, kind, subject}, …]}."""
     to_year = to_year or date.today().year
     raw = fetch_range(from_year, to_year, log=log)
+    events, kept = _parse_records(raw)
+    payload = {"built_at": datetime.now().isoformat(timespec="seconds"),
+               "from_year": from_year, "to_year": to_year,
+               "n_raw": len(raw), "n_events": kept, "events": events}
+    _write(payload)
+    log(f"[corp_actions] parsed {kept} split/bonus events across {len(events)} symbols "
+        f"from {len(raw)} raw records")
+    return payload
+
+
+def _parse_records(raw: list[dict]) -> tuple[dict, int]:
     events: dict[str, list[dict]] = {}
     kept = 0
     for rec in raw:
@@ -175,9 +186,10 @@ def build(from_year: int = 2019, to_year: int | None = None, log=print) -> dict:
         kept += 1
     for sym in events:
         events[sym].sort(key=lambda e: e["ex_date"])
-    payload = {"built_at": datetime.now().isoformat(timespec="seconds"),
-               "from_year": from_year, "to_year": to_year,
-               "n_raw": len(raw), "n_events": kept, "events": events}
+    return events, kept
+
+
+def _write(payload: dict) -> None:
     try:
         tmp = CACHE_PATH + ".tmp"
         with open(tmp, "w") as fh:
@@ -185,9 +197,60 @@ def build(from_year: int = 2019, to_year: int | None = None, log=print) -> dict:
         os.replace(tmp, CACHE_PATH)
     except OSError:
         pass
-    log(f"[corp_actions] parsed {kept} split/bonus events across {len(events)} symbols "
-        f"from {len(raw)} raw records")
-    return payload
+    _mem["data"], _mem["ts"] = None, 0.0
+
+
+def refresh_recent(log=print, min_age_sec: int = CACHE_TTL, force: bool = False) -> dict:
+    """Pull THIS year's actions and merge them in. At most once a day.
+
+    WHY (2026-09-17): the docstring promised "refreshed at most daily", but only
+    build() existed and nothing ever called it. The cache was built once on
+    2026-07-29, so every split/bonus after 2026-07-31 was invisible — TDPOWERSYS,
+    GOODLUCK, INDIAGLYCO, KIRLPNU, TEMBO and TCC all carried fake 49-89% one-day
+    crashes into returns, RS, 52-week highs, volatility and stops.
+
+    Politeness: one cookie-seeding request + one request for the current year (plus
+    the previous year during January, for late-December ex-dates). Existing events
+    are kept; new ones are merged, never duplicated."""
+    try:
+        with open(CACHE_PATH) as fh:
+            payload = json.load(fh)
+    except Exception:
+        payload = {"events": {}, "from_year": date.today().year}
+    last = payload.get("refreshed_at") or payload.get("built_at")
+    if not force and last:
+        try:
+            age = (datetime.now() - datetime.fromisoformat(last)).total_seconds()
+            if age < min_age_sec:
+                return {"skipped": True, "reason": f"refreshed {age/3600:.1f}h ago", "added": 0}
+        except Exception:
+            pass
+    today = date.today()
+    y0 = today.year - 1 if today.month == 1 else today.year
+    raw = fetch_range(y0, today.year, log=log)
+    payload["last_attempt_at"] = datetime.now().isoformat(timespec="seconds")
+    if not raw:
+        payload["last_error"] = "no records returned (NSE unreachable or blocked)"
+        _write(payload)
+        log("[corp_actions] refresh: no records returned — keeping existing events")
+        return {"skipped": False, "added": 0, "error": payload["last_error"]}
+    fresh, _ = _parse_records(raw)
+    events = payload.get("events") or {}
+    added = []
+    for sym, evs in fresh.items():
+        have = {(e["ex_date"], e["mult"], e["kind"]) for e in events.get(sym, [])}
+        for e in evs:
+            if (e["ex_date"], e["mult"], e["kind"]) not in have:
+                events.setdefault(sym, []).append(e)
+                added.append((sym, e["ex_date"], e["mult"], e["kind"]))
+        events.get(sym, []).sort(key=lambda e: e["ex_date"])
+    payload.update(events=events, refreshed_at=datetime.now().isoformat(timespec="seconds"),
+                   to_year=max(int(payload.get("to_year") or today.year), today.year),
+                   n_events=sum(len(v) for v in events.values()), last_error=None)
+    _write(payload)
+    log(f"[corp_actions] refresh: {len(raw)} records for {y0}-{today.year}, "
+        f"{len(added)} new event(s)" + (f": {added[:8]}" if added else ""))
+    return {"skipped": False, "added": len(added), "new_events": added}
 
 
 _mem: dict = {"data": None, "ts": 0.0}
@@ -212,4 +275,10 @@ def load(refresh: bool = False) -> dict:
 
 
 def events_for(symbol: str) -> list[dict]:
-    return load().get((symbol or "").strip().upper(), [])
+    # Accept "TDPOWERSYS.NS" as well as "TDPOWERSYS": data_fetcher's per-ticker cache
+    # passes the yfinance-style ticker, which silently matched NO feed events (2026-09-17).
+    sym = (symbol or "").strip().upper()
+    for suffix in (".NS", ".BO"):
+        if sym.endswith(suffix):
+            sym = sym[: -len(suffix)]
+    return load().get(sym, [])

@@ -32,6 +32,17 @@ FETCH_DELAY  = 8           # base seconds between requests (tested clean; 5s get
 FETCH_JITTER = 3           # add random 0–FETCH_JITTER seconds — looks human to screener.in
 FRESH_DAYS   = 30          # consider cached "fresh" if < 30 days old AND has data
 
+# Kill switch for the background scraper. When the sentinel file exists (or the
+# env var is set), the scheduler never spawns AND a running loop exits at its next
+# turn — so `touch $DATA_DIR/SCRAPE_OFF` + restart fully stops scraping, and
+# `rm $DATA_DIR/SCRAPE_OFF` + restart resumes it. Reversible, no code change.
+_SCRAPE_OFF_SENTINEL = os.path.join(os.environ.get("DATA_DIR", os.path.dirname(__file__)), "SCRAPE_OFF")
+
+
+def _scrape_disabled() -> bool:
+    return os.path.exists(_SCRAPE_OFF_SENTINEL) or os.environ.get("NSE_SCRAPE_OFF") == "1"
+
+
 _db_lock = threading.Lock()   # serialises SQLite writes
 
 # ── Scheduler live state (read by /api/fundamentals/status) ───────────────────
@@ -582,19 +593,36 @@ def _fetch_one(symbol: str) -> Optional[dict]:
 
 def _get_symbol_list() -> list[str]:
     """
-    Return the Nifty Total Market 750 symbol list (~751 stocks).
-    ETFs are already excluded by nse_stocks.get_universe_symbols().
-    The market-cap gate in _fetch_one() further filters to > 5000 Cr stocks.
+    FULL NSE EQ universe — every bhavcopy EQ symbol (ETFs excluded), so every tab can
+    cover ALL listed stocks, not just the curated index list. The curated Nifty Total
+    Market names are placed FIRST so the most-traded data stays fresh soonest; the long
+    tail of small/micro-caps follows. Falls back to the curated list if the full
+    universe isn't loaded yet. The polite 8s+jitter throttle (below) is unchanged, so
+    the extra breadth just means the background pass takes longer — it never hammers.
     """
     try:
-        from nse_stocks import get_universe_symbols
         from edge_engine import _is_etf
-        syms = get_universe_symbols()
-        # Double-check: strip any ETFs that slip through the index list
-        return [s for s in syms if not _is_etf(s)]
     except Exception:
-        pass
-    return []
+        _is_etf = lambda s: False   # noqa: E731 — never let the ETF filter break the list
+
+    curated = []
+    try:
+        from nse_stocks import get_universe_symbols
+        curated = [s for s in get_universe_symbols() if not _is_etf(s)]
+    except Exception:
+        curated = []
+
+    full = []
+    try:
+        import shared_universe as su
+        full = [s for s in su.load_base_universe(days=400).keys() if not _is_etf(s)]
+    except Exception:
+        full = []
+
+    if not full:
+        return curated
+    seen = set(curated)
+    return curated + [s for s in full if s not in seen]   # curated first, then the tail
 
 
 def _scheduler_loop():
@@ -609,6 +637,12 @@ def _scheduler_loop():
     time.sleep(8)
 
     while True:
+        if _scrape_disabled():
+            with _sched_lock:
+                _sched["running"]        = False
+                _sched["current_symbol"] = ""
+                _sched["error"]          = "scrape disabled (SCRAPE_OFF)"
+            return
         symbols = _get_symbol_list()
         if not symbols:
             with _sched_lock:
@@ -679,6 +713,12 @@ def start_background_scheduler():
     (after the initial 8-second sleep), allowing a second caller to race in
     and spawn a duplicate thread during that window.
     """
+    if _scrape_disabled():
+        with _sched_lock:
+            _sched["running"] = False
+            _sched["error"]   = "scrape disabled (SCRAPE_OFF)"
+        return   # kill switch engaged — do not spawn the scraper
+
     with _sched_lock:
         if _sched["running"]:
             return   # already started — guard under lock prevents race

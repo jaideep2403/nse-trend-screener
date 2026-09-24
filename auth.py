@@ -1,4 +1,4 @@
-"""Lightweight session auth for AscentX.
+"""Lightweight session auth for FortuneX.
 
 Two roles:
   • admin — full access, including personal positions (My Portfolio, Strategy,

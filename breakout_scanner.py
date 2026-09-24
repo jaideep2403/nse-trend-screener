@@ -67,8 +67,8 @@ def _load_all_stocks(progress_callback=None) -> dict[str, pd.DataFrame]:
 
     # Universe: Nifty Total Market 750 (Nifty50 ∪ Next50 ∪ Nifty500 ∪ Smallcap250 ∪ Microcap250 ∪ TotalMarket)
     try:
-        from nse_stocks import get_universe_symbols
-        _universe = set(get_universe_symbols())
+        from nse_stocks import get_full_universe_symbols
+        _universe = set(get_full_universe_symbols())
     except Exception:
         _universe = set()
     combined = pd.concat(frames, ignore_index=True).sort_values("Date")
@@ -519,9 +519,43 @@ def _analyze(symbol: str, df: pd.DataFrame) -> dict | None:
         timeframes           = _detect_timeframes(close, vol)
         patterns, pat_levels = _detect_patterns(close, high, low, vol)
 
-        # VCP/Box setups included even before breakout — they're actionable
+        # RECENT-BREAKOUT INCLUSION — a name that already cleared a base in the last ~15
+        # sessions and still holds its pivot is a legitimate breakout stock even if it
+        # isn't printing a FRESH breakout TODAY (e.g. KRN cleared its 16-week base on
+        # 14 Aug, ran +7%, now consolidating extended). Without this it fell through the
+        # "no timeframe + no pattern → drop" gate and vanished from the tab despite the
+        # chart clearly marking its breakout. Only run the (cheap) base detector on names
+        # that would otherwise be dropped, so the added cost is bounded.
+        recent_base = None
         if not timeframes and not patterns:
+            try:
+                import base_detector as _bd
+                _cv = close.values[-300:]
+                _n2 = len(_cv)
+                _bs = _bd.detect_bases(
+                    [str(t.date()) for t in df.index[-300:]],
+                    df["Open"].astype(float).values[-300:].tolist(),
+                    high.values[-300:].tolist(), low.values[-300:].tolist(),
+                    _cv.tolist(), vol.values[-300:].tolist())
+                if _bs and _bs[-1].get("broke_out"):
+                    _lb = _bs[-1]
+                    if ((_n2 - 1) - int(_lb["end"])) <= 15 and cur >= _lb["pivot"] * 0.97:
+                        recent_base = _lb
+            except Exception:
+                pass
+
+        # VCP/Box setups included even before breakout — they're actionable
+        if not timeframes and not patterns and recent_base is None:
             return None
+        if recent_base is not None and not patterns and not timeframes:
+            # broke out recently, still holding — surface it (the from-base tag follows)
+            patterns   = ["Breakout"]
+            timeframes = ["Recent"]
+            pat_levels = {
+                "entry":     round(float(recent_base["pivot"]), 2),
+                "base_high": round(float(recent_base["pivot"]), 2),
+                "base_low":  round(float(recent_base["low"]), 2),
+            }
         if not timeframes and patterns:
             timeframes = ["Setup"]   # pattern forming, breakout not yet triggered
         if not patterns:
@@ -751,10 +785,64 @@ def run_breakout_scan(progress_callback=None) -> dict:
             grp = r.get("group_name", "Other")
             r["group_rank"]   = group_ranks.get(grp, 0)
             r["total_groups"] = total_groups
+        # Real sector for the sub-line under the symbol (curated map, no scraping) —
+        # group_name is "Other" for many tail names, so fall back to the proper sector.
+        try:
+            import sector_mapper as _sm
+            _smap = _sm.get_enriched_sector_map()
+            for r in results:
+                r["sector"] = _smap.get(r["symbol"])
+        except Exception:
+            pass
 
     # 3c. Follow-Through Score — backtest-validated probability a breakout sustains
     if results:
         _assign_follow_through(results, stocks)
+
+    # 3d. Base-breakout tag — did this name just emerge from a base? Uses the SAME
+    # multi-base detector the charts draw. "From a base" = the most-recent detected
+    # base broke out within the last ~15 sessions and price still holds its pivot.
+    if results:
+        try:
+            import base_detector as _bd
+            for r in results:
+                r["from_base"] = False
+                df = stocks.get(r["symbol"])
+                if df is None or len(df) < 30:
+                    continue
+                dts = [str(t.date()) for t in df.index[-300:]]
+                o = df["Open"].astype(float).values[-300:].tolist()
+                h = df["High"].astype(float).values[-300:].tolist()
+                l = df["Low"].astype(float).values[-300:].tolist()
+                c = df["Close"].astype(float).values[-300:].tolist()
+                v = df["Volume"].astype(float).values[-300:].tolist()
+                bases = _bd.detect_bases(dts, o, h, l, c, v)
+                bo_i = None
+                if bases and bases[-1].get("broke_out"):
+                    last = bases[-1]
+                    bo_i = int(last["end"])
+                    days = (len(c) - 1) - bo_i
+                    r["base_days"]  = int(days)
+                    r["base_pivot"] = last["pivot"]
+                    r["base_type"]  = last["type"]
+                    r["base_weeks"] = last["weeks"]
+                    r["base_depth"] = last["depth_pct"]
+                    if days <= 15 and c[-1] >= last["pivot"] * 0.97:
+                        r["from_base"] = True
+                # Breakout date for the row: the detected base's breakout bar, else the
+                # most recent session the close crossed up through the entry trigger.
+                if bo_i is None:
+                    entry = r.get("entry")
+                    if entry:
+                        for i in range(len(c) - 1, 0, -1):
+                            if c[i] >= entry > c[i - 1]:
+                                bo_i = i
+                                break
+                if bo_i is not None:
+                    r["breakout_date"]     = dts[bo_i]
+                    r["breakout_days_ago"] = (len(c) - 1) - bo_i
+        except Exception:
+            pass
 
     # 4. Sort: multi-timeframe first, then HTF > ATH > VCP > Box > Rectangular, then TT score
     def _sort_key(r):

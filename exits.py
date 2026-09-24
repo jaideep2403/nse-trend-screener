@@ -23,15 +23,17 @@ THE SIGNALS
   2. Structure stop     — most recent significant swing low (lowest low of the
                           last ~15 bars). Close below ⇒ market structure broke.
   3. Initial/hard stop  — the line in the sand you set at entry (`stop_price`).
-  4. MA break           — close crossing below MA20 (warning) and/or MA50
-                          (trend break — an EXIT trigger).
+  4. Trend break        — WEEKLY close below the 20-week MA (EXIT); a daily close
+                          below MA20 is a warning only. Young holdings without
+                          20 completed weeks fall back to a daily MA50 close.
   5. Time stop          — held longer than `hold_days` but going nowhere
                           (return < +3%) ⇒ "dead money", capital better deployed.
   6. Profit-taking      — R-multiple TRIM at +2R / +3R, plus a parabolic /
                           over-extension flag when price runs >28% above MA50.
 
 ACTION LOGIC
-    EXIT  if any hard / trailing / structure stop fires, or close breaks MA50.
+    EXIT  if any hard / trailing / structure stop fires, or a weekly close breaks
+          the 20-week MA (daily MA50 for holdings younger than 20 weeks).
     TRIM  if a profit-taking / over-extension flag fires and no stop has.
     HOLD  otherwise (including the safe fallback on insufficient history).
 
@@ -42,9 +44,11 @@ VALIDATION (exit_backtest.py, 2026-07-06 — point-in-time, IS/OOS, cost-net,
       are a RISK tool, not a return booster: they cut avg loss from −14.7% to
       −6 to −8% and the worst-decile from −20% to −9%. This holds IS→OOS even as
       raw returns fade OOS. So the defaults below are DELIBERATELY not tightened.
-    • CONFIRMED: MA50 break as an EXIT (best-balanced single rule, PF 2.13, the
-      only trailing exit still positive OOS) and MA20 as a WARNING only (a
-      standalone MA20 exit whipsaws — expectancy just +1.9%/trade). The engine's
+    • (2026-07-06) MA50 break as an EXIT (best-balanced single rule, PF 2.13) and
+      MA20 as a WARNING only (a standalone MA20 exit whipsaws — +1.9%/trade).
+      SUPERSEDED for the trend-break component on 2026-09-17 — see §4 below: with
+      the live Chandelier the trend-break line moves outcomes by <0.2pp, and the
+      weekly 20-week rule the owner chose measured no worse. The engine's
       EXIT roll-up is conservative by design (median hold ~16 bars) — the right
       posture for open-position defence (Guardian), where tail control > squeezing
       the last rupee. Guardian's EXIT→'exit' / TRIM→'trim' severity map is
@@ -68,6 +72,10 @@ CHANDELIER_LOOKBACK   = 22      # bars for the "highest high" if no entry anchor
 STRUCT_LOOKBACK       = 15      # bars for the recent significant swing low
 MA_FAST               = 20
 MA_SLOW               = 50
+MA_EXIT               = 100     # 100-DMA — reported for reference only (not a trigger)
+MA_WEEKS              = 20      # trend-break EXIT: WEEKLY close below the 20-week MA.
+                                # MA_SLOW (50) is the fallback for holdings <20 weeks old
+                                # and the parabolic over-extension trim.
 TIME_STOP_MIN_RET_PCT = 3.0     # below this % after hold_days ⇒ dead money
 TRIM_R_1              = 2.0      # first profit-taking rung
 TRIM_R_2              = 3.0      # second profit-taking rung
@@ -277,21 +285,73 @@ def evaluate_exit(
                           and abs(float(chandelier) - float(stop)) < 1e-6):
         exit_triggers.append("Hard stop breached")
 
-    # ── 4. Moving-average break ───────────────────────────────────────────────
+    # ── 4. Trend break — WEEKLY close below the 20-week MA (2026-09-17) ───────
+    # The owner chose the 20-week MA (Momentum Rotation's rule) on 2026-09-04. The
+    # 2026-09-05 implementation used a DAILY close under the 100-DMA instead — not the
+    # same rule (it fires mid-week on dips the week recovers), described as "matching"
+    # Momentum Rotation, and never re-validated despite the note above. Measured
+    # 2026-09-17 with the LIVE engine definitions (exit_trend_break_validation.py):
+    # 1,152 leader entries, 500 liquid names, 2022-05 → 2026-09, IS/OOS 60/40, net cost.
+    #     trend break          exp%   avgL%   p10%  | OOS exp  OOS avgL  OOS p10
+    #     chandelier only      1.36   -5.14   -8.45 |  0.49    -4.55     -7.39
+    #     daily  < 50-DMA      1.41   -5.01   -8.35 |  0.57    -4.40     -7.33
+    #     daily  < 100-DMA     1.37   -5.12   -8.43 |  0.51    -4.51     -7.39
+    #     weekly < 20-wk MA    1.38   -5.12   -8.38 |  0.52    -4.50     -7.38
+    #     (buy & hold          8.29  -13.80  -20.22 |  2.05   -13.03    -20.27)
+    # The Chandelier fires first on almost every trade (avg hold ~14 bars), so the
+    # trend-break line changes results by <0.2pp. Pre-registered rule: implement the
+    # owner's rule unless its OOS tail is >1pp worse than the daily 100-DMA — it is not.
+    # A week counts as COMPLETED once its Friday bar prints (or any earlier week), so a
+    # holiday Friday confirms one session late, on the next week's first bar.
     ma20 = _clean(close.rolling(MA_FAST).mean().iloc[-1]) if len(close) >= MA_FAST else None
     ma50 = _clean(close.rolling(MA_SLOW).mean().iloc[-1]) if len(close) >= MA_SLOW else None
+    ma100 = _clean(close.rolling(MA_EXIT).mean().iloc[-1]) if len(close) >= MA_EXIT else None
     ma20_break = bool(ma20 is not None and cur < ma20)
     ma50_break = bool(ma50 is not None and cur < ma50)
+    ma100_break = bool(ma100 is not None and cur < ma100)
+
+    wk_close = wk_ma = week_ended = None
+    basis = None
+    trend_break = False
+    try:
+        didx = pd.DatetimeIndex(close.index)
+        per = didx.to_period("W-FRI")
+        weekly = close.groupby(per).last()
+        if didx[-1].weekday() < 4:                  # Mon–Thu: this week is not complete
+            weekly = weekly[weekly.index < per[-1]]
+        if len(weekly) >= MA_WEEKS:
+            wma = weekly.rolling(MA_WEEKS).mean()
+            wk_close, wk_ma = _clean(weekly.iloc[-1]), _clean(wma.iloc[-1])
+            week_ended = str(weekly.index[-1].end_time.date())
+            if wk_close is not None and wk_ma is not None:
+                basis = "weekly_20wk"
+                trend_break = wk_close < wk_ma
+    except Exception:
+        basis = None
+    if basis is None and ma50 is not None:
+        basis = "daily_ma50_fallback"               # < 20 completed weeks of history
+        trend_break = ma50_break
+
     signals["ma_break"] = {
         "ma20": _round(ma20),
         "ma50": _round(ma50),
+        "ma100": _round(ma100),
+        "wk20_ma": _round(wk_ma),
+        "week_close": _round(wk_close),
+        "week_ended": week_ended,
+        "basis": basis,
+        "ma_exit": _round(wk_ma if basis == "weekly_20wk" else ma50),
         "ma20_break": ma20_break,
         "ma50_break": ma50_break,
-        # The trade-ending trigger is the MA50 (trend) break; MA20 is a warning.
-        "triggered": ma50_break,
+        "ma100_break": ma100_break,                 # reference only — not a trigger
+        "weekly_break": bool(trend_break and basis == "weekly_20wk"),
+        "triggered": bool(trend_break),
     }
-    if ma50_break:
-        exit_triggers.append("Closed below MA50 (trend break)")
+    if trend_break and basis == "weekly_20wk":
+        exit_triggers.append(
+            f"Weekly close ₹{wk_close:,.2f} below 20-week MA ₹{wk_ma:,.2f} (week ending {week_ended})")
+    elif trend_break:
+        exit_triggers.append("Closed below 50-DMA (holding has <20 weeks of history)")
 
     # ── 5. Time stop — dead money ─────────────────────────────────────────────
     ret_pct_raw = (cur / entry - 1.0) * 100.0

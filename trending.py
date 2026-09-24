@@ -898,7 +898,8 @@ def run_trending_scan(progress_callback=None):
         nifty = None
     if nifty is None:
         nifty = _build_nifty(stocks)
-    universe = set(get_universe_symbols())  # Nifty Total Market 750
+    from nse_stocks import get_full_universe_symbols
+    universe = set(get_full_universe_symbols())  # FULL NSE EQ universe (~2,300)
     sec_map  = _sector_map()
 
     if not stocks:

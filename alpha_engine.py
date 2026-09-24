@@ -188,13 +188,13 @@ def _rs_line_new_high(c: pd.Series, nifty: pd.Series) -> bool:
 _stage = stage_analysis   # TIER-3: use canonical analysis_utils implementation
 
 
-def _strip_splits(df: pd.DataFrame) -> pd.DataFrame:
+def _strip_splits(df: pd.DataFrame, symbol: str | None = None) -> pd.DataFrame:
     """Delegate to canonical analysis_utils.adjust_for_splits which catches
     3:2 / 4:3 / 5:4 bonuses that the old `< 0.55` threshold here missed."""
     if df is None or df.empty or len(df) < 2:
         return df
     from analysis_utils import adjust_for_splits
-    return adjust_for_splits(df)
+    return adjust_for_splits(df, symbol)
 
 
 # ── Delivery % loader (with batched cache) ───────────────────────────────────
@@ -754,7 +754,7 @@ def _analyze_one(
 ) -> Optional[dict]:
     """Score one stock across all 6 factors. Returns dict or None if skip."""
     try:
-        df   = _strip_splits(df)
+        df   = _strip_splits(df, symbol)
         c    = df["Close"].dropna()
         v    = df["Volume"].dropna() if "Volume" in df.columns else pd.Series([], dtype=float)
 

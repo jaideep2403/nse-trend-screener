@@ -197,9 +197,44 @@ def _validate_index_files() -> dict[str, str]:
     return resolved
 
 
-# Built once at import. If NSE is fully unreachable this may be empty/partial;
-# the accessors below still work off cache and never raise.
-INDEX_FILES: dict[str, str] = _validate_index_files()
+# Resolved at import from the last-known-good DISK cache — never from the network.
+# This line used to be `INDEX_FILES = _validate_index_files()`: up to ~21 sequential NSE
+# CSV downloads (15s timeout each, plus ~10s of polite sleeps) on the IMPORT path, so the
+# whole app could not open its port until NSE answered. On 2026-09-23 NSE's archive was
+# timing out and a restart took ~75s instead of ~15s. The mapping only changes when NSE
+# renames a file and only feeds the WEEKLY constituents refresh, so it now loads
+# instantly from disk and is re-validated in a background thread at most once a week.
+_INDEX_FILES_CACHE = _DIR / ".sector_index_files_cache.json"
+_INDEX_FILES_TTL   = 7 * 86400
+
+
+def _index_files_from_cache() -> tuple[dict[str, str], bool]:
+    """(mapping, fresh). Last-known-good from disk; with no cache yet, the first
+    candidate filename per index (correct for nearly all of them), marked not-fresh."""
+    cache = _read_cache(_INDEX_FILES_CACHE)
+    if cache and isinstance(cache.get("data"), dict) and cache["data"]:
+        return dict(cache["data"]), (time.time() - cache.get("ts", 0)) < _INDEX_FILES_TTL
+    return {d: c[0] for d, c in _CANDIDATE_INDEX_FILES.items() if c}, False
+
+
+def _revalidate_index_files() -> None:
+    """Background: probe NSE, swap in the verified mapping, persist it. An NSE outage
+    keeps the current mapping — good data is never replaced with an empty result."""
+    global INDEX_FILES
+    try:
+        resolved = _validate_index_files()
+        if resolved:
+            INDEX_FILES = resolved          # atomic rebind: readers never see a half-built dict
+            _atomic_write_json(_INDEX_FILES_CACHE, {"ts": time.time(), "data": resolved})
+    except Exception as e:                  # pragma: no cover - defensive
+        _log(f"background index validation failed: {e}")
+
+
+INDEX_FILES, _INDEX_FILES_FRESH = _index_files_from_cache()
+if not _INDEX_FILES_FRESH:
+    import threading as _threading
+    _threading.Thread(target=_revalidate_index_files, daemon=True,
+                      name="sector-index-validate").start()
 
 
 # ── (2) Constituents + industry map ──────────────────────────────────────────

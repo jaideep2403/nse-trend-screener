@@ -31,6 +31,8 @@ import sys
 import tempfile
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+# Rendering the page must not start the live scheduler, NSE poller or scraper (2026-09-17).
+os.environ.setdefault("ASCENT_BACKGROUND_JOBS", "0")
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 ROLES = [("admin", "jai"), ("demo", "demo")]

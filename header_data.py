@@ -133,10 +133,25 @@ def _resolve_trend(change_pct, adr) -> tuple[str, str, str]:
     distribution-day method) and is consistent everywhere.
     """
     try:
-        from market_breadth import (_cache as mb_cache,
-                                    PERSISTED_CACHE_TTL as MB_TTL)
-        if (mb_cache.get("data")
-                and (time.time() - mb_cache.get("ts", 0)) < MB_TTL):
+        from market_breadth import _cache as mb_cache
+        data = mb_cache.get("data")
+        # Freshness is tied to the DATA date, NOT wall-clock. The regime is a once-a-day
+        # EOD read; the old `time.time() - ts < 6h` gate wrongly turned a CURRENT regime
+        # into "Computing…" the morning after an evening bhavcopy (>6h since it was
+        # computed), even though nothing newer exists. We trust it when the breadth cache
+        # is for the latest real trading session, and only fall back to "Computing…" when
+        # breadth genuinely lags a newer session (which then triggers a recompute).
+        _fresh = False
+        if data:
+            try:
+                from data_fetcher import _latest_bhavcopy_date
+                _latest = _latest_bhavcopy_date()
+                _latest_s = _latest.isoformat() if _latest else None
+            except Exception:
+                _latest_s = None
+            _bdate = data.get("bhavcopy_date")
+            _fresh = (_latest_s is None) or (_bdate is None) or (str(_bdate) == str(_latest_s))
+        if data and _fresh:
             regime = (mb_cache["data"].get("regime") or {}).get("regime")
             # Canonical regime → PLAIN-ENGLISH header label (users found the IBD
             # terms like "Under Pressure"/"Correction" confusing). Three states:

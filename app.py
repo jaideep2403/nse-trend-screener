@@ -383,7 +383,9 @@ if PORTFOLIO_AVAILABLE:
     @app.route("/api/portfolio", methods=["GET"])
     def api_portfolio_list():
         try:
-            return jsonify(_pf.portfolio_summary())
+            # ?force=1 (the explicit Refresh button) recomputes and re-stamps computed_at,
+            # so a manual refresh reflects the click instead of the cached compute time.
+            return jsonify(_pf.portfolio_summary(force=bool(request.args.get("force"))))
         except Exception as e:
             return jsonify({"error": str(e)}), 500
 
@@ -396,7 +398,16 @@ if PORTFOLIO_AVAILABLE:
                 qty=float(data.get("qty", 0)),
                 entry_price=float(data.get("entry_price", 0)),
                 entry_date=data.get("entry_date"),
+                entry_checks=data.get("entry_checks"),
+                entry_checks_basis=data.get("entry_checks_basis"),
             )
+            # Sweep in the background so a new holding gets its Guardian state now,
+            # not at the next bhavcopy.
+            try:
+                import guardian as _gd
+                threading.Thread(target=_gd.run_sweep, daemon=True).start()
+            except Exception:
+                pass
             return jsonify({"ok": True})
         except Exception as e:
             # Surface fuzzy suggestions on validation failure
@@ -409,6 +420,57 @@ if PORTFOLIO_AVAILABLE:
             except Exception:
                 pass
             return jsonify({"error": str(e)}), 400
+
+    @app.route("/api/portfolio/preflight", methods=["POST"])
+    def api_portfolio_preflight():
+        """Pre-trade checks shown before a position is recorded. Never blocks."""
+        try:
+            data = request.get_json(force=True) or {}
+            return jsonify(_pf.preflight_position(
+                symbol=data.get("symbol"),
+                qty=float(data.get("qty", 0) or 0),
+                entry_price=float(data.get("entry_price", 0) or 0),
+                entry_date=data.get("entry_date") or None,
+            ))
+        except Exception as e:
+            return jsonify({"checks": [], "warn_count": 0, "error": str(e)}), 200
+
+    @app.route("/api/portfolio/settings", methods=["GET", "POST"])
+    def api_portfolio_settings():
+        """Trading capital + the thresholds the pre-trade checks compare against."""
+        try:
+            if request.method == "POST":
+                return jsonify(_pf.save_settings(request.get_json(force=True) or {}))
+            return jsonify(_pf.settings())
+        except Exception as e:
+            return jsonify({"error": str(e)}), 500
+
+    @app.route("/api/portfolio/preflight/log", methods=["POST"])
+    def api_preflight_log():
+        """Record what you decided after seeing the checks — including Cancel, which is
+        the only way to ever measure the trades the checks talked you out of."""
+        try:
+            import preflight_log
+            return jsonify(preflight_log.log_decision(request.get_json(force=True) or {}))
+        except Exception as e:
+            return jsonify({"logged": False, "error": str(e)}), 500
+
+    @app.route("/api/portfolio/preflight/scorecard")
+    def api_preflight_scorecard():
+        try:
+            import preflight_log
+            return jsonify(preflight_log.scorecard())
+        except Exception as e:
+            return jsonify({"decisions": 0, "checks": [], "error": str(e)}), 500
+
+    @app.route("/api/portfolio/preflight/history")
+    def api_preflight_history():
+        try:
+            import preflight_log
+            return jsonify({"decisions": preflight_log.recent(
+                request.args.get("limit", 50, type=int))})
+        except Exception as e:
+            return jsonify({"decisions": [], "error": str(e)}), 500
 
     @app.route("/api/portfolio/validate", methods=["GET"])
     def api_portfolio_validate():
@@ -649,34 +711,27 @@ def index():
 
 
 # ── Per-tab deep-link routing ────────────────────────────────────────────────
-# Each tab gets its own clean URL (e.g. /trending_stocks, /strategy). They ALL
+# Each tab gets its own clean URL (e.g. /trending_stocks, /money-flow). They ALL
 # serve the same single-page app; the frontend reads the path and opens the
 # matching tab. This is URL routing (deep-linking), NOT microservices — one app,
-# one process. A single-segment path that matches a known slug serves the SPA;
-# anything else 404s. /api/* and /static/* contain a slash so they never match
-# this single-segment rule and are untouched.
-TAB_SLUGS = {
-    "screener", "portfolio", "investment_grade", "trending_stocks", "strategy",
-    "multiyear_breakout", "breakout_stocks", "edge_engine", "momentum",
-    "emerging_leaders", "sector_rotation", "volume_spike", "market_breadth",
-    "industry_groups", "advanced_setups", "institutional_edge", "alpha_engine",
-    "monster_growth", "minervini_vvv", "consensus",
-    "early_movers", "early_growth", "sector_leaders", "risk_regime", "defensive_leaders",
-    "all_weather", "promoter_activity",
-}
-
-
+# one process. See index_tab for the (whitelist-free) matching rule.
 @app.route("/<tab_slug>")
 def index_tab(tab_slug):
-    """Serve the SPA for a per-tab deep link; the frontend opens the tab.
-    Unknown single-segment paths (favicon.ico, typos, …) 404."""
+    """Serve the SPA for a per-tab deep link; the frontend reads the path and opens the
+    matching tab (falling back to the default for an unknown slug).
+
+    Any single-segment path WITHOUT a dot is treated as a tab route and serves the SPA —
+    NOT a hardcoded whitelist, which silently drifted every time a tab was added (that's
+    why refreshing on /money-flow, /momentum-rotation, /monster-radar used to 404). Paths
+    with a dot (favicon.ico, robots.txt, …) still fall through to a real 404, and /api/*
+    and /static/* carry a slash so they never match this single-segment rule."""
     # Owner-only tabs: a demo deep-link lands on the app home instead of a tab
     # that won't render for them.
-    if tab_slug in {"portfolio", "strategy"} and not auth.can_see_positions():
+    if tab_slug.replace("-", "_") in {"portfolio", "strategy"} and not auth.can_see_positions():
         return redirect(url_for("index"))
-    if tab_slug in TAB_SLUGS:
-        return index()
-    abort(404)
+    if "." in tab_slug:
+        abort(404)
+    return index()
 
 
 # ── Cross-tab stock search ───────────────────────────────────────────────────
@@ -744,8 +799,12 @@ def _market_rs_map() -> dict:
     if _rs_map_cache["tag"] == tag and _rs_map_cache["map"]:
         return _rs_map_cache["map"]
     try:
-        import industry_groups as _ig
-        stocks = _ig._get_stocks()
+        # Market-wide RS spans the WHOLE NSE universe (not the curated 750) so every
+        # stock — including the small/micro-cap tail shown on the screeners and charts —
+        # gets a rank, and the search head + chart header read the identical value.
+        # (Breadth / new-highs statistics deliberately stay curated; this is separate.)
+        import shared_universe as _su
+        stocks = _su.load_base_universe(days=400)
         r3m = {}
         for s, df in stocks.items():
             c = df["Close"]
@@ -798,6 +857,207 @@ def _search_summary(row) -> str:
     if row.get("entry_window"):
         bits.append(_strip_emoji(row["entry_window"]))
     return " · ".join(b for b in bits[:4] if b)
+
+
+_all_quotes_cache = {"tag": None, "data": None}
+
+# ── Setup-state maps for the Charts tab (list glyphs + chart pills) ────────────
+# Joins the ALREADY-cached breakout and coiling scans into per-symbol lookups, plus a
+# cheap universe-wide RS-line-new-high set (~0.7s, built once per bhavcopy). This is what
+# lets the watchlist show a one-glyph setup state per row, and the chart show a
+# Follow-Through pill / "to trigger" line — all without recomputing anything heavy.
+_setup_cache = {"tag": None, "bo": {}, "coil": {}, "rslead": set()}
+
+
+def _setup_maps():
+    try:
+        from data_fetcher import _latest_bhavcopy_date
+        d = _latest_bhavcopy_date()
+        tag = d.isoformat() if d else "nodate"
+    except Exception:
+        tag = "nodate"
+    c = _setup_cache
+    if c["tag"] == tag and (c["bo"] or c["coil"] or c["rslead"]):
+        return c
+    import result_cache as _rc
+    bo = {}
+    try:
+        for r in (_rc.get_or_stale("breakout") or {}).get("results", []):
+            s = r.get("symbol")
+            if s:
+                bo[s] = r
+    except Exception:
+        pass
+    coil = {}
+    try:
+        for r in (_rc.get_or_stale("coiling") or {}).get("results", []):
+            s = r.get("symbol")
+            if s:
+                coil[s] = r
+    except Exception:
+        pass
+    rslead = set()
+    try:
+        import shared_universe as _su, rs_line as _rl
+        from analysis_utils import rs_line_new_high
+        import pandas as _pd
+        bench = _rl.benchmark_series()
+        if bench is not None and len(bench):
+            b = bench.copy()
+            b.index = _pd.to_datetime(b.index)
+            for s, df in _su.load_base_universe(days=400).items():
+                try:
+                    if rs_line_new_high(df["Close"], b):
+                        rslead.add(s)
+                except Exception:
+                    pass
+    except Exception:
+        pass
+    _setup_cache.update(tag=tag, bo=bo, coil=coil, rslead=rslead)
+    return _setup_cache
+
+
+def _setup_for(sym, maps=None):
+    """One symbol's setup state → (state, extra). state ∈
+    {fresh_bo, extended, at_pivot, coiling, ''}; extra carries the Follow-Through tier
+    (fresh breakouts) or the % still-to-pivot (coiling names)."""
+    m = maps or _setup_maps()
+    r = m["bo"].get(sym)
+    if r is not None:
+        days = r.get("breakout_days_ago")
+        fresh = bool(r.get("from_base")) and (days is None or days <= 12)
+        return ("fresh_bo" if fresh else "extended"), {
+            "ft": r.get("follow_through"), "ft_tier": r.get("ft_tier"),
+            "bo_days": days, "pivot": r.get("base_pivot") or r.get("entry")}
+    r = m["coil"].get(sym)
+    if r is not None:
+        tp = r.get("to_pivot_pct")
+        return ("at_pivot" if (tp is not None and tp <= 2.0) else "coiling"), {
+            "to_pivot": tp, "pivot": r.get("pivot")}
+    return "", {}
+
+
+# ── Event context for the chart (recent results + upcoming corporate action) ──
+# NOTE: NSE gives us the LATEST PAST results date (earnings_dates) and UPCOMING
+# corporate-action ex-dates (corporate_alerts) — there is no forward *earnings* calendar
+# in our data, so the chart's event pill surfaces what is real: a "results Nd ago" flag
+# inside the ~60-day post-earnings-drift window (PEAD context), and any upcoming ex-date
+# (dividend/split/bonus) that will mechanically rebase the quoted price.
+_ca_upcoming_cache = {"day": None, "map": {}}
+
+
+def _ca_upcoming_map():
+    from datetime import date as _date
+    today = _date.today().isoformat()
+    if _ca_upcoming_cache["day"] == today and _ca_upcoming_cache["map"]:
+        return _ca_upcoming_cache["map"]
+    m = {}
+    try:
+        import corporate_alerts as _ca
+        for e in _ca.upcoming(horizon_days=14):
+            s = e.get("symbol")
+            if s and s not in m:
+                m[s] = e
+    except Exception:
+        pass
+    _ca_upcoming_cache.update(day=today, map=m)
+    return m
+
+
+def _chart_event_context(sym):
+    from datetime import date as _date
+    out = {}
+    try:
+        import earnings_dates as _ed
+        ds = _ed.get_earnings_dates().get(sym)
+        if ds:
+            y, mo, da = (int(x) for x in ds.split("-"))
+            ago = (_date.today() - _date(y, mo, da)).days
+            if 0 <= ago <= 60:
+                out["results_ago"] = ago
+    except Exception:
+        pass
+    try:
+        ev = _ca_upcoming_map().get(sym)
+        if ev:
+            out["ca"] = {"kind": ev.get("kind"), "ex_date": ev.get("ex_date"),
+                         "days": ev.get("days_away"),
+                         "drop_pct": ev.get("expected_price_drop_pct")}
+    except Exception:
+        pass
+    return out
+
+
+@app.route("/api/all-quotes")
+def api_all_quotes():
+    """Every tradeable name with latest close, day-change %, RS and 52-week-high
+    proximity — powers the Charts tab watchlist. Reads the cached base universe (last two
+    bars per symbol), so it's cheap; bhav-tagged in-memory cache for instant reloads."""
+    import shared_universe as su
+    try:
+        from data_fetcher import _latest_bhavcopy_date
+        d = _latest_bhavcopy_date()
+        tag = d.isoformat() if d else "nodate"
+    except Exception:
+        tag = "nodate"
+    if _all_quotes_cache["tag"] == tag and _all_quotes_cache["data"] is not None:
+        return jsonify(_all_quotes_cache["data"])
+    try:
+        U = su.load_base_universe(days=300)
+    except Exception as e:
+        return jsonify({"error": str(e), "quotes": []}), 500
+    try:
+        rsmap = _market_rs_map()
+    except Exception:
+        rsmap = {}
+    try:
+        import sector_mapper as _sm
+        smap = dict(_sm.get_enriched_sector_map())
+    except Exception:
+        smap = {}
+    # Index membership for the Charts filters (cached weekly; best-effort — empty = the
+    # NSE fetch hasn't succeeded yet, so that filter simply shows nothing rather than lying).
+    try:
+        import nse_stocks as _ns
+        n750 = set(_ns.get_universe_symbols())
+    except Exception:
+        n750 = set()
+    try:
+        n500 = set(_ns.get_index_members("Nifty500"))
+    except Exception:
+        n500 = set()
+    # Setup state per symbol (fresh breakout / at pivot / coiling / extended) + RS-lead,
+    # joined from the cached scans — powers the one-glyph state on each watchlist row.
+    try:
+        smaps = _setup_maps()
+    except Exception:
+        smaps = {"bo": {}, "coil": {}, "rslead": set()}
+    rows = []
+    for sym, df in U.items():
+        cl = df.get("Close") if hasattr(df, "get") else df["Close"]
+        if cl is None or len(cl) < 2:
+            continue
+        close = float(cl.iloc[-1]); prev = float(cl.iloc[-2])
+        if close <= 50.0:            # drop sub-₹50 names from the Charts tab entirely
+            continue
+        chg = round((close / prev - 1) * 100, 2) if prev > 0 else 0.0
+        hi = float(cl.iloc[-252:].max()) if len(cl) >= 30 else close
+        from_high = round((close / hi - 1) * 100, 1) if hi > 0 else 0.0
+        _state, _ex = _setup_for(sym, smaps)
+        rows.append({"symbol": sym, "close": round(close, 2), "chg_pct": chg,
+                     "rs": rsmap.get(sym),
+                     "near_high": bool(from_high >= -2.0),
+                     "from_high_pct": from_high,
+                     "n500": sym in n500, "n750": sym in n750,
+                     "sector": smap.get(sym) or "",
+                     "setup": _state,
+                     "ft": _ex.get("ft"),
+                     "to_pivot": _ex.get("to_pivot"),
+                     "rs_lead": sym in smaps.get("rslead", set())})
+    rows.sort(key=lambda r: r["symbol"])
+    data = {"quotes": rows, "n": len(rows), "as_of": tag}
+    _all_quotes_cache.update(tag=tag, data=data)
+    return jsonify(data)
 
 
 @app.route("/api/new-highs")
@@ -906,7 +1166,32 @@ def api_stock_search():
         pref = sorted(s for s in all_syms if s.startswith(q))
         cont = sorted(s for s in all_syms if q in s and not s.startswith(q))
         symbol = (pref or cont or [None])[0]
-    suggestions = sorted(s for s in all_syms if s.startswith(q) and s != symbol)[:6]
+
+    # Full-universe fallback: a valid NSE stock that simply isn't in any scanned tab
+    # today (e.g. a small-cap not on any screener) should STILL load its chart — the
+    # search box is "see this stock", not just "find it in a scan". Resolve against the
+    # whole ~2,300-name universe so every real symbol charts; hits stay empty and the
+    # "not scanned" note still explains why no tabs are listed.
+    if not symbol:
+        try:
+            import nse_stocks as _ns
+            uni = set(_ns.get_full_universe_symbols())
+            if q in uni:
+                symbol = q
+            else:
+                fpref = sorted(s for s in uni if s.startswith(q))
+                fcont = sorted(s for s in uni if q in s and not s.startswith(q))
+                symbol = (fpref or fcont or [None])[0]
+        except Exception:
+            pass
+
+    sugg_pool = all_syms
+    try:
+        import nse_stocks as _ns
+        sugg_pool = all_syms | set(_ns.get_full_universe_symbols())
+    except Exception:
+        pass
+    suggestions = sorted(s for s in sugg_pool if s.startswith(q) and s != symbol)[:6]
 
     hits = []
     if symbol:
@@ -974,8 +1259,12 @@ def api_header():
             try:
                 import guardian
                 h["guardian_alerts"] = guardian.get_active_alerts()
-            except Exception:
+                # Whether those alerts can be trusted: a failed or not-yet-run sweep must
+                # not look like "no alerts" (2026-09-17).
+                h["guardian_status"] = guardian.get_status()
+            except Exception as _ge:
                 h["guardian_alerts"] = []
+                h["guardian_status"] = {"state": "error", "error": f"guardian unavailable: {_ge}"}
         else:
             h["guardian_alerts"] = []
         return jsonify(h)
@@ -2281,6 +2570,38 @@ def api_system():
         return jsonify({"results": [], "scanned": 0, "found": 0, "error": str(e)})
 
 
+# ── Server-side chart-payload cache ─────────────────────────────────────────────
+# Building one chart reads ~500 bhavcopy day-files and recomputes bases / RS-line /
+# peers. Caching the finished payload (per symbol+window+bhavcopy) makes every repeat
+# open instant across ALL sessions — the prefetch of a row's neighbours warms this too.
+from collections import OrderedDict as _ChOD
+_CHART_CACHE = _ChOD()
+_CHART_CACHE_MAX = 300
+
+
+def _chart_bhav_tag():
+    try:
+        from data_fetcher import _latest_bhavcopy_date
+        d = _latest_bhavcopy_date()
+        return d.isoformat() if d else "nodate"
+    except Exception:
+        return "nodate"
+
+
+def _chart_cache_get(k):
+    v = _CHART_CACHE.get(k)
+    if v is not None:
+        _CHART_CACHE.move_to_end(k)
+    return v
+
+
+def _chart_cache_put(k, v):
+    _CHART_CACHE[k] = v
+    _CHART_CACHE.move_to_end(k)
+    if len(_CHART_CACHE) > _CHART_CACHE_MAX:
+        _CHART_CACHE.popitem(last=False)
+
+
 @app.route("/api/chart/<symbol>")
 def api_chart(symbol):
     """OHLCV series for a breakout chart — served from the cached universe
@@ -2290,15 +2611,26 @@ def api_chart(symbol):
     drawn. Used by the inline SVG charts on the breakout tabs."""
     try:
         import shared_universe as _su
-        days = min(int(request.args.get("bars", 260)), 400)
+        # Up to ~2 trading years (520 bars) so the Breakout tab's trend chart can offer
+        # a 2Y view. A big window loads the deeper (days=800) universe; the pattern
+        # charts still ask for ~260 and just tail the recent slice.
+        # Up to ~5 trading years (1300 bars) so the chart can offer 3Y/5Y/Max views
+        # and the multi-base detector can find EVERY base like BananaPatterns. Deep
+        # windows load a deeper universe (cached once per window, then instant).
+        days = min(int(request.args.get("bars", 260)), 1300)
+        _load_days = 1900 if days > 760 else 800 if days > 300 else 400
         sym = symbol.upper().replace(".NS", "")
-        U = _su.load_base_universe(days=400)
-        df = U.get(sym)
+        _ckey = sym + "|" + str(days) + "|" + _chart_bhav_tag()
+        _cached = _chart_cache_get(_ckey)
+        if _cached is not None:
+            return jsonify(_cached)
+        # Pull ONLY this symbol's deep history (fast, low-memory) rather than building
+        # the whole ~2,300-stock universe just to read one name. Inherently ungated, so
+        # a recently suspended/delisted name still charts.
+        df = _su.load_symbol_history(sym, _load_days)
         if df is None or len(df) == 0:
-            # Fall back to the ungated universe: a name the recency gate dropped
-            # (recently suspended/delisted/renamed) still has a year of candles worth
-            # charting, and scanners can surface it, so it must be chartable too.
-            df = _su.load_base_universe(days=400, include_stale=True).get(sym)
+            # Defensive fallback to the shared universe (should rarely trigger).
+            df = _su.load_base_universe(days=_load_days, include_stale=True).get(sym)
         if df is None or len(df) == 0:
             return jsonify({"error": "no data", "symbol": symbol})
         d = df.tail(days)
@@ -2317,9 +2649,213 @@ def api_chart(symbol):
         # thing the accumulation scan does rather than inventing a second rule.
         if "DelivPer" in d.columns:
             out["d"] = [None if pd.isna(x) else round(float(x), 1) for x in d["DelivPer"]]
+        # Actionable extras for the chart header / trade card (all cached, cheap):
+        # RS rating (cross-sectional), latest results date (earnings marker), mcap.
+        try:
+            # SAME canonical market-wide RS the search dropdown shows (_market_rs_map),
+            # so a stock reads the identical RS in the search head and its chart header.
+            out["rs"] = _market_rs_map().get(sym)
+        except Exception:
+            pass
+        try:
+            import earnings_dates as _ed
+            _e = _ed.get_earnings_dates().get(sym)
+            if _e:
+                out["earn"] = [_e]
+        except Exception:
+            pass
+        try:
+            import sector_rotation as _sr
+            _mc = _sr._mcap_map().get(sym)
+            if _mc:
+                out["mcap"] = round(float(_mc))
+        except Exception:
+            pass
+        # Multi-base detection (BananaPatterns-style) — every base in this window, each
+        # with its pivot, weeks, depth, type, breakout date and characteristics. The
+        # renderer draws a box per base; the detail panel lists the measures.
+        try:
+            import base_detector as _bd
+            _bases = _bd.detect_bases(out["dates"], out["o"], out["h"], out["l"], out["c"],
+                                      [float(x) for x in out["v"]])
+            _rs = out.get("rs")
+            for _b in _bases:
+                _b["rs"] = _rs
+            out["bases"] = _bases
+        except Exception:
+            out["bases"] = []
+        # RS LINE vs Nifty — the leadership tell. Aligned to the chart's own dates so
+        # the client draws it as a sub-panel; flags carry "RS new high before price".
+        try:
+            import rs_line as _rl
+            _rsl = _rl.rs_line_for(out["dates"], out["c"])
+            out["rs_line"] = _rsl["rs"]
+            out["rs_flags"] = {k: _rsl[k] for k in
+                               ("new_high", "high_before_price", "above_zero",
+                                "slope_up", "pct_from_high")}
+        except Exception:
+            out["rs_line"] = []
+        # Peers (same-industry, RS-ranked) for the Peers tab — travels with the chart
+        # so the client renders it synchronously with no extra round-trip.
+        try:
+            _pf = _peers_for(sym)
+            out["sector"] = _pf.get("sector")
+            out["peers"] = _pf.get("peers", [])[:16]
+            out["peer_rank"] = _pf.get("rank")
+            out["peer_count"] = _pf.get("count")
+            out["no_sector"] = _pf.get("no_sector", False)
+        except Exception:
+            pass
+        # Follow-Through (cohort-ranked, from the cached breakout scan), "to trigger" for a
+        # name still coiling under its pivot, RS-lead flag, and event context — the chart
+        # actionability layer. All cheap lookups against maps built once per bhavcopy.
+        try:
+            _state, _ex = _setup_for(sym)
+            out["setup"] = _state
+            if _ex.get("ft") is not None:
+                out["ft"] = _ex["ft"]
+                out["ft_tier"] = _ex.get("ft_tier")
+                out["bo_days"] = _ex.get("bo_days")
+            if _ex.get("to_pivot") is not None:
+                out["to_pivot"] = _ex["to_pivot"]
+                out["coil_pivot"] = _ex.get("pivot")
+            out["rs_lead"] = sym in _setup_maps().get("rslead", set())
+        except Exception:
+            pass
+        try:
+            _ev = _chart_event_context(sym)
+            if _ev:
+                out["ev"] = _ev
+        except Exception:
+            pass
+        _chart_cache_put(_ckey, out)
         return jsonify(out)
     except Exception as e:
         return jsonify({"error": str(e), "symbol": symbol})
+
+
+def _peers_for(sym: str) -> dict:
+    """BananaPatterns-style Peers, for EVERY stock — always the stock's OWN sector,
+    never a market-cap cohort. Only ~750 of the ~2,300 names come pre-classified; for
+    the rest we resolve the real industry on demand from screener.in (cached), so the
+    Peers list is genuine sector peers or nothing at all — never random look-alikes.
+    Ranked by the market-wide RS; each tagged Powering up (above its 50-DMA and rising
+    this month) or Cooling off; plus the stock's own rank within the sector."""
+    try:
+        import sector_mapper as _sm
+        import shared_universe as _su
+        smap = _sm.get_enriched_sector_map()          # symbol -> our sector/industry
+        rsmap = _market_rs_map()
+        U = _su.load_base_universe(days=400)
+
+        def _row(s):
+            rs = rsmap.get(s)
+            if rs is None:
+                return None
+            status, price = None, None
+            df = U.get(s)
+            if df is not None and len(df) >= 50:
+                c = df["Close"].to_numpy(dtype=float)
+                ma50 = float(c[-50:].mean())
+                r1m = (c[-1] / c[-22] - 1.0) if len(c) > 22 else 0.0
+                status = "Powering up" if (c[-1] >= ma50 and r1m > 0) else "Cooling off"
+                price = round(float(c[-1]), 2)
+            return {"symbol": s, "rs": int(rs), "status": status, "price": price}
+
+        sector = smap.get(sym)
+        if not sector:
+            # No industry for this stock (the ~1,550-name tail NSE's free data doesn't
+            # classify). Show NO peers rather than a misleading market-cap cohort.
+            try:
+                import sector_lookup as _sl
+                sector = _sl.industry_of(sym)          # on-demand screener.in lookup, cached
+            except Exception:
+                sector = None
+            if not sector:
+                return {"sector": None, "peers": [], "rank": None, "count": 0, "no_sector": True}
+        members = [s for s, sec in smap.items() if sec == sector]
+        if sym not in members:
+            members.append(sym)                        # include the stock itself if it was tail-classified
+        rows = [r for r in (_row(s) for s in members) if r]
+        rows.sort(key=lambda x: x["rs"], reverse=True)
+        rank = next((i + 1 for i, r in enumerate(rows) if r["symbol"] == sym), None)
+        return {"sector": sector, "count": len(rows), "rank": rank, "peers": rows}
+    except Exception:
+        return {"sector": None, "peers": [], "rank": None, "count": 0}
+
+
+@app.route("/api/peers/<symbol>")
+def api_peers(symbol):
+    sym = symbol.upper().replace(".NS", "")
+    out = _peers_for(sym)
+    out["symbol"] = sym
+    return jsonify(out)
+
+
+@app.route("/api/breakout/coiling")
+def api_breakout_coiling():
+    """The pre-breakout watchlist: stocks building a base and pressing under the pivot
+    (from the multi-base detector). Enriched with the market-wide RS."""
+    try:
+        import coiling_scanner as _cs
+        d = _cs.run_coiling_scan()
+        rsmap = _market_rs_map()
+        for r in d.get("results", []):
+            r["rs"] = rsmap.get(r["symbol"])
+        return jsonify(d)
+    except Exception as e:
+        return jsonify({"error": str(e), "results": []})
+
+
+@app.route("/api/monster-candidates")
+def api_monster_candidates():
+    """Monster Radar: one ranked list fusing the pre-move cluster (RS-line leadership +
+    earnings/sales acceleration + tight base + volume dry-up + leading sector + episodic
+    pivot + youth), kept to names that are still EARLY (not extended). Enriched with the
+    market-wide RS rating for display consistency with the rest of the app."""
+    try:
+        import monster_candidate as _mc
+        d = _mc.run_monster_scan(force=bool(request.args.get("force")))
+        rsmap = _market_rs_map()
+        for r in d.get("results", []):
+            r["rs"] = rsmap.get(r["symbol"])
+        return jsonify(d)
+    except Exception as e:
+        return jsonify({"error": str(e), "results": []})
+
+
+@app.route("/api/momentum-rotation")
+def api_momentum_rotation():
+    """Live fresh-52wk-high smallcap momentum ROTATION portfolio: this week's BUY (fresh
+    entries), the current HOLD book with trailing exit levels, and this week's SELL
+    (names that broke the 20-week MA). A deterministic replay of the backtested rules
+    (2.53x net / 2.73x gross since 2022), RS-enriched for display."""
+    try:
+        import momentum_rotation as _mr
+        d = _mr.run_live_scan(force=bool(request.args.get("force")))
+        rsmap = _market_rs_map()
+        for grp in ("scan", "entries", "holdings", "exits"):
+            for r in d.get(grp, []):
+                r["rs"] = rsmap.get(r["symbol"])
+        return jsonify(d)
+    except Exception as e:
+        return jsonify({"error": str(e), "entries": [], "holdings": [], "exits": []})
+
+
+@app.route("/api/hitesh-book")
+def api_hitesh_book():
+    """Hitesh Modi's PUBLICLY DISCLOSED momentum book (from his X posts), enriched with
+    our live prices, his exact 20-wk-MA exit test, and overlap vs our own scanner.
+    Research/tracking only — partial & point-in-time. Not advice."""
+    try:
+        import hitesh_book as _hb
+        d = _hb.get_book()
+        rsmap = _market_rs_map()
+        for r in d.get("holdings", []):
+            r["rs"] = rsmap.get(r["symbol"])
+        return jsonify(d)
+    except Exception as e:
+        return jsonify({"error": str(e), "holdings": [], "recent_picks": []})
 
 
 @app.route("/api/post-breakout")
@@ -2571,6 +3107,29 @@ def guardian_dismiss():
         return jsonify({"dismissed": False, "error": str(e)}), 500
 
 
+@app.route("/api/guardian/status")
+def guardian_status():
+    try:
+        import guardian
+        return jsonify(guardian.get_status())
+    except Exception as e:
+        return jsonify({"state": "error", "error": str(e)}), 500
+
+
+@app.route("/api/guardian/history")
+def guardian_history():
+    """Alert audit trail: what each holding's state was per session, and how long
+    after that session's bhavcopy landed the alert was first shown."""
+    try:
+        import guardian
+        return jsonify({"history": guardian.get_history(
+            days=request.args.get("days", 30, type=int),
+            symbol=request.args.get("symbol"),
+            include_ok=bool(request.args.get("include_ok")))})
+    except Exception as e:
+        return jsonify({"history": [], "error": str(e)}), 500
+
+
 @app.route("/api/guardian/sweep", methods=["POST"])
 def guardian_manual_sweep():
     try:
@@ -2664,15 +3223,18 @@ def fundamentals_status():
 
 @app.route("/api/fundamentals/refresh", methods=["POST"])
 def fundamentals_refresh():
-    """Manual trigger — scheduler already runs automatically.
-    This endpoint just confirms the scheduler is alive."""
+    """Reports the background scraper's REAL state. It never starts a scrape.
+
+    2026-09-17: this said "starting up…" / "10 stocks/hour automatically" regardless
+    of the SCRAPE_OFF kill switch, so a disabled scraper looked like a booting one."""
     sched = fund_scheduler_status()
-    return jsonify({
-        "status":  "scheduler_running" if sched.get("running") else "starting",
-        "message": ("Background scheduler is active — 10 stocks/hour automatically."
-                    if sched.get("running")
-                    else "Scheduler starting up…"),
-    })
+    if sched.get("running"):
+        status, msg = "scheduler_running", "Background scraper is running — ~1 request every 8–11s."
+    elif sched.get("error"):
+        status, msg = "not_running", f"Background scraper is NOT running: {sched.get('error')}"
+    else:
+        status, msg = "not_running", "Background scraper is not running."
+    return jsonify({"status": status, "message": msg})
 
 
 @app.route("/api/bhavcopy/status")
@@ -2936,6 +3498,155 @@ def sector_rrg():
     except Exception as e:
         return jsonify({"error": str(e), "sectors": [], "computed_at": int(time.time())}), 500
 
+@app.route("/api/screen/pead-dv")
+def screens_pead_dv_api():
+    """PEAD and Deep Value screens (alphayantra-style)."""
+    try:
+        import screens as _sc
+        return jsonify(_sc.run_screens())
+    except Exception as e:
+        return jsonify({"error": str(e), "pead": [], "deep_value": [],
+                        "computed_at": int(time.time())}), 500
+
+
+def _fresh_breakouts_all_tabs(limit: int = 18) -> list:
+    """Stocks that broke out RECENTLY (≤2 sessions, from the breakout scanner), each
+    tagged with how many OTHER scan tabs it currently appears in — the cross-tab
+    confirmation for the Daily Brief's "breakouts across all tabs" column. All reads are
+    from already-cached scans, so it's cheap."""
+    import result_cache as _rc
+    try:
+        from breakout_scanner import run_breakout_scan
+        res = (run_breakout_scan() or {}).get("results", [])
+    except Exception:
+        res = []
+    # symbol -> set of tab labels it appears in right now (same index the search uses)
+    idx: dict = {}
+    for key, slug, label, icon in _SEARCH_SOURCES:
+        cached = _rc.get(key)
+        if cached is None:
+            continue
+        for r in _search_rows(cached):
+            s = str(r.get("symbol") or r.get("Symbol") or "").upper()
+            if s:
+                idx.setdefault(s, set()).add(label)
+    rsmap = _market_rs_map()
+    out = []
+    for r in res:
+        days = r.get("breakout_days_ago")
+        if days is None or days > 2:          # FRESH only — broke out in the last ~2 sessions
+            continue
+        sym = r["symbol"]
+        tabs = sorted(idx.get(sym, set()))
+        out.append({
+            "symbol": sym, "price": r.get("price"), "sector": r.get("sector"),
+            "breakout_date": r.get("breakout_date"), "days": days,
+            "rs": rsmap.get(sym), "ft": r.get("follow_through"), "ft_tier": r.get("ft_tier"),
+            "from_base": bool(r.get("from_base")), "n_tabs": len(tabs), "tabs": tabs,
+            "patterns": r.get("patterns", []),
+        })
+    out.sort(key=lambda x: (x["n_tabs"], x.get("ft") or 0, -(x["days"] or 9)), reverse=True)
+    return out[:limit]
+
+
+@app.route("/api/daily-brief")
+def daily_brief_api():
+    """Alphayantra-style home digest: strong sectors + strategic alpha framework +
+    fresh breakouts aggregated across every scan tab."""
+    try:
+        import daily_brief as _db
+        data = _db.run_daily_brief()
+        try:
+            data["fresh_breakouts"] = _fresh_breakouts_all_tabs()
+        except Exception:
+            data["fresh_breakouts"] = []
+        return jsonify(data)
+    except Exception as e:
+        return jsonify({"error": str(e), "strong_sectors": [], "alpha_framework": [],
+                        "computed_at": int(time.time())}), 500
+
+
+@app.route("/api/briefing")
+def api_briefing():
+    """Top-down daily briefing — market regime (participation), leading sectors (median RS,
+    participation %, day-over-day rotation), and a session-over-session 'what changed' diff
+    of Weinstein-stage / 10-week / breakout state. All from FortuneX's own EOD universe."""
+    try:
+        import daily_briefing as _bf
+        try:
+            rs_map = _market_rs_map()
+        except Exception:
+            rs_map = {}
+        try:
+            import sector_mapper as _sm
+            sector_map = dict(_sm.get_enriched_sector_map())
+        except Exception:
+            sector_map = {}
+        # Fresh breakouts from the cached breakout scan (broke out within ~2 sessions).
+        bo_syms = []
+        try:
+            for s, r in (_setup_maps().get("bo") or {}).items():
+                dd = r.get("breakout_days_ago")
+                if r.get("from_base") and (dd is None or dd <= 2):
+                    bo_syms.append(s)
+        except Exception:
+            pass
+        _force = bool(request.args.get("force"))
+        return jsonify(_bf.run(rs_map, sector_map, breakout_syms=bo_syms, force=_force))
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/all-stocks")
+def api_all_stocks():
+    """The 'All stocks' screener — every rated name as one row (RS, stage, setup, money,
+    extension, 52-week-range, 3-month return + sparkline). FortuneX's own EOD data."""
+    try:
+        import daily_briefing as _bf
+        try:
+            rs_map = _market_rs_map()
+        except Exception:
+            rs_map = {}
+        try:
+            import sector_mapper as _sm
+            sector_map = dict(_sm.get_enriched_sector_map())
+        except Exception:
+            sector_map = {}
+        try:
+            bo_map = _setup_maps().get("bo") or {}
+        except Exception:
+            bo_map = {}
+        _force = bool(request.args.get("force"))
+        return jsonify(_bf.all_stocks(rs_map, sector_map, bo_map=bo_map, force=_force))
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/sector/rotation")
+def sector_rotation_api():
+    """Alphayantra-style sector rotation: per-sector trend/since/rising + member-stock
+    breakout table. Served from cache (stale-while-revalidate)."""
+    try:
+        import sector_rotation as _sr
+        return jsonify(_sr.run_sector_rotation())
+    except Exception as e:
+        return jsonify({"error": str(e), "sectors": [], "computed_at": int(time.time())}), 500
+
+
+@app.route("/api/sector-money-flow")
+def sector_money_flow_api():
+    """Sector money-flow board: turnover-acceleration + returns + RSI per sector, with a
+    per-stock drill-down. Point-in-time — pass ?date=YYYY-MM-DD to replay any day."""
+    try:
+        import sector_money_flow as _smf
+        date = (request.args.get("date") or "").strip() or None
+        # basic guard: only YYYY-MM-DD
+        if date and not re.match(r"^\d{4}-\d{2}-\d{2}$", date):
+            date = None
+        return jsonify(_smf.run(as_of=date, force=bool(request.args.get("force"))))
+    except Exception as e:
+        return jsonify({"error": str(e), "sectors": [], "detail": {}}), 500
+
 
 # ── Monster Growth Scanner ────────────────────────────────────────────────────
 
@@ -3125,7 +3836,24 @@ if VVV_AVAILABLE:
 # ── Startup — runs whether launched via `python app.py` or gunicorn ───────────
 # start_background_scheduler is idempotent (checks _sched["running"]), so calling
 # it at module level is safe with both multi-worker gunicorn and plain python.
-start_background_scheduler()
+# (It also self-disables when $DATA_DIR/SCRAPE_OFF exists — the scrape kill switch.)
+# Gated on _BG_JOBS (2026-09-17): it was the one background job started on EVERY import,
+# so the test suite, the prewarm test client and any extra worker each ran a second
+# screener.in scraper beside the live server's — double the request rate, and the
+# fastest way to get blocked. Only the process that owns background jobs scrapes.
+if _BG_JOBS:
+    start_background_scheduler()
+
+# Keep NSE's authoritative ETF list current (weekly), so index/sector trackers
+# never leak into the stock tabs. Non-blocking daemon; a stale/failed refresh just
+# keeps the last-good disk cache, and is_etf reads that cache with no network.
+def _refresh_etf_list():
+    try:
+        import etf_list
+        etf_list.refresh()
+    except Exception:
+        pass
+threading.Thread(target=_refresh_etf_list, daemon=True).start()
 
 # Point-in-time fundamentals capture: weekly dated snapshots of fundamentals.db so
 # the quality factor can eventually be validated with NO look-ahead bias (see
@@ -3158,6 +3886,9 @@ if _BG_JOBS:
 # (two overlapping passes would fight over the scan semaphore + RAM).
 _prewarm_lock = threading.Lock()
 _PREWARM_SCANS = [
+    ("sector_rotation", "sector_rotation", "run_sector_rotation"),
+    ("daily_brief", "daily_brief", "run_daily_brief"),
+    ("screens_pead_dv", "screens", "run_screens"),
     ("breadth",      "market_breadth",         "run_market_breadth"),
     ("trending",     "trending",               "run_trending_scan"),
     ("sector",       "sector_analysis",        "run_sector_analysis"),
@@ -3166,8 +3897,11 @@ _PREWARM_SCANS = [
     ("sector_leaders", "sector_leaders",       "run_sector_leaders"),
     ("edge",         "edge_engine",            "run_edge_engine"),
     ("breakout",     "breakout_scanner",       "run_breakout_scan"),
+    ("coiling",      "coiling_scanner",        "run_coiling_scan"),
     ("momentum",     "momentum_scanner",       "run_momentum_scan"),
     ("emerging",     "emerging_leaders",       "run_emerging_leaders_scan"),
+    ("monster_candidate", "monster_candidate",  "run_monster_scan"),
+    ("momentum_rotation_live", "momentum_rotation", "run_live_scan"),
     ("volume",       "volume_scanner",         "run_volume_scan"),
     ("early_mover",  "early_mover_scanner",    "run_early_mover_scan"),
     ("advanced",     "advanced_scanner",       "run_advanced_scan"),
@@ -3235,6 +3969,123 @@ def _prewarm_all_scans(trigger="startup"):
                 pass
     finally:
         _prewarm_lock.release()
+
+
+def _warm_deep_and_portfolio(trigger="startup"):
+    """Warm the owner's portfolio summary. Runs in its OWN thread — NOT gated by the
+    scan-prewarm lock — so it always completes even under request contention.
+
+    NOTE: we deliberately do NOT prewarm the 3Y/5Y deep-chart index here anymore. It
+    holds ~330MB resident, and on a memory-tight host that tipped the box into swap and
+    made ALL charts hang. The deep index now builds lazily only when a 3Y/5Y chart is
+    actually opened, and is bounded so it never balloons."""
+    try:
+        import portfolio as _pf
+        _t0 = time.time()
+        _pf.portfolio_summary(force=True)
+        print(f"[warm/{trigger}] portfolio: {time.time()-_t0:.1f}s", flush=True)
+    except Exception as _pe:
+        print(f"[warm/{trigger}] portfolio FAILED: {_pe}", flush=True)
+    # Build/refresh the per-symbol deep-history store (one durable snapshot per symbol).
+    # This is what makes every deep read — charts AND the RS benchmark below — a ~0.3ms
+    # file load instead of a ~1.1s scan of every day-file. On startup it (re)builds if the
+    # store is behind; on a new bhavcopy it folds just the new day into existing snapshots
+    # (seconds). No-ops when already current.
+    try:
+        import shared_universe as _su
+        _t0 = time.time()
+        _res = _su.build_symbol_store()
+        print(f"[warm/{trigger}] symbol store: {_res} in {time.time()-_t0:.1f}s", flush=True)
+    except Exception as _se:
+        print(f"[warm/{trigger}] symbol store FAILED: {_se}", flush=True)
+    # Prewarm the RS-line benchmark (equal-weight Nifty proxy). Built from the per-symbol
+    # store now (~0.3s), then cached in memory AND on disk per bhavcopy — so the first chart
+    # of the day never pays for it, and a restart reads it back in ~1ms.
+    try:
+        import rs_line as _rl
+        _t1 = time.time()
+        _rl.benchmark_series()
+        print(f"[warm/{trigger}] rs-line benchmark: {time.time()-_t1:.1f}s", flush=True)
+    except Exception as _be:
+        print(f"[warm/{trigger}] rs-line benchmark FAILED: {_be}", flush=True)
+    # Warm the chart's shared, whole-market dependencies so the FIRST chart after a
+    # restart is fast too. The per-symbol read is ~15ms now, but the chart also builds
+    # its Peers panel from load_base_universe(400) (~2s cold, network-free) and stamps the
+    # header RS from the market RS map (~40ms). Both are cached per bhavcopy; warming the
+    # exact (400, include_stale=False) key the peers lookup uses means no visitor ever
+    # eats that cold build.
+    try:
+        import shared_universe as _su2
+        _t2 = time.time()
+        _su2.load_base_universe(days=400)
+        try:
+            _market_rs_map()
+        except Exception:
+            pass
+        print(f"[warm/{trigger}] chart deps (universe400 + rs-map): {time.time()-_t2:.1f}s", flush=True)
+    except Exception as _ce:
+        print(f"[warm/{trigger}] chart deps FAILED: {_ce}", flush=True)
+    # Setup-state maps (watchlist glyphs + chart Follow-Through / to-trigger pills). Joins
+    # the cached breakout/coiling scans and builds the RS-lead set (~0.7s) once per day.
+    try:
+        _t3 = time.time()
+        _m = _setup_maps()
+        print(f"[warm/{trigger}] setup maps: bo={len(_m['bo'])} coil={len(_m['coil'])} "
+              f"rslead={len(_m['rslead'])} in {time.time()-_t3:.1f}s", flush=True)
+    except Exception as _me:
+        print(f"[warm/{trigger}] setup maps FAILED: {_me}", flush=True)
+
+
+def _refresh_split_feed(trigger: str) -> dict:
+    """Refresh NSE's split/bonus feed (at most daily) BEFORE adjusted prices are built.
+
+    2026-09-17: the feed was built once on 2026-07-29 and never refreshed, so every
+    later split showed up as a fake crash. Runs ahead of the prewarm on boot and on
+    each new bhavcopy. If it adds events while price caches are already warm, those
+    caches are cleared so no tab keeps serving the fake crash."""
+    try:
+        import corporate_actions as _ca
+        res = _ca.refresh_recent(log=lambda m: print(m, flush=True))
+    except Exception as _ce:
+        print(f"[corp_actions/{trigger}] refresh failed: {_ce}", flush=True)
+        return {"error": str(_ce)}
+    if res.get("added"):
+        try:
+            import shared_universe as _su
+            _su._CACHE.clear()
+        except Exception:
+            pass
+        try:
+            import portfolio as _pf
+            _pf._history_cache.clear()
+            _pf.invalidate_summary_cache()
+        except Exception:
+            pass
+        try:
+            from industry_groups import _stocks_cache as _sc
+            _sc.update({"data": None, "ts": 0, "complete": False, "last_attempt": 0.0})
+        except Exception:
+            pass
+        print(f"[corp_actions/{trigger}] {res['added']} new split/bonus event(s) — "
+              "adjusted-price caches cleared", flush=True)
+    return res
+
+
+def _start_guardian_after_bhavcopy(bhav_date):
+    """Kick the Position Guardian the moment a new bhavcopy lands (2026-09-16).
+
+    Its own thread, not the prewarm: the sweep needs only per-symbol history, and the
+    prewarm can take 15+ minutes. Retries until held symbols are on the new session.
+    Returns the started thread (or None) so the wiring is testable."""
+    try:
+        import guardian as _gd
+        t = threading.Thread(target=_gd.run_sweep_for_bhavcopy, args=(bhav_date,),
+                             daemon=True, name="guardian-bhavcopy")
+        t.start()
+        return t
+    except Exception as _ge:
+        print(f"[guardian] post-bhavcopy sweep not started: {_ge}", flush=True)
+        return None
 
 
 # Polls NSE every 20 minutes for the latest bhavcopy.
@@ -3331,6 +4182,9 @@ def _bhavcopy_scheduler():
                     "sector_analysis",
                     "industry_groups",
                     "investment_grade",
+                    "coiling_scanner",
+                    "monster_candidate",
+                    "momentum_rotation",
                 ]:
                     try:
                         _mod = __import__(_mod_name)
@@ -3342,9 +4196,20 @@ def _bhavcopy_scheduler():
                     except Exception:
                         pass
 
+                # ── Position Guardian FIRST, on its own thread (2026-09-16). The sweep
+                # used to piggyback only on a MANUAL trending scan, so the 2026-09-15
+                # EXITs (bhavcopy landed 19:52) were first written at 09:15 the next
+                # morning — market open. It retries until held symbols are on the
+                # new session, and needs only per-symbol history, not the prewarm.
+                _refresh_split_feed("bhavcopy")
+                _start_guardian_after_bhavcopy(result.get("date"))
                 # ── O2 — Pre-warm scans in background so users never hit a cold
                 # cache (new bhavcopy just landed → caches were invalidated above).
                 threading.Thread(target=_prewarm_all_scans, args=("bhavcopy",),
+                                 daemon=True).start()
+                # Chart index + portfolio warm on their own (unlocked) thread so they
+                # never get starved by scan-prewarm contention.
+                threading.Thread(target=_warm_deep_and_portfolio, args=("bhavcopy",),
                                  daemon=True).start()
         except Exception as e:
             print(f"[bhavcopy_scheduler] error: {e}", flush=True)
@@ -3356,9 +4221,28 @@ def _bhavcopy_scheduler():
         sleep_secs = 300 if not today_file.exists() else 1200
         _time.sleep(sleep_secs)
 
+# Market-holiday sweep — BEFORE any warm/prewarm so the whole app computes against the
+# last REAL session. NSE occasionally serves a non-trading day's bhavcopy as a pure
+# carry-forward of the prior close (every stock unchanged → a misleading 0%-change "new
+# day"); this drops those so day-change and freshness are always measured correctly. The
+# per-symbol deep store is rebuilt lazily by the warm path when a holiday bar is removed.
+try:
+    import data_fetcher as _dfh
+    _hol = _dfh.detect_holidays(cleanup=True)
+    if _hol:
+        print(f"[startup] dropped market-holiday carry-forward day(s): "
+              f"{[d.isoformat() for d in _hol]} — latest real session now "
+              f"{_dfh._latest_bhavcopy_date()}", flush=True)
+except Exception as _he:
+    print(f"[startup] holiday sweep failed: {_he}", flush=True)
+
 if _BG_JOBS:
     threading.Thread(target=_bhavcopy_scheduler, daemon=True, name="bhavcopy-auto").start()
     print("[bhavcopy_scheduler] Started — checks NSE every 20 min automatically.")
+    # Warm the chart index + portfolio once on boot (own thread, not scan-lock-gated).
+    threading.Thread(target=lambda: (__import__("time").sleep(8),
+                                     _warm_deep_and_portfolio("startup")),
+                     daemon=True, name="warm-charts-pf").start()
 
 
 # ── Boot pre-warm ────────────────────────────────────────────────────────────
@@ -3382,6 +4266,7 @@ def _boot_prewarm():
     except Exception as _e:
         print(f"[prewarm/startup] skipped: {_e}", flush=True)
         return
+    _refresh_split_feed("startup")
     _prewarm_all_scans("startup")
 
 

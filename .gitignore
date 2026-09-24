@@ -84,3 +84,19 @@ rs_leaders_validation.py
 # Runtime data artifacts — server-side state, never source
 .hypothesis_registry.json
 .system_track.json
+exit_trend_break_validation.py
+.portfolio_settings.json
+preflight.db
+entry_checks_validation.py
+# Local research harness that imports the gitignored portfolio.py / exit_backtest.py
+exit_reversal_validation.py
+# Runtime caches & scraped data — rebuilt at runtime, never source
+.avwap_study_events.pkl
+.briefing_sector_rank.json
+.nse_index_*.pkl
+.sector_index_files_cache.json
+earnings_dates.json
+nse_etf_list.json
+sector_details.json
+sector_lookup.json
+sector_scrape_progress.json

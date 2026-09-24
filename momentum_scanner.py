@@ -81,8 +81,8 @@ def _load_all_stocks(progress_callback=None) -> dict[str, pd.DataFrame]:
         return {}
     # Filter to Nifty Total Market 750 (Nifty50 ∪ Next50 ∪ Nifty500 ∪ Smallcap250 ∪ Microcap250 ∪ TotalMarket)
     try:
-        from nse_stocks import get_universe_symbols
-        _universe = set(get_universe_symbols())
+        from nse_stocks import get_full_universe_symbols
+        _universe = set(get_full_universe_symbols())
     except Exception:
         _universe = set()
     combined = pd.concat(frames, ignore_index=True).sort_values("Date")
