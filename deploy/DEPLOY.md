@@ -1,4 +1,4 @@
-# Deploying Ascent Wealth Labs to EC2
+# Deploying FortuneX to EC2
 
 Decisions this reflects: **owner-only tabs stay off the box**, **EC2 owns NSE
 fetching**, **Route53 DNS only — no Cloudflare**, so TLS terminates in nginx.

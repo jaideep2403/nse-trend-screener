@@ -1,5 +1,5 @@
 """
-smoke_test.py — Real functional smoke test for NSE Trend Screener.
+smoke_test.py — Real functional smoke test for FortuneX.
 Run after every change: python3 smoke_test.py
 
 Tests what actually matters:
