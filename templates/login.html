@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Sign in · FortuneX</title>
+<title>Sign in · Fortune X</title>
 <link rel="icon" href="/static/favicon.png?v=3" type="image/png">
 <style>
   /* ── Sign-in page, redesigned 2026-08-04 (ideas 8–11 only) ─────────────────
@@ -140,6 +140,11 @@
     background:color-mix(in srgb, var(--green) 15%, transparent);
     color:var(--green2); border:1px solid color-mix(in srgb, var(--green) 36%, transparent);
   }
+  /* Downtrend / Correction regime → light-red pill instead of green */
+  .regime-chip.down{
+    background:color-mix(in srgb, var(--red) 13%, transparent);
+    color:var(--red); border-color:color-mix(in srgb, var(--red) 38%, transparent);
+  }
   .stats{display:grid; grid-template-columns:repeat(4,1fr); gap:10px}
   .stat{background:var(--surface2); border:1px solid var(--border); border-radius:10px; padding:10px 12px}
   .stat .k{font-size:var(--fs-micro); font-weight:700; letter-spacing:.7px; text-transform:uppercase; color:var(--muted); margin-bottom:5px; white-space:nowrap}
@@ -159,7 +164,7 @@
       background:var(--tape-chip-bg); border:1px solid var(--tape-chip-bd); font-size:var(--fs-sm)}
   .tk b{font-weight:700; letter-spacing:.2px}
   .tk span{font-family:var(--mono); font-size:var(--fs-xs); font-weight:600; color:var(--tape-chip-pct)}
-  .asof{margin-top:11px; font-size:var(--fs-xs); color:var(--muted); font-family:var(--mono)}
+  .asof{margin-top:11px; font-size:var(--fs-xs); color:#0a0a0a; font-weight:600; font-family:var(--mono)}
 
   .method{display:flex; flex-wrap:wrap; gap:7px; margin-top:22px}
   .method span{
@@ -248,26 +253,26 @@
     <div>
       <div class="brand">
         <div class="brand-logo">
-          <img src="/static/falcon_white.png" alt="FortuneX" style="width:50px;height:auto;display:block">
+          <img src="/static/falcon_white.png" alt="Fortune X" style="width:50px;height:auto;display:block">
         </div>
         <div>
-          <h1>Fortune<span style="color:var(--green)">X</span></h1>
+          <h1>Fortune <span style="color:var(--green)">X</span></h1>
           <p>AI Powered Analytics Platform</p>
         </div>
       </div>
 
       <div class="headline">The whole tradeable NSE market<br><span class="hl">screened every evening.</span></div>
       <div class="kicker">
-        Twenty-plus screeners over <b>~2,300 NSE stocks</b> — every EQ name that still
-        trades — on end-of-day bhavcopy: momentum, breakouts, institutional flow, regime
-        and risk, each one measured before it ships.
+        Find the high-RS breakout and momentum leaders across all <b>~2,300 NSE
+        stocks</b> — ranked every evening on institutional flow, market regime and
+        risk, so the steady winners surface before the crowd.
       </div>
 
       {% if pulse and pulse.as_of %}
       <div class="pulse">
         <div class="pulse-top">
           <div class="live"><span class="dot"></span>Live from today's close</div>
-          {% if pulse.regime %}<div class="regime-chip">{{ pulse.regime }}</div>{% endif %}
+          {% if pulse.regime %}<div class="regime-chip{% if pulse.regime == 'Downtrend' %} down{% endif %}">{{ pulse.regime }}</div>{% endif %}
         </div>
 
         <div class="stats">
@@ -275,7 +280,7 @@
             <div class="k">52W Highs</div>
             <div class="v pos">{{ pulse.new_highs }}</div>
           </div>
-          <div class="stat" title="Advancing vs declining stocks on the last session. These deliberately do NOT sum to Universe: stocks that closed exactly unchanged are counted in neither leg (standard advance/decline convention), and any stock that did not trade that session cannot advance or decline. On 12-Aug that was 7 unchanged + 5 not traded = the 12-stock gap between 739 and 751.">
+          <div class="stat" title="Advancing vs declining stocks on the last session across the full ~2,300-name NSE universe — every EQ stock that still trades, not a curated subset. They need not sum to Universe: stocks that closed exactly unchanged count in neither leg (standard advance/decline convention), and a stock that did not trade both sessions cannot advance or decline.">
             <div class="k">Adv / Dec</div>
             <div class="v neu">{{ pulse.advance }}<small>/{{ pulse.decline }}</small></div>
           </div>
@@ -283,9 +288,9 @@
             <div class="k">Above 50-DMA</div>
             <div class="v {{ 'pos' if (pulse.pct_above_50 or 0) >= 50 else 'neg' }}">{{ pulse.pct_above_50 }}<small>%</small></div>
           </div>
-          <div class="stat" title="Breadth sample — the curated liquid set (Nifty Total Market) these market-health figures are measured on. The screeners themselves cover ~2,300 names: every NSE EQ symbol that still trades. So this is the breadth sample, not the scan coverage.">
-            <div class="k">Breadth set</div>
-            <div class="v neu">{{ pulse.universe }}<small>&nbsp;liquid</small></div>
+          <div class="stat" title="The full screener universe measured today — every NSE EQ stock that still trades and had data in both of the last two sessions. This is the whole market the advance/decline above is counted on, not the 750-name liquid subset.">
+            <div class="k">Universe</div>
+            <div class="v neu">{{ pulse.universe }}<small>&nbsp;stocks</small></div>
           </div>
         </div>
 
@@ -302,7 +307,7 @@
         </div>
         {% endif %}
 
-        <div class="asof">NSE bhavcopy · {{ pulse.as_of }} · end-of-day</div>
+        <div class="asof">NSE bhavcopy · {{ pulse.as_of }} · end-of-day{% if pulse.universe %} · {{ pulse.universe }} stocks measured{% endif %}</div>
       </div>
       {% endif %}
 

@@ -1,5 +1,5 @@
 """
-Top-down daily briefing for FortuneX.
+Top-down daily briefing for Fortune X.
 
 Three shelves, all recomputed once per bhavcopy from our own EOD universe:
 

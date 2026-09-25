@@ -1,4 +1,4 @@
-# FortuneX — NSE Analytics Platform
+# Fortune X — NSE Analytics Platform
 
 A self-hosted, end-of-day analytics and screening platform for the Indian equity
 market (NSE). It runs entirely on **NSE bhavcopy OHLCV + delivery data** — no paid

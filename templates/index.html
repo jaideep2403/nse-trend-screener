@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>FortuneX — Analytics Platform</title>
+<title>Fortune X — Analytics Platform</title>
 <link rel="icon" type="image/png" href="/static/favicon.png?v=3">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -314,7 +314,7 @@
     -webkit-font-smoothing: antialiased;
     /* Flat neutral canvas. The bull/bear photo (still in /static, keep it for
        marketing pages) sat behind live data: it fought text for contrast, carried
-       an NSE watermark that contradicts the FortuneX brand, and forced a whole
+       an NSE watermark that contradicts the Fortune X brand, and forced a whole
        cascade of blur + !important opacity hacks below just to stay readable.
        Data surfaces should be calm and flat. */
     background: var(--bg);
@@ -479,7 +479,14 @@
     box-shadow: 0 12px 34px rgba(0,0,0,0.32);
   }
   .search-results.open { display: block; }
-  .search-results.wide { width: 760px; max-width: 94vw; max-height: 82vh; }
+  /* Symbol-detail view: give the chart the whole frame, not a 760px sliver. Anchored
+     right:0 under the 460px search box, a wide panel ran off the LEFT of the screen,
+     so when wide it becomes a viewport-centred overlay below the 60px header. Width
+     matches the Charts-tab canvas so a chart looks the same wherever it's opened. */
+  .search-results.wide {
+    position: fixed; top: 68px; left: 50%; right: auto; transform: translateX(-50%);
+    width: min(1280px, 94vw); max-width: 94vw; max-height: 84vh;
+  }
   .sr-head { font-size:var(--fs-sm); font-weight: 800; color: var(--white); padding: 6px 8px 8px; border-bottom: 1px solid var(--border); margin-bottom: 4px; }
   .sr-hit { display: flex; align-items: center; gap: 10px; padding: 7px 8px; border-radius: 6px; cursor: pointer; }
   .sr-hit:hover { background: var(--surface2); }
@@ -636,7 +643,7 @@
   body.light .tab-btn.active { background: #fff; border-color: var(--accent); border-bottom-color: #fff; }
   .tab-content { display: none; }
   .tab-content.active { display: block; }
-  /* ── FortuneX — professional grouped sidebar navigation ──── */
+  /* ── Fortune X — professional grouped sidebar navigation ──── */
   .app-shell { display: flex; align-items: flex-start; }
   .sidebar {
     position: sticky; top: 0; align-self: flex-start;
@@ -1217,10 +1224,10 @@
 <header>
   <div class="logo" style="display:flex;align-items:center;gap:11px">
     <div style="width:40px;height:40px;border-radius:10px;background:linear-gradient(135deg,#064e3b,var(--green));display:flex;align-items:center;justify-content:center;flex-shrink:0">
-      <img src="/static/falcon_white.png" alt="FortuneX" style="width:34px;height:auto;display:block">
+      <img src="/static/falcon_white.png" alt="Fortune X" style="width:34px;height:auto;display:block">
     </div>
     <div style="line-height:1">
-      <h1 style="font-size:var(--fs-xl);margin:0;font-weight:800;letter-spacing:-0.4px">Fortune<span style="color:var(--green)">X</span></h1>
+      <h1 style="font-size:var(--fs-xl);margin:0;font-weight:800;letter-spacing:-0.4px">Fortune <span style="color:var(--green)">X</span></h1>
     </div>
   </div>
   <div class="live-badge" title="End-of-day data — this app runs on NSE's bhavcopy, published after market close. Not an intraday feed."><span class="live-dot"></span>EOD</div>
@@ -8707,7 +8714,11 @@ function awlToggleChart(sym, pivot, rowEl, ncols) {
       scope.querySelectorAll('.awl-chip-chart').forEach(x => x.remove());
       const holder = document.createElement('div');
       holder.className = 'awl-chip-chart';
-      holder.style.cssText = 'margin:4px 0 10px;width:100%';
+      // The chips sit in a multi-column grid (and money-flow uses a flex row), so a
+      // plain width:100% holder only filled ONE 347px cell — the chart came out a
+      // quarter-width sliver. Span the whole row (grid-column 1/-1, flex-basis 100%)
+      // so the chip chart gets the full frame like every other tab's chart.
+      holder.style.cssText = 'margin:4px 0 10px;width:100%;grid-column:1/-1;flex:1 0 100%';
       chip.insertAdjacentElement('afterend', holder);
       awlChartInto(sym, holder);
       return;

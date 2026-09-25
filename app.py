@@ -135,10 +135,57 @@ def _require_login():
         if p.startswith("/api/"):
             return jsonify({"error": "auth required"}), 401
         return redirect(url_for("login", next=p))
-    # Owner-only position APIs — demo is authenticated but not authorised.
-    if not auth.is_admin() and p.startswith(auth.ADMIN_ONLY_API_PREFIXES):
+    # Owner-only position APIs. can_see_positions() = admin always, plus demo when
+    # NOT in production — so demo can reach these locally but is fail-closed on the
+    # live site. Still fail-closed for any new /api/portfolio|strategy|guardian route.
+    if not auth.can_see_positions() and p.startswith(auth.ADMIN_ONLY_API_PREFIXES):
         return jsonify({"error": "forbidden"}), 403
     return None
+
+
+_FULL_AD_CACHE: dict = {}   # {"date","data"} — full-market A/D, computed once per trading day
+
+
+def _full_market_ad() -> dict:
+    """Advance/decline across the FULL screener universe (~2,300 EQ names that still
+    trade), NOT the 750-name liquid breadth set. A raw daily up/down count is the
+    market-wide standard (the NSE's own A/D line is built this way), so unlike
+    '% above MA' it needs no liquid filter. Reads only the two most recent cached
+    bhavcopy files, compares closes, and caches by trading date so it runs at most
+    once per day per process. Never touches the network; never raises."""
+    try:
+        import pickle
+        from data_fetcher import _latest_bhavcopy_date, _prev_cached_day, _bhav_cache_path
+        d = _latest_bhavcopy_date()
+        if not d:
+            return {}
+        if _FULL_AD_CACHE.get("date") == str(d):
+            return _FULL_AD_CACHE["data"]
+        tp = _bhav_cache_path(d)
+        if not tp.exists():
+            return {}
+        with open(tp, "rb") as f:
+            today = pickle.load(f)
+        _prev_d, yday = _prev_cached_day(d)
+        if today is None or yday is None:
+            return {}
+        from nse_stocks import is_etf, get_full_universe_symbols
+        uni = set(get_full_universe_symbols())
+        if len(uni) < 1000:            # store not warm → it fell back to the 750; use the
+            uni = None                 # whole bhavcopy instead so we never report on 750
+        tc = today.drop_duplicates("Symbol").set_index("Symbol")["Close"].astype(float)
+        pc = yday.drop_duplicates("Symbol").set_index("Symbol")["Close"].astype(float)
+        common = [x for x in tc.index.intersection(pc.index)
+                  if not is_etf(x) and (uni is None or x in uni)]
+        t = tc.loc[common]; p = pc.loc[common]
+        valid = (p > 0) & (t > 0)
+        t, p = t[valid], p[valid]
+        adv = int((t > p).sum()); dec = int((t < p).sum()); unch = int((t == p).sum())
+        data = {"advance": adv, "decline": dec, "unchanged": unch, "total": adv + dec + unch}
+        _FULL_AD_CACHE.clear(); _FULL_AD_CACHE.update({"date": str(d), "data": data})
+        return data
+    except Exception:
+        return {}
 
 
 def _login_pulse() -> dict:
@@ -147,9 +194,10 @@ def _login_pulse() -> dict:
     Deliberately server-rendered from market_breadth's IN-MEMORY cache rather than a
     new public /api endpoint: this data changes once per trading day, so polling buys
     nothing, and a new unauthenticated route would be extra attack surface on a page
-    that is by definition reachable without a session. Reads only — never computes,
-    never raises. Returns {} when the cache is cold, and the template degrades to a
-    static hero with no gaps.
+    that is by definition reachable without a session. The only computation is a
+    light full-market advance/decline (two cached bhavcopy files, cached once per
+    trading day); it never raises. Returns {} when the cache is cold, and the
+    template degrades to a static hero with no gaps.
     """
     try:
         from market_breadth import _cache as _mb_cache
@@ -159,14 +207,19 @@ def _login_pulse() -> dict:
         b  = d.get("breadth") or {}
         rg = d.get("regime") or {}
         highs = [h for h in (d.get("new_highs_list") or []) if h.get("symbol")][:16]
+        fa = _full_market_ad()          # full ~2,300-name market, not the 750 liquid set
         return {
             "as_of":        d.get("bhavcopy_date"),
             "new_highs":    d.get("new_highs_count"),
             "new_lows":     b.get("new_lows"),
-            "advance":      b.get("advance"),
-            "decline":      b.get("decline"),
+            # Advance/decline now spans the FULL universe (see _full_market_ad); the
+            # 750-set values are only the fallback if the deep store is still warming.
+            "advance":      fa.get("advance", b.get("advance")),
+            "decline":      fa.get("decline", b.get("decline")),
+            "unchanged":    fa.get("unchanged"),
             "pct_above_50": b.get("pct_above_50ma"),
-            "universe":     b.get("total_stocks"),
+            "universe":     fa.get("total") or b.get("total_stocks"),
+            "full_ad":      bool(fa),
             # Show the SAME plain-English label the in-app header uses, not the raw
             # IBD term — otherwise the login page said "Uptrend Under Pressure" while
             # the header two clicks later said "Sideways" for the identical regime.
@@ -2077,7 +2130,7 @@ def api_diag_cache():
     """Admin-only cache health — answers 'why are scans slow on the live box?'.
     Reports whether the scan-result cache is persisting (writable dir), which scans
     are fresh/stale/missing, prewarm status, and the bhavcopy data on hand."""
-    if not auth.is_admin():
+    if not auth.can_see_positions():   # admin always; demo locally, never in prod
         return jsonify({"error": "forbidden"}), 403
     import result_cache as _rc
     out = {"result_cache": _rc.stats()}
@@ -3570,7 +3623,7 @@ def daily_brief_api():
 def api_briefing():
     """Top-down daily briefing — market regime (participation), leading sectors (median RS,
     participation %, day-over-day rotation), and a session-over-session 'what changed' diff
-    of Weinstein-stage / 10-week / breakout state. All from FortuneX's own EOD universe."""
+    of Weinstein-stage / 10-week / breakout state. All from Fortune X's own EOD universe."""
     try:
         import daily_briefing as _bf
         try:
@@ -3600,7 +3653,7 @@ def api_briefing():
 @app.route("/api/all-stocks")
 def api_all_stocks():
     """The 'All stocks' screener — every rated name as one row (RS, stage, setup, money,
-    extension, 52-week-range, 3-month return + sparkline). FortuneX's own EOD data."""
+    extension, 52-week-range, 3-month return + sparkline). Fortune X's own EOD data."""
     try:
         import daily_briefing as _bf
         try:
@@ -4298,5 +4351,5 @@ if _BG_JOBS:
 
 
 if __name__ == "__main__":
-    print("FortuneX running at http://0.0.0.0:5050")
+    print("Fortune X running at http://0.0.0.0:5050")
     app.run(host="0.0.0.0", debug=False, port=5050, use_reloader=False)

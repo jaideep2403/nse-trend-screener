@@ -1,9 +1,12 @@
-"""Lightweight session auth for FortuneX.
+"""Lightweight session auth for Fortune X.
 
 Two roles:
   • admin — full access, including personal positions (My Portfolio, Strategy,
     Guardian alerts).
-  • demo  — every screener/analytics tab, but NONE of the owner's positions.
+  • demo  — every screener/analytics tab. LOCALLY (dev) the demo account is
+    elevated to the SAME full access as admin for demos/testing; in production
+    (ASCENT_ENV=production) it sees screeners only and NEVER the owner's
+    positions. See can_see_positions().
 
 Design notes / honest security posture
 --------------------------------------
@@ -134,9 +137,27 @@ def is_admin() -> bool:
     return session.get("role") == "admin"
 
 
+def _is_production() -> bool:
+    """Mirror security.IS_PROD without importing it (avoids an import cycle).
+    Live EC2 sets ASCENT_ENV=production; local dev leaves it unset."""
+    return os.getenv("ASCENT_ENV", "dev").strip().lower() == "production"
+
+
 def can_see_positions() -> bool:
-    """The one gate for owner-only position features."""
-    return is_admin()
+    """The one gate for owner-only position features (My Portfolio, Strategy,
+    Guardian, admin diagnostics).
+
+    Admin (Jai) always. The demo account is granted the SAME full access LOCALLY —
+    so the owner can demo/test everything from the demo login — but NEVER in
+    production (ASCENT_ENV=production). So on the public live site a demo login
+    still sees screeners only and can never reach positions. This is the second,
+    independent layer: the positions data itself (portfolio.py, .auth_users.json)
+    is gitignored and never deployed, so even the elevation code carries no data
+    to expose. Both must hold for a leak — code says 'not in prod' AND data isn't
+    there."""
+    if is_admin():
+        return True
+    return session.get("role") == "demo" and not _is_production()
 
 
 def log_in(username: str, role: str):

@@ -1,5 +1,5 @@
 """
-smoke_test.py — Real functional smoke test for FortuneX.
+smoke_test.py — Real functional smoke test for Fortune X.
 Run after every change: python3 smoke_test.py
 
 Tests what actually matters:

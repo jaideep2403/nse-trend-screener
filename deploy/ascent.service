@@ -1,5 +1,5 @@
 [Unit]
-Description=FortuneX — NSE analytics dashboard
+Description=Fortune X — NSE analytics dashboard
 Documentation=file:///opt/ascent/deploy/DEPLOY.md
 After=network-online.target
 Wants=network-online.target

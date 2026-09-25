@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Hang watchdog for the FortuneX dashboard (launchd job com.local.nse-dashboard).
+Hang watchdog for the Fortune X dashboard (launchd job com.local.nse-dashboard).
 
 WHY: launchd's KeepAlive only restarts the app when the process EXITS. On 2026-09-23 the
 process stayed alive but stopped answering — the Mac was swap-thrashing (8.8 of 10 GB swap,
@@ -130,7 +130,7 @@ def _memory_snapshot() -> str:
 
 def _notify(msg: str) -> None:
     _run(["osascript", "-e",
-          f'display notification "{msg}" with title "FortuneX watchdog"'], timeout=5)
+          f'display notification "{msg}" with title "Fortune X watchdog"'], timeout=5)
 
 
 def main() -> None:
