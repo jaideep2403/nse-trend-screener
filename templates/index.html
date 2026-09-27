@@ -217,6 +217,22 @@
   }
   .tab-intro .ti-title::after { content: " — "; color: var(--text2); font-weight: 400; }
 
+  /* Unified tab hero — one consistent format across every tab (icon · title · one line) */
+  .tab-hero {
+    background: var(--surface); border: 1px solid var(--border);
+    border-left: 4px solid var(--green); border-radius: 10px;
+    padding: 14px 18px; margin-bottom: 14px;
+  }
+  .tab-hero h3 {
+    display: flex; align-items: center; gap: 8px; margin: 0 0 5px;
+    font-size: var(--fs-base); font-weight: 700; color: var(--text);
+  }
+  .tab-hero h3 svg { width: 17px; height: 17px; color: var(--green); flex: none; }
+  .tab-hero p { margin: 0; font-size: var(--fs-sm); color: var(--muted); line-height: 1.55; }
+  .tab-hero b, .tab-hero strong { color: var(--text); font-weight: 700; }
+  .tab-hero code { background: var(--surface2); padding: 2px 6px; border-radius: 4px;
+    color: var(--green2); font-family: var(--mono); font-size: var(--fs-xs); }
+
   /* 3b. Control bar — one primary action left, filters/meta right */
   .ctrl-bar {
     display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
@@ -335,7 +351,7 @@
     flex-direction: column;
   }
   /* But hero cards must be fully opaque — text legibility matters more than aesthetic */
-  .mg-hero, .eg-hero, .sl-hero, .cn-hero,
+  .tab-hero,
   .sl-stat-card, .cn-stat-card,
   /* Market Breadth tab: regime banner + stat cards were washed out by the
      background image — force them opaque like the other tabs. */
@@ -932,9 +948,6 @@
   .card-accent-green { border-top: 2px solid var(--green); }
   .card-accent-red   { border-top: 2px solid var(--red); }
 
-  .logic-box { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 12px 16px; margin-bottom: 12px; font-size:var(--fs-sm); color: var(--text2); line-height: 1.65; }
-  .logic-box strong { color: var(--accent2); font-weight: 600; }
-  .tags { margin-top: 8px; display: flex; gap: 5px; flex-wrap: wrap; }
   /* Neutral outline pills — these label the strategy patterns, they don't signal
      bull/bear, so they stay monochrome and let the semantic colours (pass/fail,
      P&L) own the palette. */
@@ -1433,7 +1446,10 @@
 <!-- ══ TAB PANELS ══ -->
 
 <div id="tab-charts" class="tab-content">
-  <div class="tab-intro"><span class="ti-title">Charts</span>Flip through any of the ~2,300 listed names on our own full chart — 20-week MA, log scale, detected bases, pivot and breakout markers, RS/NIFTY and volume. Search, pick a group, or use ↑/↓ to move. No ads. <span style="color:var(--muted)">List flags: <b style="color:var(--green2)">✓</b> fresh breakout · <b style="color:var(--gold2)">⚡</b> at pivot · 🌀 coiling · <b style="color:var(--gold)">↗</b> extended · <b style="color:var(--accent2)">ᴿˢ</b> RS-line leadership.</span></div>
+  <div class="tab-hero">
+    <h3><svg class="ic ic-h"><use href="#i-bars"/></svg>Charts</h3>
+    <p>Flip through any of the ~2,300 listed names on our own full chart — 20-week MA, log scale, detected bases, pivot and breakout markers, RS/NIFTY and volume. Search, pick a group, or use ↑/↓ to move. No ads. <span style="color:var(--muted)">List flags: <b style="color:var(--green2)">✓</b> fresh breakout · <b style="color:var(--gold2)">⚡</b> at pivot · 🌀 coiling · <b style="color:var(--gold)">↗</b> extended · <b style="color:var(--accent2)">ᴿˢ</b> RS-line leadership.</span></p>
+  </div>
   <div style="display:flex;gap:12px;align-items:stretch;height:calc(100vh - 205px);min-height:500px">
     <div style="width:236px;min-width:236px;display:flex;flex-direction:column;border:1px solid var(--border);border-radius:10px;overflow:hidden;background:var(--field)">
       <div style="display:flex;gap:6px;align-items:center;padding:8px 10px;border-bottom:1px solid var(--border)">
@@ -1465,15 +1481,9 @@
 
 <!-- ══════════════════════════════════════════════════════════ SCREENER TAB -->
 <div id="tab-screener" class="tab-content active">
-  <div class="tab-intro"><span class="ti-title">Screener</span>Price above MA50/100/200 with an IBD-style RS score from weighted 3M/6M/12M returns.</div>
-  <div class="logic-box">
-    <strong>Screening Logic:</strong>
-    Price &gt; MA50 &gt; MA100 &gt; MA200 (confirmed uptrend) &bull;
-    IBD-style RS Score based on weighted 3M/6M/12M returns
-    <div class="tags">
-      <span class="tag">VCP</span><span class="tag">CnH</span>
-      <span class="tag">ATH Breakout</span><span class="tag">Rectangular Breakout</span>
-    </div>
+  <div class="tab-hero">
+    <h3><svg class="ic ic-h"><use href="#i-filter"/></svg>Screener</h3>
+    <p>Price above MA50/100/200 with an IBD-style RS score from weighted 3M/6M/12M returns.</p>
   </div>
 <div class="container">
 
@@ -1553,7 +1563,10 @@
 
 <!-- ══════════════════════════════════════════════════════════ SECTOR TAB -->
 <div id="tab-sector" class="tab-content">
-  <div class="tab-intro"><span class="ti-title">Sector Rotation</span>Every sector ranked by the momentum of its member stocks — with when it started trending, how many stocks are rising, and a drill-down to each stock's breakout level and return since signal.</div>
+  <div class="tab-hero">
+    <h3><svg class="ic ic-h"><use href="#i-refresh"/></svg>Sector Rotation</h3>
+    <p>Every sector ranked by the momentum of its member stocks — with when it started trending, how many stocks are rising, and a drill-down to each stock's breakout level and return since signal.</p>
+  </div>
 <div class="container">
 
   <!-- Alphayantra-style rotation list (primary view) -->
@@ -1570,15 +1583,9 @@
 </div>
 
 <div id="tab-monster-radar" class="tab-content">
-  <div class="tab-intro"><span class="ti-title">Monster Radar</span>Catch the next big move EARLY — one ranked list of the pre-move cluster the biggest winners share, kept to names that are still early, not extended.</div>
-  <div class="logic-box">
-    <strong>What it fuses</strong> (weights calibrated from a base-rate study of 464 fresh breakouts — the factors that actually separated 2026's monsters from the duds), scored 0–100 —
-    <span class="tag">Small cap ₹&lt;3,000cr (biggest lever)</span>
-    <span class="tag">Volume building + ignition surge</span>
-    <span class="tag">RS-line leadership vs Nifty</span>
-    <span class="tag">earnings acceleration</span>
-    <span class="tag">leading sector/theme</span>
-    <br>No single signal predicts a monster — even the top-scored bucket only hits ~8% (vs a 2.6% base rate). The <strong>edge is the basket</strong>: buy many, cut the losers fast, let the few winners run. Extended names (&gt;30% above the 50-DMA) are filtered out so this stays a <em>catch-it-early</em> list, not a chase list.
+  <div class="tab-hero">
+    <h3><svg class="ic ic-h"><use href="#i-gauge"/></svg>Monster Radar</h3>
+    <p>Catch the next big move EARLY — one ranked list of the pre-move cluster the biggest winners share, kept to names that are still early, not extended.</p>
   </div>
   <div class="ctrl-bar">
     <button class="btn btn-primary" onclick="loadMonster(true)"><svg class="ic ic-b"><use href="#i-refresh"/></svg>Rescan</button>
@@ -1608,16 +1615,9 @@
 </div>
 
 <div id="tab-momentum-rotation" class="tab-content">
-  <div class="tab-intro"><span class="ti-title">Momentum Rotation</span>An exact replica of @imhiteshmodi's "mi50" strategy: fresh 52-week-high smallcap momentum, run as a compounding weekly-rotated portfolio — buy fresh breakouts, hold while above the 20-week MA, sell when it breaks. Every name below carries an entry and an exit level.</div>
-  <div class="logic-box">
-    <strong>The rules (Hitesh Modi's exact stated method):</strong>
-    <span class="tag">Entry: fresh weekly 52-wk high (first in 5 wks)</span>
-    <span class="tag">Universe: mcap ₹500–50,000 cr, EPS &gt; 0</span>
-    <span class="tag">Hold: above the 20-week MA</span>
-    <span class="tag">Exit: weekly close below the 20-week MA</span>
-    <span class="tag">Book: ~5 adds/week to 30–40 names, equal weight</span>
-    <br><span style="color:var(--text2)">Point-in-time backtest since Jul 2022 (his exact rules):</span>
-    <strong style="color:var(--green2)">2.53× net / 2.73× gross</strong> vs equal-weight smallcap <strong>2.43×</strong> and Nifty Smallcap 250 <strong>2.28×</strong>. So the mechanical scan is <strong>mostly smallcap beta</strong> (~+0.45× over the index); Hitesh's live <strong>3.23×</strong> adds ~0.5× more from his discretionary picking (avoid cyclicals, quality/EPS overlay). This needs a rising smallcap market to work. Not investment advice; returns are optimistic (survivorship + approximate costs).
+  <div class="tab-hero">
+    <h3><svg class="ic ic-h"><use href="#i-refresh"/></svg>Momentum Rotation</h3>
+    <p>An exact replica of @imhiteshmodi's "mi50" strategy: fresh 52-week-high smallcap momentum, run as a compounding weekly-rotated portfolio — buy fresh breakouts, hold while above the 20-week MA, sell when it breaks. Every name below carries an entry and an exit level.</p>
   </div>
   <div class="ctrl-bar">
     <button class="btn btn-primary" onclick="loadMomRot(true)"><svg class="ic ic-b"><use href="#i-refresh"/></svg>Rescan</button>
@@ -1633,13 +1633,9 @@
 </div>
 
 <div id="tab-money-flow" class="tab-content">
-  <div class="tab-intro"><span class="ti-title">Money Flow</span>Which sector is the smart money rotating INTO — before it shows up in price. Money flow = traded turnover (₹). The tell is <em>turnover acceleration</em>: 5-day turnover running hot vs its 22-day baseline. Pick any date on the calendar to replay the board as it looked that day.</div>
-  <div class="logic-box">
-    <strong>Backtest-validated</strong> (2,220 sector×date observations, forward 22-day sector return):
-    <span class="tag" style="color:var(--red2)">Fading flow → −1.3%</span>
-    <span class="tag" style="color:var(--green2)">Building flow → +1.4% to +1.6% (sweet spot)</span>
-    <span class="tag" style="color:var(--muted)">Blow-off extreme → ~0% (exhaustion)</span>
-    <br>So chase <strong>moderate-and-rising</strong> money flow with price confirming — not the faders, and not the climax spikes (those are flagged ⚠). Ranked by <strong>Flow Score</strong> = return × turnover-surge (the version that was monotonic in the test).
+  <div class="tab-hero">
+    <h3><svg class="ic ic-h"><use href="#i-layers"/></svg>Money Flow</h3>
+    <p>Which sector is the smart money rotating INTO — before it shows up in price. Money flow = traded turnover (₹). The tell is <em>turnover acceleration</em>: 5-day turnover running hot vs its 22-day baseline. Pick any date on the calendar to replay the board as it looked that day.</p>
   </div>
   <div class="ctrl-bar" style="flex-wrap:wrap;gap:10px">
     <label style="display:flex;align-items:center;gap:8px;background:var(--field);border:1px solid var(--border);border-radius:8px;padding:7px 12px">
@@ -1698,7 +1694,10 @@
 </div>
 
 <div id="tab-breakout" class="tab-content">
-  <div class="tab-intro"><span class="ti-title">Breakout Stocks</span>Stocks clearing resistance on volume — VCP, cup-with-handle, ATH and rectangular bases, each with entry, stop and target.</div>
+  <div class="tab-hero">
+    <h3><svg class="ic ic-h"><use href="#i-zap"/></svg>Breakout Stocks</h3>
+    <p>Stocks clearing resistance on volume — VCP, cup-with-handle, ATH and rectangular bases, each with entry, stop and target.</p>
+  </div>
 <div class="container">
 
 <div class="card" style="margin-bottom:14px">
@@ -1875,30 +1874,12 @@
 
 <!-- ══════════════════════════════════════════════ INSTITUTIONAL EDGE TAB -->
 <div id="tab-institutional" class="tab-content">
-  <div class="tab-intro"><span class="ti-title">Institutional Edge</span>Where large money is accumulating: NSE delivery-percentage strength, volume footprints and block-sized prints.</div>
+  <div class="tab-hero">
+    <h3><svg class="ic ic-h"><use href="#i-bank"/></svg>Institutional Edge</h3>
+    <p>Where large money is accumulating: NSE delivery-percentage strength, volume footprints and block-sized prints.</p>
+  </div>
 <div class="container">
 
-<!-- Info cards -->
-  <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:14px">
-    <div class="card" style="border-left:3px solid var(--accent)">
-      <div style="font-size:var(--fs-md);font-weight:700;color:var(--white);margin-bottom:8px">Pocket Pivot (Gil Morales / Kacher)</div>
-      <div style="font-size:var(--fs-sm);color:var(--muted);line-height:1.7">
-        Stock in uptrend (near 50-day MA) • Today closes <strong style="color:var(--text)">UP</strong> •
-        Today's volume exceeds <strong style="color:var(--text)">every single down-day volume</strong> in prior 10 sessions •
-        Not more than 15% above MA50 (fresh signal, not extended) •
-        <em>Indicates institutional buying absorbing supply.</em>
-      </div>
-    </div>
-    <div class="card" style="border-left:3px solid var(--yellow)">
-      <div style="font-size:var(--fs-md);font-weight:700;color:var(--white);margin-bottom:8px">Earnings Season Setup (Minervini / O'Neil)</div>
-      <div style="font-size:var(--fs-sm);color:var(--muted);line-height:1.7">
-        High-volume gap-up (>2.5%, volume >1.8× avg) in last 10–40 sessions •
-        <strong style="color:var(--text)">Tight consolidation</strong> after gap (<20% range) •
-        Volume <strong style="color:var(--text)">drying up</strong> in base •
-        Price near top of base = institutional re-accumulation before next leg.
-      </div>
-    </div>
-  </div>
 
   <!-- Institutional metrics legend -->
   <div class="card" style="margin-bottom:14px;font-size:var(--fs-sm);color:var(--muted);display:flex;flex-wrap:wrap;gap:20px">
@@ -1986,7 +1967,7 @@
   <div id="instEmpty" style="text-align:center;padding:60px 0;color:var(--muted)">
     <div style="font-size:var(--fs-hero)"><svg class="ic" style="width:42px;height:42px;--ic:var(--text2)"><use href="#i-bank"/></svg></div>
     <p>Click <strong>Run Institutional Scan</strong> to find stocks that institutions are accumulating.</p>
-    <p style="margin-top:8px;font-size:var(--fs-sm)">Scans all ~2500 NSE stocks for Pocket Pivots &amp; Earnings Season Setups</p>
+    <p style="margin-top:8px;font-size:var(--fs-sm)">Scans all ~2,300 NSE stocks for Pocket Pivots &amp; Earnings Season Setups</p>
   </div>
 
   <p class="disclaimer">{{ DISCLAIMER }}</p>
@@ -1995,24 +1976,12 @@
 
 <!-- ════════════════════════════════════════════════ ADVANCED SETUPS TAB -->
 <div id="tab-advanced" class="tab-content">
-  <div class="tab-intro"><span class="ti-title">Advanced Setups</span>Continuation patterns that fire while a leader rests — HTF, NR7, 3-Weeks-Tight and RS-line new highs.</div>
+  <div class="tab-hero">
+    <h3><svg class="ic ic-h"><use href="#i-sliders"/></svg>Advanced Setups</h3>
+    <p>Continuation patterns that fire while a leader rests — HTF, NR7, 3-Weeks-Tight and RS-line new highs.</p>
+  </div>
 <div class="container">
 
-<!-- Legend cards -->
-  <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:14px">
-    <div class="card" style="border-left:3px solid #f0a500">
-      <div style="font-size:var(--fs-sm);font-weight:700;color:#f0a500;margin-bottom:6px">🚩 High Tight Flag</div>
-      <div style="font-size:var(--fs-xs);color:var(--muted);line-height:1.6">Stock rises <strong style="color:var(--text)">≥100%</strong> in 4–8 weeks, then consolidates <strong style="color:var(--text)">≤20%</strong> from peak. <em>Every 10× winner showed this.</em></div>
-    </div>
-    <div class="card" style="border-left:3px solid var(--accent)">
-      <div style="font-size:var(--fs-sm);font-weight:700;color:var(--white);margin-bottom:6px">NR7 / Inside Bar / 3WT</div>
-      <div style="font-size:var(--fs-xs);color:var(--muted);line-height:1.6">NR7 = narrowest range in 7 days • Inside Bar = today inside yesterday • 3WT = 3 weekly closes within 1.5%. <em>Compression before expansion.</em></div>
-    </div>
-    <div class="card" style="border-left:3px solid var(--green)">
-      <div style="font-size:var(--fs-sm);font-weight:700;color:var(--white);margin-bottom:6px">RS Line New High</div>
-      <div style="font-size:var(--fs-xs);color:var(--muted);line-height:1.6">Stock / Nifty ratio at a 52-week high <strong style="color:var(--text)">before the price breakout</strong>. O'Neil's #1 leading signal of institutional sponsorship.</div>
-    </div>
-  </div>
 
   <!-- TT Score legend -->
   <div class="card" style="margin-bottom:14px;font-size:var(--fs-sm);color:var(--muted)">
@@ -2127,21 +2096,12 @@
 
 <!-- ══════════════════════════════════════════════════ EARLY MOVERS TAB -->
 <div id="tab-early-mover" class="tab-content">
-  <div class="tab-intro"><span class="ti-title">Early Movers</span>Stocks just beginning to turn: early relative-strength and volume expansion before the move is obvious.</div>
+  <div class="tab-hero">
+    <h3><svg class="ic ic-h"><use href="#i-search"/></svg>Early Movers</h3>
+    <p>Stocks just beginning to turn: early relative-strength and volume expansion before the move is obvious.</p>
+  </div>
 <div class="container">
 
-  <div class="logic-box">
-    <strong>Early Mover Logic:</strong>
-    Identifies stocks with pre-explosion characteristics — long quiet base →
-    expanding ADTV/volume → RS improvement → sector rotation.
-    Modelled on APAR Industries, Dixon, Force Motors, Hitachi Energy, Cupid before their big moves.
-    <div class="tags">
-      <span class="tag">Inflecting: Sector Improving/Leading + RS↑ + ADTV surge</span>
-      <span class="tag">Hidden Gem: 5M+ base + tight + quiet ADTV growth</span>
-      <span class="tag">Emerging: Early signals, needs monitoring</span>
-      <span class="tag">Excl. stocks &gt;70% up in 3M (use Momentum tab for those)</span>
-    </div>
-  </div>
 
   <!-- Controls -->
   <div class="panel">
@@ -2270,18 +2230,9 @@
 
 <!-- ══════════════════════════════════════════════════════ MOMENTUM TAB -->
 <div id="tab-momentum" class="tab-content">
-  <div class="tab-intro"><span class="ti-title">Momentum</span>The full universe ranked by 3M/6M/12M momentum — the signal with the strongest measured decile spread.</div>
-  <div class="logic-box">
-    <strong>Momentum Scanner Logic:</strong>
-    Ranks all ~2500 NSE EQ stocks by composite price momentum · Zero NSE API calls (bhavcopy only) ·
-    Score = 40%×1M-rank + 30%×3M-rank + 20%×6M-rank + 10%×Volume-rank · Percentile 0–99
-    <div class="tags">
-      <span class="tag">Elite: Score ≥ 85 &amp; RS ≥ 80</span>
-      <span class="tag">Strong: Score ≥ 70</span>
-      <span class="tag">Rising: Score ≥ 55</span>
-      <span class="tag">Min ADTV ₹1 Cr</span>
-      <span class="tag">Min Price ₹30</span>
-    </div>
+  <div class="tab-hero">
+    <h3><svg class="ic ic-h"><use href="#i-trend"/></svg>Momentum</h3>
+    <p>The full universe ranked by 3M/6M/12M momentum — the signal with the strongest measured decile spread.</p>
   </div>
 <div class="container">
 
@@ -2430,19 +2381,12 @@
 
 <!-- ══════════════════════════════════════════════════ EMERGING LEADERS TAB -->
 <div id="tab-emerging" class="tab-content">
-  <div class="tab-intro"><span class="ti-title">Emerging Leaders</span>Younger names building a first institutional base, ranked on relative strength and base quality.</div>
 <div class="container">
 
 <!-- Intro card -->
-  <div class="card" style="margin-bottom:14px;padding:16px;border-left:3px solid var(--gold)">
-    <div style="font-size:var(--fs-base);font-weight:700;margin-bottom:6px">Emerging Leaders — catch the next MTARTECH / STLTECH early</div>
-    <div style="font-size:var(--fs-sm);color:var(--muted);line-height:1.6">
-      Finds <b>young, explosive leaders at their ignition / first-base breakout</b> — months before they reach the Momentum "Elite" tier.
-      Scans <b>every liquid NSE EQ stock (~1,500, not just the index)</b> so it catches off-index rockets early. Scores <b>relative-strength leadership + fresh-high breakout + follow-through + volume accumulation + youth</b>; works from ~40 bars and does <b>not</b> cap upside.
-      Top tier is filtered for precision: not over-extended, breakout holding, real demand, ETFs &amp; circuit-locked pumps excluded.
-      <br><b style="color:var(--gold)">Watchlist, not a buy list</b> — surfaces candidates early; buy the confirmed follow-through with a stop.
-      Validated point-in-time: would have flagged MTARTECH at ₹1,728 and STLTECH at ₹127.
-    </div>
+  <div class="tab-hero">
+    <h3><svg class="ic ic-h"><use href="#i-sprout"/></svg>Emerging Leaders — leadership at its first institutional base</h3>
+    <p>Young names taking on relative-strength leadership at their first-base breakout, while still early — scored on RS leadership, fresh-high breakout, follow-through, volume accumulation and youth. <b>A watchlist, not a buy list:</b> buy the confirmed follow-through with a stop.</p>
   </div>
 
   <!-- Scan controls -->
@@ -2530,7 +2474,10 @@
 
 <!-- ══════════════════════════════════════════════════ MARKET BREADTH TAB -->
 <div id="tab-breadth" class="tab-content">
-  <div class="tab-intro"><span class="ti-title">Market Breadth</span>How broad the move is: advance/decline, % above key moving averages, distribution days and follow-through days.</div>
+  <div class="tab-hero">
+    <h3><svg class="ic ic-h"><use href="#i-activity"/></svg>Market Breadth</h3>
+    <p>How broad the move is: advance/decline, % above key moving averages, distribution days and follow-through days.</p>
+  </div>
 <div class="container">
 
 <!-- Scan button -->
@@ -2722,7 +2669,7 @@
   <div id="breadthEmpty" style="text-align:center;padding:60px 0;color:var(--muted)">
     <div style="font-size:var(--fs-hero)"><svg class="ic" style="width:42px;height:42px;--ic:var(--text2)"><use href="#i-bars"/></svg></div>
     <p>Click <strong>Load Market Breadth</strong> to see the health of the NSE market.</p>
-    <p style="margin-top:8px;font-size:var(--fs-sm)">Analyses all ~2500 NSE stocks · Cached 30 minutes</p>
+    <p style="margin-top:8px;font-size:var(--fs-sm)">Analyses all ~2,300 NSE stocks · Cached 30 minutes</p>
   </div>
 
   <p class="disclaimer">{{ DISCLAIMER }}</p>
@@ -2731,15 +2678,11 @@
 
 <!-- ══════════════════════════════════════════════════════ INDUSTRY GROUPS TAB -->
 <div id="tab-industry" class="tab-content">
-  <div class="tab-intro"><span class="ti-title">Industry Groups</span>Every industry group ranked by relative strength, with the leading stocks inside each.</div>
-<div class="container">
-  <div class="logic-box">
-    <strong>Industry Group RS:</strong> Each group is an equal-weighted index of its members.
-    RS vs Nifty = group's 3-month return minus Nifty's 3-month return.
-    <strong>Top groups = institutional money is flowing in.</strong>
-    Data: NSE bhavcopy — zero extra API calls.
-    <div class="tags"><span class="tag">RS vs Nifty</span><span class="tag">3-Month Return</span><span class="tag">55+ Groups</span></div>
+  <div class="tab-hero">
+    <h3><svg class="ic ic-h"><use href="#i-layers"/></svg>Industry Groups</h3>
+    <p>Every industry group ranked by relative strength, with the leading stocks inside each.</p>
   </div>
+<div class="container">
 
   <div class="panel">
     <div class="panel-header">
@@ -2779,21 +2722,12 @@
 
 <!-- ════════════════════════════════════════════════════════ VOL SPIKE TAB -->
 <div id="tab-volspike" class="tab-content">
-  <div class="tab-intro"><span class="ti-title">Vol Spike</span>Unusual volume against the 20-day median — often the first footprint of institutional interest.</div>
+  <div class="tab-hero">
+    <h3><svg class="ic ic-h"><use href="#i-bars"/></svg>Vol Spike</h3>
+    <p>Unusual volume against the 20-day median — often the first footprint of institutional interest.</p>
+  </div>
 <div class="container">
 
-  <div class="logic-box">
-    <strong>Unusual Volume Scanner</strong> detects institutional accumulation by measuring how much today's
-    volume deviates from the 20-day average (RVOL).
-    Large volume with strong price action = smart money entering quietly.
-    <div class="tags">
-      <span class="tag">🔴 Accumulation — big vol, closed near high, price held</span>
-      <span class="tag">Breakout — RVOL ≥ 2.5× + near 52W high</span>
-      <span class="tag">🟡 Stealth — moderate vol, tight candle, quietly absorbed</span>
-      <span class="tag">Streak — 3+ consecutive above-avg vol days</span>
-      <span class="tag">🔵 VDU — Vol Dry-Up after spike, coiling for move</span>
-    </div>
-  </div>
 
   <div class="panel">
     <div class="panel-header">
@@ -2889,18 +2823,6 @@
     </div>
   </div>
 
-  <div class="logic-box" style="margin-top:16px">
-    <strong>How to read this scanner:</strong>
-    <ul style="margin:8px 0 0 18px;line-height:1.8;font-size:var(--fs-md)">
-      <li><strong>RVOL (Relative Volume)</strong> — today's volume ÷ 20-day average. RVOL 3× = 3× normal activity.</li>
-      <li><strong>Close Pos</strong> — bar shows where price closed within the day's range. Green = near high (bullish), Red = near low (bearish).</li>
-      <li><strong>🔴 Accumulation</strong> — best pattern: high volume, closed near high, price held. Institutions loading quietly.</li>
-      <li><strong>Breakout</strong> — volume + price confirmation above resistance. Near 52W high adds conviction.</li>
-      <li><strong>🔵 VDU (Vol Dry-Up)</strong> — volume spiked recently then completely dried up. Stock is coiling. Breakout may be imminent.</li>
-      <li><strong>Streak 3d+</strong> — 3+ days in a row with above-avg volume = sustained institutional interest, not a one-day fluke.</li>
-      <li><strong>⚠️ Distribution</strong> — avoid. High volume + closed near low + price fell = institutions selling.</li>
-    </ul>
-  </div>
   <!-- ── UNUSUAL VOLUME — delivery-backed, distinct from the rvol scan above ── -->
   <div class="panel" style="margin-top:14px">
     <div class="panel-header">
@@ -2945,7 +2867,10 @@
 
 <!-- ══════════════════════════════════════════════ MULTI-YEAR BREAKOUT TAB -->
 <div id="tab-today" class="tab-content">
-  <div class="tab-intro"><span class="ti-title">Daily Brief</span>A top-down read of the tape after the NSE close — the market's participation regime, which sectors are leading, and every name that changed state since the last session (turned Stage 2, reclaimed or lost its 10-week line, broke out, or weakened a stage). Everything here is a measured state as of today's close — your decision, not our signal.</div>
+  <div class="tab-hero">
+    <h3><svg class="ic ic-h"><use href="#i-activity"/></svg>Daily Brief</h3>
+    <p>A top-down read of the tape after the NSE close — the market's participation regime, which sectors are leading, and every name that changed state since the last session (turned Stage 2, reclaimed or lost its 10-week line, broke out, or weakened a stage). Everything here is a measured state as of today's close — your decision, not our signal.</p>
+  </div>
   <div style="display:flex;gap:10px;align-items:center;margin-bottom:12px">
     <div style="display:inline-flex;border:1px solid var(--border);border-radius:8px;overflow:hidden">
       <button id="bfViewBriefing" onclick="bfSetView('briefing')" style="border:none;padding:6px 15px;font-size:var(--fs-sm);font-weight:700;cursor:pointer;background:var(--accent);color:#fff">Briefing</button>
@@ -2960,7 +2885,10 @@
 </div>
 
 <div id="tab-pead" class="tab-content">
-  <div class="tab-intro"><span class="ti-title">PEAD</span>Post-earnings-announcement drift: stocks in an uptrend whose earnings are accelerating — the market is still re-rating them after results. Click any row for its trend chart.</div>
+  <div class="tab-hero">
+    <h3><svg class="ic ic-h"><use href="#i-activity"/></svg>PEAD</h3>
+    <p>Post-earnings-announcement drift: stocks in an uptrend whose earnings are accelerating — the market is still re-rating them after results. Click any row for its trend chart.</p>
+  </div>
   <div class="panel">
     <div class="panel-header"><h2><svg class="ic ic-h"><use href="#i-activity"/></svg>PEAD Screen</h2><span class="timestamp" id="peadMeta"></span></div>
     <div class="panel-body" style="padding:0"><div id="peadBody"><div style="color:var(--muted);padding:24px;text-align:center">Loading…</div></div></div>
@@ -2969,7 +2897,10 @@
 </div>
 
 <div id="tab-deepvalue" class="tab-content">
-  <div class="tab-intro"><span class="ti-title">Deep Value</span>Cheap and turning up: stocks in an uptrend still trading at a trailing P/E of 20 or less — value the market is starting to notice. Click any row for its trend chart.</div>
+  <div class="tab-hero">
+    <h3><svg class="ic ic-h"><use href="#i-gem"/></svg>Deep Value</h3>
+    <p>Cheap and turning up: stocks in an uptrend still trading at a trailing P/E of 20 or less — value the market is starting to notice. Click any row for its trend chart.</p>
+  </div>
   <div class="panel">
     <div class="panel-header"><h2><svg class="ic ic-h"><use href="#i-gem"/></svg>Deep Value Screen</h2><span class="timestamp" id="dvMeta"></span></div>
     <div class="panel-body" style="padding:0"><div id="dvBody"><div style="color:var(--muted);padding:24px;text-align:center">Loading…</div></div></div>
@@ -2978,7 +2909,10 @@
 </div>
 
 <div id="tab-system" class="tab-content">
-  <div class="tab-intro"><span class="ti-title">System</span>The strongest stocks (RS &gt; 90) sitting at a pivot with a trigger, that are beating the index — with a thesis, an action, and a live daily scoreboard.</div>
+  <div class="tab-hero">
+    <h3><svg class="ic ic-h"><use href="#i-target"/></svg>System</h3>
+    <p>The strongest stocks (RS &gt; 90) sitting at a pivot with a trigger, that are beating the index — with a thesis, an action, and a live daily scoreboard.</p>
+  </div>
 
 
   <!-- Live scoreboard of every pick this tab has ever surfaced -->
@@ -3010,21 +2944,12 @@
 </div>
 
 <div id="tab-mbo" class="tab-content">
-  <div class="tab-intro"><span class="ti-title">Multi-Year Breakout</span>Stocks breaking out of multi-year bases — the longest consolidations, where the largest moves tend to begin.</div>
+  <div class="tab-hero">
+    <h3><svg class="ic ic-h"><use href="#i-mountain"/></svg>Multi-Year Breakout</h3>
+    <p>Stocks breaking out of multi-year bases — the longest consolidations, where the largest moves tend to begin.</p>
+  </div>
 <div class="container">
 
-  <div class="logic-box">
-    <strong>Multi-Year Breakout Logic:</strong>
-    Identifies stocks breaking above a multi-year resistance level after a prolonged base.
-    Longer the base, bigger the potential move. &bull;
-    Data: NSE bhavcopy (~14 months OHLCV, cached locally — no external APIs).
-    <div class="tags">
-      <span class="tag">Multi-Year Base</span>
-      <span class="tag">Resistance Breakout</span>
-      <span class="tag">Volume Surge</span>
-      <span class="tag">ATH Break</span>
-    </div>
-  </div>
 
   <!-- Controls -->
   <div class="panel">
@@ -3298,20 +3223,12 @@
 
 <!-- ════════════════════════════════════════════════════════ EDGE ENGINE TAB -->
 <div id="tab-edge" class="tab-content">
-  <div class="tab-intro"><span class="ti-title">Edge Engine</span>Composite ranking across every factor the app computes, scored and backtested as one system.</div>
+  <div class="tab-hero">
+    <h3><svg class="ic ic-h"><use href="#i-cpu"/></svg>Edge Engine</h3>
+    <p>Composite ranking across every factor the app computes, scored and backtested as one system.</p>
+  </div>
 <div class="container">
 
-  <div class="logic-box">
-    <strong>Edge Engine</strong> — the meta-layer combining all scanners into a measurable edge.
-    Computes: Market Regime (D-Day/FTD), Setup Quality Score (0–100 master ranking),
-    Backtest statistics, and Failed Breakout exit signals.
-    <div class="tags">
-      <span class="tag">Distribution Day Count</span>
-      <span class="tag">Setup Quality Score</span>
-      <span class="tag">Backtested Win Rates</span>
-      <span class="tag">Exit Signal Automation</span>
-    </div>
-  </div>
 
   <!-- Top controls -->
   <div class="panel">
@@ -3487,20 +3404,12 @@
 
 <!-- ══════════════════════════════════════════════════ TRENDING STOCKS TAB ══ -->
 <div id="tab-trending" class="tab-content">
-  <div class="tab-intro"><span class="ti-title">Trending Stocks</span>Sustained breakouts still in an uptrend, each with an entry window and a per-row trade plan.</div>
+  <div class="tab-hero">
+    <h3><svg class="ic ic-h"><use href="#i-flame"/></svg>Trending Stocks</h3>
+    <p>Sustained breakouts still in an uptrend, each with an entry window and a per-row trade plan.</p>
+  </div>
 <div class="container">
 
-  <div class="logic-box">
-    <strong>Trending Stocks Scanner</strong> — Scores each {{ universe_label }} stock 0–10 across ten trend criteria.
-    All computed from bhavcopy OHLCV data. Splits auto-detected and stripped.
-    <div class="tags">
-      <span class="tag">MA Alignment</span><span class="tag">ADX Strength</span>
-      <span class="tag">Volume Expanding</span><span class="tag">Higher Highs/Lows</span>
-      <span class="tag">RS vs Nifty</span><span class="tag">52W High Proximity</span>
-      <span class="tag">MA200</span><span class="tag">Trend Age</span>
-      <span class="tag">Delivery %</span><span class="tag">Sector Heatmap</span>
-    </div>
-  </div>
 
   <!-- Control bar -->
   <div class="panel">

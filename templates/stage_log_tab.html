@@ -3,18 +3,6 @@
 <div class="container">
 
   <style>
-    .sl-hero {
-      background: var(--surface);
-      border: 1px solid var(--border);
-      border-left: 4px solid #6366f1;
-      border-radius: 10px;
-      padding: 16px 22px;
-      margin-bottom: 18px;
-    }
-    .sl-hero h3 { margin: 0 0 6px; font-size:var(--fs-lg); color: var(--accent); font-weight: 700; }
-    .sl-hero p  { margin: 0; font-size:var(--fs-md); color: var(--text); line-height: 1.6; }
-    .sl-hero strong { color: var(--white); }
-    .sl-hero code { background: var(--surface2); padding: 2px 6px; border-radius: 4px; color: var(--accent2); font-family: var(--mono); font-size:var(--fs-sm); }
 
     .sl-pill {
       padding: 6px 14px; border-radius: 20px; font-size:var(--fs-sm); font-weight: 600;
@@ -71,12 +59,10 @@
   </style>
 
   <!-- Description -->
-  <div class="sl-hero">
-    <h3><svg class="ic ic-h"><use href="#i-bars"/></svg>Weinstein Stage Transition Log</h3>
+  <div class="tab-hero">
+    <h3><svg class="ic ic-h"><use href="#i-bars"/></svg>Stage Transition Log</h3>
     <p>
-      Tracks <strong>when each stock changes stage</strong> (basing / advancing / topping / declining) over time.
-      Most actionable view: stocks that <strong>just transitioned into Stage 2</strong> in the last few days — fresh institutional buying.
-      Log is persisted to <code>stage_transitions.db</code>; populated automatically by every scanner run.
+      Tracks when each stock changes Weinstein stage over time — the actionable view being names that just turned Stage 2, a sign of fresh institutional buying.
     </p>
   </div>
 

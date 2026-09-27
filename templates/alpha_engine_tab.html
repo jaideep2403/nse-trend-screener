@@ -22,19 +22,12 @@
 </style>
 
 <div id="tab-alpha" class="tab-content">
-  <div class="tab-intro"><span class="ti-title">Alpha Engine</span>Multi-factor ranking across the full universe, scored on momentum, quality and institutional flow.</div>
 <div class="container" style="padding-top:18px">
 
   <!-- Header card -->
-  <div class="card" style="margin-bottom:14px;padding:16px">
-    <div style="font-size:var(--fs-base);font-weight:700;margin-bottom:6px">🏛️ Alpha Engine — Institutional Multi-Factor Composite</div>
-    <div style="font-size:var(--fs-sm);color:var(--muted)">
-      Scores <b>{{ universe_label }}</b> stocks <b>0–100</b> across <b>6 institutional-grade factors</b>:
-      Quality (20) · Momentum (20) · Smart Money (25) · Earnings Quality (15) · Technical (10) · Risk (10).
-      <br>Smart Money uses <b>Delivery%</b> + <b>OBV</b> + <b>NSE Bulk/Block deals</b> + <b>F&O OI</b> + <b>FII flow</b> — the edge most retail platforms never show.
-      <br>Tiers: 🏆 <b>BUY</b> (≥55) · 💎 <b>STRONG</b> (42-54) · 👀 <b>MONITOR</b> (30-41) · ⛔ <b>AVOID</b> (&lt;30)
-      <br><b style="color:var(--yellow)">Local only</b> — never pushed to GitHub.
-    </div>
+  <div class="tab-hero">
+    <h3><svg class="ic ic-h"><use href="#i-sparkle"/></svg>Alpha Engine — institutional multi-factor composite</h3>
+    <p>Scores the whole <b>{{ universe_label }}</b> universe <b>0–100</b> in one composite across six institutional factors — quality, momentum, smart-money flow, earnings quality, technicals and risk.</p>
   </div>
 
   <!-- Scan controls -->
