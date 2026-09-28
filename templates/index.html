@@ -8533,6 +8533,7 @@ function awlRenderInto(holder, d, opt) {
   holder._awlOpt = Object.assign({}, opt || {});
   if (holder._awlOpt.tf == null) holder._awlOpt.tf = 252;    // default to the 1Y view
   if (holder._awlOpt.log == null) holder._awlOpt.log = true; // log scale by default
+  if (holder._awlOpt.bars == null) holder._awlOpt.bars = true; // OHLC bars by default
   _awlPaint(holder);
 }
 
@@ -8553,6 +8554,8 @@ function awlCtl(el, key, val) {
     holder._awlOpt.log = !holder._awlOpt.log;
   } else if (key === 'bases') {
     holder._awlOpt.bases_on = (holder._awlOpt.bases_on === false);  // toggle (default on)
+  } else if (key === 'bars') {
+    holder._awlOpt.bars = !holder._awlOpt.bars;                     // toggle OHLC bars <-> candles
   }
   _awlPaint(holder);
 }
@@ -8784,14 +8787,22 @@ function awlPatternChartSVG(d, opt) {
     if (_cx != null) { brkIdx = _cx; brkDate = dates[_cx]; }
   }
   const pivotTxt = pivotVal == null ? null
-    : `breakout ${_rs(pivotVal)}${(pivotDerived && !brkDate) ? ' · 55d' : ''}`;
+    : `Entry ${_rs(pivotVal)}`;
 
   // Expected breakout target = a measured move (base height stacked above the
   // breakout, extended past the current price). Shown as TEXT in the top-right
   // corner only — nothing is plotted on the price grid.
   let targetTxt = null, targetVal = null, targetPct = null;
-  if (pivotVal != null && baseLow != null && baseLow > 0 && pivotVal > baseLow) {
-    const _depth = pivotVal - baseLow;
+  // Base low for the measured move: the detected base when we have it, else the lowest
+  // low of the recent ~60 bars — so a target still plots on charts opened with just an
+  // entry (e.g. the Breakout tab). Floored so the projected move can't be absurd.
+  let _tgtBase = (baseLow != null && baseLow > 0) ? baseLow : null;
+  if (_tgtBase == null && pivotVal != null && n > 30) {
+    let mn = Infinity; for (let i = Math.max(0, n - 60); i < n - 1; i++) if (l[i] < mn) mn = l[i];
+    if (isFinite(mn) && mn > 0 && mn < pivotVal) _tgtBase = Math.max(mn, pivotVal * 0.80);
+  }
+  if (pivotVal != null && _tgtBase != null && _tgtBase > 0 && pivotVal > _tgtBase) {
+    const _depth = pivotVal - _tgtBase;
     const _done  = Math.max(0, Math.floor((last - pivotVal) / _depth));
     targetVal = Math.round((pivotVal + (_done + 1) * _depth) * 100) / 100;
     targetPct = (targetVal / last - 1) * 100;
@@ -8802,15 +8813,20 @@ function awlPatternChartSVG(d, opt) {
   // 10.5px text containing ₹ and digits — the previous 5.6 estimate was optimistic,
   // which is why "pivot ₹1863.57" crossed the chart border.
   const CHW = 6.5;
+  // Derived stop = the EXIT level (the trade card recomputes it identically): scanner
+  // stop if provided, else under the base low, capped ~8% below the pivot.
+  const _stopEst = (sl != null && isFinite(sl)) ? sl
+                 : (baseLow != null ? Math.min(baseLow * 0.985, (pivotVal != null ? pivotVal * 0.92 : baseLow))
+                 : (pivotVal != null ? pivotVal * 0.92 : null));
   const rTexts = [_rs(last)];
   if (pivotTxt) rTexts.push(pivotTxt);
-  if (sl != null && isFinite(sl))       rTexts.push(`stop ${_rs(sl)}`);
+  if (_stopEst != null && isFinite(_stopEst)) rTexts.push(`SL ${_rs(_stopEst)}`);
   const padR = Math.min(158, Math.max(...rTexts.map(t => t.length)) * CHW + 12);
 
   // y-scale spans the candles AND every level we draw, so nothing lands off-canvas
-  const lvls = [pivotVal, bHi, bLo].filter(x => x != null && isFinite(x));
+  // _stopEst (from above) is folded into the y-scale so the exit line stays on-canvas.
+  const lvls = [pivotVal, bHi, bLo, _stopEst].filter(x => x != null && isFinite(x));
   let lo = Math.min(...l, ...lvls), hi = Math.max(...h, ...lvls);
-  if (sl != null && isFinite(sl) && sl > lo * 0.80) lo = Math.min(lo, sl);
   const pad = (hi - lo) * 0.04 || 1;
   lo -= pad; hi += pad;
   // Log price scale (opt.log) — for names that ran 100%+ so the base stays readable
@@ -9020,12 +9036,23 @@ function awlPatternChartSVG(d, opt) {
     });
   }
 
-  // ── candles ───────────────────────────────────────────────────────────────
+  // ── price bars: OHLC bars (default) or candlesticks (opt.bars === false) ────
+  // OHLC bar = high\u2192low vertical, a left tick for the open and a right tick for the
+  // close (MarketSmith style). Colour stays green (close\u2265open) / red, same as candles.
+  const _barMode = opt.bars !== false;
+  const _tk = Math.max(1.5, bw * 0.62);                 // open/close tick length
+  const _blw = bw > 4 ? 1.5 : 1.2;                      // stroke width for bars
   for (let i = 0; i < n; i++) {
     const x = xC(i), up = c[i] >= o[i], col = up ? _AWL_UP : _AWL_DN;
-    s += `<line x1="${x.toFixed(1)}" y1="${yP(h[i]).toFixed(1)}" x2="${x.toFixed(1)}" y2="${yP(l[i]).toFixed(1)}" stroke="${col}" stroke-width="1"/>`;
-    const yo = yP(o[i]), yc = yP(c[i]);
-    s += `<rect x="${(x - bw / 2).toFixed(1)}" y="${Math.min(yo, yc).toFixed(1)}" width="${bw.toFixed(1)}" height="${Math.max(1, Math.abs(yc - yo)).toFixed(1)}" fill="${col}"/>`;
+    if (_barMode) {
+      s += `<line x1="${x.toFixed(1)}" y1="${yP(h[i]).toFixed(1)}" x2="${x.toFixed(1)}" y2="${yP(l[i]).toFixed(1)}" stroke="${col}" stroke-width="${_blw}"/>`;
+      s += `<line x1="${(x - _tk).toFixed(1)}" y1="${yP(o[i]).toFixed(1)}" x2="${x.toFixed(1)}" y2="${yP(o[i]).toFixed(1)}" stroke="${col}" stroke-width="${_blw}"/>`;
+      s += `<line x1="${x.toFixed(1)}" y1="${yP(c[i]).toFixed(1)}" x2="${(x + _tk).toFixed(1)}" y2="${yP(c[i]).toFixed(1)}" stroke="${col}" stroke-width="${_blw}"/>`;
+    } else {
+      s += `<line x1="${x.toFixed(1)}" y1="${yP(h[i]).toFixed(1)}" x2="${x.toFixed(1)}" y2="${yP(l[i]).toFixed(1)}" stroke="${col}" stroke-width="1"/>`;
+      const yo = yP(o[i]), yc = yP(c[i]);
+      s += `<rect x="${(x - bw / 2).toFixed(1)}" y="${Math.min(yo, yc).toFixed(1)}" width="${bw.toFixed(1)}" height="${Math.max(1, Math.abs(yc - yo)).toFixed(1)}" fill="${col}"/>`;
+    }
   }
 
   // ── moving averages: 20 / 50 / 200 — Minervini's trend template ───────────
@@ -9111,10 +9138,12 @@ function awlPatternChartSVG(d, opt) {
       });
     }
   }
-  if (sl != null && isFinite(sl) && sl >= lo && sl <= hi) {
-    const sy = yP(sl);
-    s += `<line x1="${padL}" y1="${sy.toFixed(1)}" x2="${(W - padR).toFixed(1)}" y2="${sy.toFixed(1)}" stroke="${_AWL_DN}" stroke-width="1" stroke-dasharray="2 4" opacity="0.75"/>`;
-    labels.push({ y: sy, t: `stop ${_rs(sl)}`, c: _AWL_DN, w: 400, s: 10 });
+  // Stop = the EXIT level — drawn on every chart (derived stop), red dashed, with its
+  // value on the right axis right next to the green Entry value.
+  if (_stopEst != null && isFinite(_stopEst) && _stopEst >= lo && _stopEst <= hi) {
+    const sy = yP(_stopEst);
+    s += `<line x1="${padL}" y1="${sy.toFixed(1)}" x2="${(W - padR).toFixed(1)}" y2="${sy.toFixed(1)}" stroke="${_AWL_DN}" stroke-width="1.25" stroke-dasharray="4 3" opacity="0.85"/>`;
+    labels.push({ y: sy, t: `SL ${_rs(_stopEst)}`, c: _AWL_DN, w: 700, s: 10.5 });
   }
   labels.push({ y: yP(last), t: _rs(last), c: 'var(--text)', w: 600, s: 10.5 });
 
@@ -9167,6 +9196,7 @@ function awlPatternChartSVG(d, opt) {
               : (pivotVal != null ? pivotVal * 0.92 : null));
   const riskPct = (pivotVal != null && stopV != null && pivotVal > 0) ? (pivotVal - stopV) / pivotVal * 100 : null;
   const rr = (targetVal != null && pivotVal != null && stopV != null && pivotVal > stopV) ? (targetVal - pivotVal) / (pivotVal - stopV) : null;
+
   let status = '', statusCol = 'var(--muted)';
   if (pivotVal != null) {
     if (stopV != null && last < stopV) { status = 'Broke stop'; statusCol = _AWL_DN; }
@@ -9183,7 +9213,7 @@ function awlPatternChartSVG(d, opt) {
   const _tf = opt.tf || 0;
   const _tfBtn = (lbl, val) => { const a = _tf === val; return `<button onclick="event.stopPropagation();awlCtl(this,'tf',${val})" style="border:1px solid var(--border);background:${a ? 'var(--accent)' : 'transparent'};color:${a ? '#fff' : 'var(--text2)'};border-radius:5px;padding:1px 7px;font-size:var(--fs-2xs);cursor:pointer;font-weight:600">${lbl}</button>`; };
   const _btn = (key, lbl, on) => `<button onclick="event.stopPropagation();awlCtl(this,'${key}',0)" style="border:1px solid var(--border);background:${on ? 'var(--accent)' : 'transparent'};color:${on ? '#fff' : 'var(--text2)'};border-radius:5px;padding:1px 7px;font-size:var(--fs-2xs);cursor:pointer;font-weight:600">${lbl}</button>`;
-  const controls = `<span style="display:inline-flex;gap:4px;align-items:center;margin-left:auto">${_tfBtn('6M', 126)}${_tfBtn('1Y', 252)}${_tfBtn('2Y', 520)}${_tfBtn('3Y', 760)}${_tfBtn('5Y', 1300)}${_btn('bases', 'Bases', opt.bases_on !== false)}${_btn('log', 'Log', !!opt.log)}</span>`;
+  const controls = `<span style="display:inline-flex;gap:4px;align-items:center;margin-left:auto">${_tfBtn('6M', 126)}${_tfBtn('1Y', 252)}${_tfBtn('2Y', 520)}${_tfBtn('3Y', 760)}${_tfBtn('5Y', 1300)}${_btn('bars', 'Bars', opt.bars !== false)}${_btn('bases', 'Bases', opt.bases_on !== false)}${_btn('log', 'Log', !!opt.log)}</span>`;
 
   const header = `<div style="display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px;margin-bottom:6px">
     <span class="awl-ohlc" style="font-family:var(--mono);font-size:var(--fs-2xs);color:var(--text2)">${ohlcBase}</span>
@@ -9218,7 +9248,7 @@ function awlPatternChartSVG(d, opt) {
   const brkNote = brkDate
     ? `<div style="font-size:var(--fs-2xs);color:var(--muted);margin-top:6px;line-height:1.5">Broke out of a ${baseWeeks ? baseWeeks + '-week ' : ''}base on <b>${_dbFmtDate(brkDate)}</b> at ₹${pivotVal}${pivotVal ? ' · now ' + (last >= pivotVal ? '+' : '') + ((last / pivotVal - 1) * 100).toFixed(1) + '% from it' : ''}. Buy zone = pivot → +5%; risk is measured to the stop under the base.</div>`
     : '';
-  const legendLine = `<div style="font-size:var(--fs-micro);color:var(--muted);margin-top:4px"><b style="color:${_AWL_MA20}">MA20</b> · <b style="color:${_AWL_UP}">breakout</b> + buy-zone shade · <b style="color:var(--violet)">R</b> results day · heaviest vol in blue. Hover for OHLC.</div>`;
+  const legendLine = `<div style="font-size:var(--fs-micro);color:var(--muted);margin-top:4px"><b style="color:${_AWL_MA20}">MA20</b> · <b style="color:${_AWL_UP}">entry</b> · <b style="color:${_AWL_DN}">SL</b> levels · buy-zone shade · <b style="color:var(--violet)">R</b> results day · heaviest vol in blue. Hover for OHLC.</div>`;
 
   // #2 — breakout-day confirmation: was the pivot cleared on real volume (and delivery)?
   //      A breakout on dry volume / low delivery is the classic trap. All client-side from
