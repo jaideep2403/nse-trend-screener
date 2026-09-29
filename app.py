@@ -188,6 +188,156 @@ def _full_market_ad() -> dict:
         return {}
 
 
+def _render_leader_card(sym, su, rsmap):
+    """One rich leader chart for the landing carousel: OHLC bars, the pivot it broke
+    out of, the base bracket, the breakout flag and volume. Never raises."""
+    try:
+        df = su.load_symbol_history(sym, 240)
+        if df is None or len(df) < 90:
+            return None
+        df = df.tail(190)
+        o=[float(x) for x in df["Open"]]; h=[float(x) for x in df["High"]]
+        l=[float(x) for x in df["Low"]];  c=[float(x) for x in df["Close"]]
+        v=[float(x) for x in df["Volume"]]; n=len(c)
+        dates=[t.strftime("%d %b %Y") for t in df.index]
+        # MOST RECENT bar that cleared the prior 44-bar high and is still holding above
+        # it — so the landing carousel shows this week/month's breakout, not a stale one
+        # from months earlier in the same window.
+        N=44; brk=None; pivot=None
+        for i in range(n-3, N+2, -1):
+            ph=max(h[i-N:i])
+            if c[i] > ph and c[i-1] <= ph and c[-1] > ph*0.985:
+                brk=i; pivot=round(ph,2); break
+        if brk is None:
+            # loosen to a 30-bar high, still most-recent-first, still holding
+            M=30
+            for i in range(n-2, M+1, -1):
+                ph=max(h[i-M:i])
+                if c[i] > ph and c[-1] > ph*0.97:
+                    brk=i; pivot=round(ph,2); break
+            if brk is None: return None
+        # base = consolidation just before the breakout (skip the run-up leg into it)
+        bs=max(0, brk-60)
+        while bs < brk-6 and c[bs] < pivot*0.72: bs+=1
+        base_low=min(l[bs:brk+1]); base_wks=max(1, round((brk-bs)/5))
+        pct=round((c[-1]/pivot - 1)*100, 1) if pivot else 0.0
+        rs=rsmap.get(sym)
+        # ── geometry ──
+        W,padL,padR,padT,ph_,vg,vh = 560,10,58,26,214,10,40
+        H=padT+ph_+vg+vh+18
+        cw=(W-padL-padR)/n
+        lo=min([min(l),base_low,pivot]); hi=max([max(h),pivot])
+        pad=(hi-lo)*0.06 or 1; lo-=pad; hi+=pad
+        xC=lambda i: padL+i*cw+cw/2
+        yP=lambda p: padT+(hi-p)/(hi-lo)*ph_
+        maxv=max(v) or 1
+        G,R,GBOX,FLAG="#177c42","#d2392f","#e6f4ec","#b45309"
+        out=[]
+        # gridlines
+        for k in range(1,4):
+            yy=padT+ph_*k/4
+            out.append(f'<line x1="{padL}" y1="{yy:.0f}" x2="{W-padR}" y2="{yy:.0f}" stroke="#eef2f6" stroke-width="1"/>')
+        # base bracket
+        out.append(f'<rect x="{xC(bs):.1f}" y="{yP(pivot):.1f}" width="{(xC(brk)-xC(bs)):.1f}" height="{(yP(base_low)-yP(pivot)):.1f}" fill="{GBOX}" stroke="#bcdcc9" stroke-width="1"/>')
+        out.append(f'<text x="{(xC(bs)+8):.1f}" y="{(yP(pivot)-5):.1f}" font-size="9" font-weight="700" fill="#12592e">{base_wks} wks</text>')
+        # pivot line + tag
+        yp=yP(pivot)
+        out.append(f'<line x1="{padL}" y1="{yp:.1f}" x2="{W-padR}" y2="{yp:.1f}" stroke="{G}" stroke-width="1.2" stroke-dasharray="5 4"/>')
+        out.append(f'<rect x="{padL}" y="{yp-9:.1f}" width="86" height="16" rx="4" fill="{G}"/>')
+        out.append(f'<text x="{padL+7}" y="{yp+3:.1f}" font-size="9.5" font-weight="800" fill="#fff">pivot ₹{pivot:,.1f}</text>')
+        # bars
+        tk=max(1.2,cw*0.4); lw=1.2
+        for i in range(n):
+            col=G if c[i]>=o[i] else R; x=xC(i)
+            out.append(f'<line x1="{x:.1f}" y1="{yP(h[i]):.1f}" x2="{x:.1f}" y2="{yP(l[i]):.1f}" stroke="{col}" stroke-width="{lw}"/>')
+            out.append(f'<line x1="{x-tk:.1f}" y1="{yP(o[i]):.1f}" x2="{x:.1f}" y2="{yP(o[i]):.1f}" stroke="{col}" stroke-width="{lw}"/>')
+            out.append(f'<line x1="{x:.1f}" y1="{yP(c[i]):.1f}" x2="{x+tk:.1f}" y2="{yP(c[i]):.1f}" stroke="{col}" stroke-width="{lw}"/>')
+        # breakout flag
+        fx=xC(brk)
+        out.append(f'<line x1="{fx:.1f}" y1="{yp-6:.1f}" x2="{fx:.1f}" y2="{yp-20:.1f}" stroke="{FLAG}" stroke-width="1.4"/>')
+        out.append(f'<path d="M {fx:.1f} {yp-20:.1f} L {fx+11:.1f} {yp-17:.1f} L {fx:.1f} {yp-13:.1f} Z" fill="{FLAG}"/>')
+        # last price tag
+        out.append(f'<text x="{W-padR+3}" y="{yP(c[-1])+3:.1f}" font-size="9.5" font-weight="700" fill="#1a1a17">{c[-1]:,.1f}</text>')
+        # volume
+        vb=padT+ph_+vg
+        for i in range(n):
+            col=G if c[i]>=(c[i-1] if i else c[i]) else R
+            bh=v[i]/maxv*vh; x=xC(i); bw=max(1,cw*0.55)
+            out.append(f'<rect x="{x-bw/2:.1f}" y="{vb+vh-bh:.1f}" width="{bw:.1f}" height="{bh:.1f}" fill="{col}" opacity="0.5"/>')
+        svg=(f'<svg viewBox="0 0 {W} {H}" preserveAspectRatio="xMidYMid meet" style="width:100%;height:auto;display:block">'
+             + "".join(out) + '</svg>')
+        return {"svg":svg,"sym":sym,"pct":pct,"brk_date":dates[brk],"base_wks":base_wks,
+                "pivot":round(pivot,1),"rs":rs,"last":round(c[-1],2)}
+    except Exception:
+        return None
+
+
+def _login_previews(highs, want=5, recent_days=35):
+    """Up to `want` rich leader cards for the sign-in carousel — the market's most
+    RECENT base breakouts (freshest first, past few weeks/month), pulled from the
+    Breakout screener cache so the landing page shows this month's action rather than a
+    leader that broke out long ago. Falls back to today's new-high makers, then a fixed
+    quality pool, if the cache is cold. Never raises."""
+    try:
+        import shared_universe as _su
+        try: rsmap = _market_rs_map()
+        except Exception: rsmap = {}
+
+        # pool 1 — recent, liquid base breakouts from the Breakout screener, freshest
+        # first (then most liquid, so the names are ones a client recognises)
+        pool = []
+        try:
+            import result_cache as _rc
+            res = (_rc.get_or_stale("breakout") or {}).get("results", []) or []
+            cand = [r for r in res
+                    if r.get("from_base")
+                    and r.get("breakout_days_ago") is not None
+                    and r["breakout_days_ago"] <= recent_days
+                    and (r.get("adtv_cr") or 0) >= 5
+                    and (r.get("rs_rating") or 0) >= 60]
+            cand.sort(key=lambda r: (r["breakout_days_ago"], -(r.get("adtv_cr") or 0)))
+            pool = [r.get("symbol") for r in cand if r.get("symbol")]
+        except Exception:
+            pool = []
+
+        # pool 2/3 — today's new-high makers, then a fixed fallback (cold-cache safety)
+        pool += [h.get("symbol") for h in (highs or []) if h.get("symbol")]
+        pool += ["MANINDS","DIVISLAB","TATAELXSI","BSE","PERSISTENT","KAYNES","TRENT"]
+
+        cards=[]; seen=set()
+        for sym in pool:
+            if not sym or sym in seen: continue
+            seen.add(sym)
+            card=_render_leader_card(sym, _su, rsmap)
+            if card: cards.append(card)
+            if len(cards) >= want: break
+        return cards or None
+    except Exception:
+        return None
+
+
+def _login_rs_leaders(exclude=None, want=5):
+    """Top relative-strength names for the carousel's 5th slide — the strongest RS
+    stocks in the liquid universe, using the SAME 1–99 market-wide RS the preview cards
+    show, and excluding any symbol already displayed as a breakout card. Never raises."""
+    try:
+        exclude = set(exclude or [])
+        rsmap = _market_rs_map() or {}
+        if not rsmap:
+            return None
+        try:
+            import nse_stocks as _ns
+            liquid = set(_ns.get_universe_symbols())     # ~750 liquid names, recognisable
+        except Exception:
+            liquid = set(rsmap.keys())
+        pool = [s for s in liquid if s in rsmap and s not in exclude]
+        pool.sort(key=lambda s: -(rsmap.get(s) or 0))
+        rows = [{"sym": s, "rs": int(round(rsmap[s]))} for s in pool[:want]]
+        return rows or None
+    except Exception:
+        return None
+
+
 def _login_pulse() -> dict:
     """Small EOD snapshot for the sign-in page hero (idea #10 — 'live data as hero').
 
@@ -208,6 +358,9 @@ def _login_pulse() -> dict:
         rg = d.get("regime") or {}
         highs = [h for h in (d.get("new_highs_list") or []) if h.get("symbol")][:16]
         fa = _full_market_ad()          # full ~2,300-name market, not the 750 liquid set
+        prevs = _login_previews(highs, want=4)          # 4 recent-breakout chart slides
+        prev_syms = [c.get("sym") for c in (prevs or [])]
+        rs_leaders = _login_rs_leaders(exclude=prev_syms, want=5)   # 5th slide: top RS
         return {
             "as_of":        d.get("bhavcopy_date"),
             "new_highs":    d.get("new_highs_count"),
@@ -220,6 +373,8 @@ def _login_pulse() -> dict:
             "pct_above_50": b.get("pct_above_50ma"),
             "universe":     fa.get("total") or b.get("total_stocks"),
             "full_ad":      bool(fa),
+            "previews":     prevs,
+            "rs_leaders":   rs_leaders,
             # Show the SAME plain-English label the in-app header uses, not the raw
             # IBD term — otherwise the login page said "Uptrend Under Pressure" while
             # the header two clicks later said "Sideways" for the identical regime.
